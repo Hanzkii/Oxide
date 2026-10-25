@@ -97,6 +97,203 @@ export function emitModelProgress(p: ModelDownloadProgress) {
   modelProgressListeners.forEach((l) => l(p));
 }
 
+async function streamChatFromProvider(
+  health: ProviderHealthReport,
+  requestedModel: string,
+  messages: { role: string; content: string }[],
+  onToken: (token: string) => void
+): Promise<{ text: string; effectiveModel: string }> {
+  const provider = health.config.active_provider || "ollama";
+  let targetModel = requestedModel;
+
+  if (provider === "oxide_native") {
+    const port = health.config.oxide_native_port || 11435;
+    const nativeModel =
+      health.config.oxide_native_model ||
+      (health.oxide_native_models && health.oxide_native_models[0]) ||
+      "qwen2.5-coder-14b-instruct-abliterated.gguf";
+
+    const endpoint = `http://127.0.0.1:${port}/v1/chat/completions`;
+    let resp: Response;
+    try {
+      resp = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: nativeModel,
+          messages,
+          stream: true,
+          temperature: health.config.temperature ?? 0.1,
+        }),
+      });
+    } catch {
+      throw new Error(
+        `Oxide Native Engine not responding on http://127.0.0.1:${port}. Click 'Start Native Engine' in Settings -> AI Providers.`
+      );
+    }
+
+    if (!resp.ok || !resp.body) {
+      throw new Error(`Oxide Native Engine returned HTTP ${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
+          if (token) {
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: nativeModel };
+  }
+
+  if (provider === "custom_openai") {
+    const customUrl = (
+      health.config.custom_openai_url || "http://127.0.0.1:1234/v1"
+    ).replace(/\/$/, "");
+    const customModel = health.config.custom_openai_model || "local-model";
+    const resp = await fetch(`${customUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: customModel,
+        messages,
+        stream: true,
+        temperature: health.config.temperature ?? 0.1,
+      }),
+    });
+    if (!resp.ok || !resp.body) {
+      throw new Error(
+        `OpenAI-compatible server returned HTTP ${resp.status} from ${customUrl}`
+      );
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
+          if (token) {
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: customModel };
+  }
+
+  // Default: Ollama
+  const baseUrl = health.config.ollama_base_url.replace(/\/$/, "");
+  const installedModels = health.ollama_models || [];
+
+  // Auto-heal model if requested is missing from installed list
+  if (installedModels.length > 0 && !installedModels.includes(targetModel)) {
+    targetModel = installedModels[0];
+  }
+
+  let resp = await fetch(`${baseUrl}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: targetModel,
+      messages,
+      stream: true,
+      options: { temperature: health.config.temperature },
+    }),
+  });
+
+  // If 404, retry once with first installed model if available
+  if (
+    resp.status === 404 &&
+    installedModels.length > 0 &&
+    targetModel !== installedModels[0]
+  ) {
+    targetModel = installedModels[0];
+    resp = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: targetModel,
+        messages,
+        stream: true,
+        options: { temperature: health.config.temperature },
+      }),
+    });
+  }
+
+  if (!resp.ok || !resp.body) {
+    if (resp.status === 404) {
+      throw new Error(
+        `Ollama returned HTTP 404: model '${targetModel}' not found. Please install a model via the AI Model Hub, or switch to Oxide Native Engine in Settings.`
+      );
+    }
+    throw new Error(
+      `Ollama returned HTTP ${resp.status}. Make sure 'ollama serve' is running.`
+    );
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let lineBuf = "";
+  let fullReply = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    lineBuf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = lineBuf.indexOf("\n")) !== -1) {
+      const line = lineBuf.slice(0, idx).trim();
+      lineBuf = lineBuf.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line);
+        const token = parsed.message?.content || "";
+        if (token) {
+          fullReply += token;
+          onToken(token);
+        }
+      } catch {}
+    }
+  }
+
+  return { text: fullReply, effectiveModel: targetModel };
+}
+
 export const oxideBridge = {
   isNativeDesktop(): boolean {
     return isTauriNative();
@@ -238,6 +435,22 @@ export const oxideBridge = {
     return callBackend<string>("ensure_ollama_engine");
   },
 
+  async startNativeEngine(model?: string, layers?: number): Promise<any> {
+    return callBackend("start_native_engine", { model, layers });
+  },
+
+  async stopNativeEngine(): Promise<any> {
+    return callBackend("stop_native_engine");
+  },
+
+  async openNativeModelsFolder(): Promise<void> {
+    return callBackend("open_native_models_folder");
+  },
+
+  async openNativeRuntimeFolder(): Promise<void> {
+    return callBackend("open_native_runtime_folder");
+  },
+
   async installAiModel(modelId: string): Promise<ModelInstallResult> {
     if (isTauriNative()) {
       return callBackend<ModelInstallResult>("install_ai_model", {
@@ -310,6 +523,8 @@ export const oxideBridge = {
     });
   },
 
+
+
   async runAgentTask(prompt: string): Promise<string> {
     if (isTauriNative()) {
       return invoke<string>("run_agent_task", { prompt });
@@ -351,66 +566,36 @@ export const oxideBridge = {
 
       let fullReply = "";
       try {
-        const resp = await fetch(`${baseUrl}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: architectModel,
-            messages,
-            stream: true,
-            options: { temperature: health.config.temperature },
-          }),
-        });
+        const streamRes = await streamChatFromProvider(
+          health,
+          architectModel,
+          messages,
+          (token) => {
+            fullReply += token;
+            emitLocalEvent({
+              type: "token_delta",
+              step,
+              provider: architectModel,
+              token,
+            });
 
-        if (!resp.ok || !resp.body) {
-          throw new Error(
-            `Ollama returned HTTP ${resp.status}. Make sure 'ollama serve' is running and '${architectModel}' is pulled.`
-          );
-        }
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let lineBuf = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          lineBuf += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = lineBuf.indexOf("\n")) !== -1) {
-            const line = lineBuf.slice(0, idx).trim();
-            lineBuf = lineBuf.slice(idx + 1);
-            if (!line) continue;
-            try {
-              const parsed = JSON.parse(line);
-              const token = parsed.message?.content || "";
-              if (token) {
-                fullReply += token;
+            const thinkStart = fullReply.indexOf("<think>");
+            if (thinkStart !== -1) {
+              const after = fullReply.slice(thinkStart + 7);
+              const thinkEnd = after.indexOf("</think>");
+              const currentThought =
+                thinkEnd !== -1 ? after.slice(0, thinkEnd) : after;
+              if (currentThought.trim()) {
                 emitLocalEvent({
-                  type: "token_delta",
+                  type: "thinking_update",
                   step,
-                  provider: architectModel,
-                  token,
+                  thought: currentThought.trim(),
                 });
-
-                const thinkStart = fullReply.indexOf("<think>");
-                if (thinkStart !== -1) {
-                  const after = fullReply.slice(thinkStart + 7);
-                  const thinkEnd = after.indexOf("</think>");
-                  const currentThought =
-                    thinkEnd !== -1 ? after.slice(0, thinkEnd) : after;
-                  if (currentThought.trim()) {
-                    emitLocalEvent({
-                      type: "thinking_update",
-                      step,
-                      thought: currentThought.trim(),
-                    });
-                  }
-                }
               }
-            } catch {}
+            }
           }
-        }
+        );
+        fullReply = streamRes.text;
       } catch (err: any) {
         emitLocalEvent({
           type: "task_error",
@@ -537,28 +722,23 @@ export const oxideBridge = {
             }
 
             try {
-              const subResp = await fetch(`${baseUrl}/api/chat`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model: subModel,
-                  stream: false,
-                  messages: [
-                    {
-                      role: "system",
-                      content:
-                        "You are a fast, specialized Oxide Subagent executing a focused subtask for the Lead Architect AI. Begin with a brief <think>...</think> explanation, then provide a concise result.",
-                    },
-                    {
-                      role: "user",
-                      content: `Role: ${role}\nTitle: ${sp.title}\nInstructions: ${sp.instructions}${fileCtx}`,
-                    },
-                  ],
-                }),
-              });
-              const data = await subResp.json();
-              const outText: string =
-                data?.message?.content || "Subtask completed.";
+              const subResult = await streamChatFromProvider(
+                health,
+                subModel,
+                [
+                  {
+                    role: "system",
+                    content:
+                      "You are a fast, specialized Oxide Subagent executing a focused subtask for the Lead Architect AI. Begin with a brief <think>...</think> explanation, then provide a concise result.",
+                  },
+                  {
+                    role: "user",
+                    content: `Role: ${role}\nTitle: ${sp.title}\nInstructions: ${sp.instructions}${fileCtx}`,
+                  },
+                ],
+                () => {}
+              );
+              const outText: string = subResult.text || "Subtask completed.";
               const thinkStart = outText.indexOf("<think>");
               const thinkEnd = outText.indexOf("</think>");
               const subThought =

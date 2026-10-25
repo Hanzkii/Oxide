@@ -139,10 +139,11 @@ impl LlmProvider for AnthropicProvider {
     }
 }
 
-/// Cloud provider implementation for OpenAI (`OPENAI_API_KEY`).
+/// Cloud provider implementation for OpenAI (`OPENAI_API_KEY`) and local OpenAI-compatible engines.
 pub struct OpenAiProvider {
     client: Client,
     model: String,
+    base_url: Option<String>,
 }
 
 impl OpenAiProvider {
@@ -154,10 +155,26 @@ impl OpenAiProvider {
         Self {
             client,
             model: model.into(),
+            base_url: None,
+        }
+    }
+
+    pub fn with_base_url(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()
+            .unwrap_or_default();
+        Self {
+            client,
+            model: model.into(),
+            base_url: Some(base_url.into()),
         }
     }
 
     fn api_key(&self) -> OxideResult<String> {
+        if self.base_url.is_some() {
+            return Ok(env::var("OPENAI_API_KEY").unwrap_or_else(|_| "sk-local-no-key".to_string()));
+        }
         env::var("OPENAI_API_KEY").map_err(|_| OxideError::ProviderError {
             provider: self.identifier(),
             message: "Missing OPENAI_API_KEY environment variable".to_string(),
@@ -229,9 +246,15 @@ impl LlmProvider for OpenAiProvider {
             messages: req_messages,
         };
 
+        let url = if let Some(ref base) = self.base_url {
+            format!("{}/chat/completions", base.trim_end_matches('/'))
+        } else {
+            "https://api.openai.com/v1/chat/completions".to_string()
+        };
+
         let resp = self
             .client
-            .post("https://api.openai.com/v1/chat/completions")
+            .post(&url)
             .bearer_auth(api_key)
             .json(&body)
             .send()

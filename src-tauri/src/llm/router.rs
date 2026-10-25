@@ -71,6 +71,14 @@ impl HybridProviderRouter {
                 Arc::new(AnthropicProvider::new(&self.config.anthropic_model))
             }
             ProviderKind::OpenAi => Arc::new(OpenAiProvider::new(&self.config.openai_model)),
+            ProviderKind::OxideNative => Arc::new(OpenAiProvider::with_base_url(
+                "http://127.0.0.1:11435/v1",
+                role_model,
+            )),
+            ProviderKind::CustomOpenai => Arc::new(OpenAiProvider::with_base_url(
+                "http://127.0.0.1:1234/v1",
+                role_model,
+            )),
         }
     }
 

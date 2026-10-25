@@ -17,9 +17,18 @@ interface TaskModelRouting {
 interface LocalBridgeState {
   workspaceRoot: string;
   providerConfig: {
-    active_provider: "ollama" | "anthropic" | "openai";
+    active_provider:
+      | "ollama"
+      | "oxide_native"
+      | "custom_openai"
+      | "anthropic"
+      | "openai";
     ollama_base_url: string;
     ollama_model: string;
+    oxide_native_port: number;
+    oxide_native_model: string;
+    custom_openai_url: string;
+    custom_openai_model: string;
     anthropic_model: string;
     openai_model: string;
     enable_cloud_fallback: boolean;
@@ -35,21 +44,55 @@ interface LocalBridgeState {
 }
 
 function createLocalSystemBridgePlugin(): Plugin {
+  const userHome =
+    process.env.USERPROFILE || process.env.HOME || "C:\\Users\\hannu";
+  const oxideProgramsRoot = path.join(
+    userHome,
+    "AppData",
+    "Local",
+    "Programs",
+    "Oxide"
+  );
+  const oxideRuntimeRoot = path.join(oxideProgramsRoot, "runtime");
+  const oxideModelsRoot = path.join(oxideProgramsRoot, "models");
+
+  function ensureOxideDirectories() {
+    try {
+      if (!fs.existsSync(oxideProgramsRoot))
+        fs.mkdirSync(oxideProgramsRoot, { recursive: true });
+      if (!fs.existsSync(oxideRuntimeRoot))
+        fs.mkdirSync(oxideRuntimeRoot, { recursive: true });
+      if (!fs.existsSync(oxideModelsRoot))
+        fs.mkdirSync(oxideModelsRoot, { recursive: true });
+    } catch {}
+  }
+
+  ensureOxideDirectories();
+
   const state: LocalBridgeState = {
     workspaceRoot: process.cwd(),
     providerConfig: {
       active_provider: "ollama",
       ollama_base_url: "http://localhost:11434",
-      ollama_model: "qwen2.5-coder:latest",
+      ollama_model:
+        "hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF:latest",
+      oxide_native_port: 11435,
+      oxide_native_model: "qwen2.5-coder-14b-instruct-abliterated.gguf",
+      custom_openai_url: "http://127.0.0.1:1234/v1",
+      custom_openai_model: "local-model",
       anthropic_model: "claude-3-5-sonnet-latest",
       openai_model: "gpt-4o",
       enable_cloud_fallback: false,
       temperature: 0.1,
       task_routing: {
-        architect_model: "qwen2.5-coder:latest",
-        coder_subagent_model: "qwen2.5-coder:7b",
-        research_subagent_model: "gemma2:latest",
-        tester_subagent_model: "qwen2.5-coder:7b",
+        architect_model:
+          "hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF:latest",
+        coder_subagent_model:
+          "hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:latest",
+        research_subagent_model:
+          "hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:latest",
+        tester_subagent_model:
+          "hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:latest",
       },
       enable_subagents: true,
       max_concurrent_subagents: 2,
@@ -775,6 +818,7 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "get_provider_health") {
+            ensureOxideDirectories();
             let ollamaReachable = false;
             let ollamaModels: string[] = [];
             try {
@@ -782,7 +826,8 @@ function createLocalSystemBridgePlugin(): Plugin {
                 `${state.providerConfig.ollama_base_url.replace(
                   /\/$/,
                   ""
-                )}/api/tags`
+                )}/api/tags`,
+                { signal: AbortSignal.timeout(1500) }
               );
               if (r.ok) {
                 ollamaReachable = true;
@@ -790,16 +835,159 @@ function createLocalSystemBridgePlugin(): Plugin {
                 ollamaModels = (data.models || []).map((m: any) => m.name);
               }
             } catch {}
+
+            // Auto-heal model assignment if current setting is invalid / not installed
+            if (ollamaModels.length > 0) {
+              const currentModel = state.providerConfig.ollama_model;
+              if (
+                !ollamaModels.includes(currentModel) ||
+                currentModel === "qwen2.5-coder:latest"
+              ) {
+                const bestModel =
+                  ollamaModels.find((m) => m.toLowerCase().includes("14b")) ||
+                  ollamaModels.find((m) => m.toLowerCase().includes("7b")) ||
+                  ollamaModels[0];
+                const bestSubModel =
+                  ollamaModels.find(
+                    (m) =>
+                      (m.toLowerCase().includes("7b") ||
+                        m.toLowerCase().includes("3b")) &&
+                      m !== bestModel
+                  ) || bestModel;
+
+                state.providerConfig.ollama_model = bestModel;
+                state.providerConfig.task_routing.architect_model = bestModel;
+                state.providerConfig.task_routing.coder_subagent_model =
+                  bestSubModel;
+              }
+            }
+
+            // Scan native GGUF models in AppData\Local\Programs\Oxide\models
+            let nativeModels: string[] = [];
+            try {
+              if (fs.existsSync(oxideModelsRoot)) {
+                nativeModels = fs
+                  .readdirSync(oxideModelsRoot)
+                  .filter((f) => f.toLowerCase().endsWith(".gguf"));
+              }
+            } catch {}
+
+            const llamaServerExe = path.join(
+              oxideRuntimeRoot,
+              "llama-server.exe"
+            );
+            const nativeInstalled = fs.existsSync(llamaServerExe);
+
+            let nativeRunning = false;
+            try {
+              const ping = await fetch("http://127.0.0.1:11435/health", {
+                signal: AbortSignal.timeout(500),
+              });
+              if (ping.ok) nativeRunning = true;
+            } catch {}
+
             res.end(
               JSON.stringify({
                 active_provider: state.providerConfig.active_provider,
                 ollama_reachable: ollamaReachable,
                 ollama_models: ollamaModels,
+                oxide_native_running: nativeRunning,
+                oxide_native_models: nativeModels,
+                oxide_native_installed: nativeInstalled,
                 anthropic_key_present: Boolean(process.env.ANTHROPIC_API_KEY),
                 openai_key_present: Boolean(process.env.OPENAI_API_KEY),
                 config: state.providerConfig,
               })
             );
+            return;
+          }
+
+          if (action === "start_native_engine") {
+            ensureOxideDirectories();
+            const llamaServerExe = path.join(
+              oxideRuntimeRoot,
+              "llama-server.exe"
+            );
+            if (!fs.existsSync(llamaServerExe)) {
+              throw new Error(
+                "Oxide Native llama-server.exe not found in " +
+                  oxideRuntimeRoot +
+                  ". Please install the standalone runner first."
+              );
+            }
+
+            let nativeModels: string[] = [];
+            try {
+              nativeModels = fs
+                .readdirSync(oxideModelsRoot)
+                .filter((f) => f.toLowerCase().endsWith(".gguf"));
+            } catch {}
+
+            const targetModel =
+              args.model ||
+              state.providerConfig.oxide_native_model ||
+              nativeModels[0];
+            if (!targetModel) {
+              throw new Error(
+                "No .gguf model found in " +
+                  oxideModelsRoot +
+                  ". Place a .gguf model into the models folder."
+              );
+            }
+
+            const modelPath = path.isAbsolute(targetModel)
+              ? targetModel
+              : path.join(oxideModelsRoot, targetModel);
+
+            const layers = Number(args.layers || 99);
+            const port = Number(
+              state.providerConfig.oxide_native_port || 11435
+            );
+            const cmd = `"${llamaServerExe}" -m "${modelPath}" --port ${port} -ngl ${layers} -c 8192 --host 127.0.0.1`;
+
+            spawn(cmd, {
+              shell: true,
+              detached: true,
+              stdio: "ignore",
+              windowsHide: true,
+            }).unref();
+
+            state.providerConfig.oxide_native_model = path.basename(modelPath);
+
+            res.end(
+              JSON.stringify({
+                started: true,
+                port,
+                model: path.basename(modelPath),
+                message: `Oxide Native Engine running on http://127.0.0.1:${port}`,
+              })
+            );
+            return;
+          }
+
+          if (action === "stop_native_engine") {
+            await runCommandBounded("taskkill /F /IM llama-server.exe");
+            res.end(JSON.stringify({ stopped: true }));
+            return;
+          }
+
+          if (action === "open_native_models_folder") {
+            ensureOxideDirectories();
+            spawn(`explorer.exe "${oxideModelsRoot}"`, {
+              shell: true,
+              detached: true,
+            }).unref();
+            res.end(JSON.stringify(true));
+            return;
+          }
+
+          if (action === "open_native_runtime_folder") {
+            ensureOxideDirectories();
+            spawn(`explorer.exe "${oxideRuntimeRoot}"`, {
+              shell: true,
+              detached: true,
+            }).unref();
+            res.end(JSON.stringify(true));
             return;
           }
 

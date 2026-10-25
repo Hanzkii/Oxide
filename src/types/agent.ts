@@ -1,4 +1,9 @@
-export type ProviderKind = "ollama" | "anthropic" | "openai";
+export type ProviderKind =
+  | "ollama"
+  | "oxide_native"
+  | "custom_openai"
+  | "anthropic"
+  | "openai";
 
 export type HardwareAccelerationMode =
   | "auto"
@@ -85,6 +90,10 @@ export interface ProviderConfig {
   security_mode?: SecurityReviewMode;
   allow_internet_access?: boolean;
   enforce_workspace_sandbox?: boolean;
+  oxide_native_port?: number;
+  oxide_native_model?: string;
+  custom_openai_url?: string;
+  custom_openai_model?: string;
 }
 
 export interface ModelDownloadProgress {
@@ -122,6 +131,9 @@ export interface ProviderHealthReport {
   active_provider: string;
   ollama_reachable: boolean;
   ollama_models: string[];
+  oxide_native_running?: boolean;
+  oxide_native_models?: string[];
+  oxide_native_installed?: boolean;
   anthropic_key_present: boolean;
   openai_key_present: boolean;
   config: ProviderConfig;

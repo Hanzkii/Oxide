@@ -247,6 +247,12 @@ export const App: React.FC = () => {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
 
+  // Oxide Native Engine State (Standalone llama.cpp & GGUF models)
+  const [nativeModels, setNativeModels] = useState<string[]>([]);
+  const [nativeOnline, setNativeOnline] = useState<boolean>(false);
+  const [nativeInstalled, setNativeInstalled] = useState<boolean>(false);
+  const [isStartingNative, setIsStartingNative] = useState<boolean>(false);
+
   // Live Active Turn State
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>("");
@@ -364,6 +370,9 @@ export const App: React.FC = () => {
       setHwSpecs(hw);
       setMcpServers(mcpList);
       setOllamaOnline(health.ollama_reachable);
+      setNativeOnline(Boolean(health.oxide_native_running));
+      setNativeInstalled(Boolean(health.oxide_native_installed));
+      setNativeModels(health.oxide_native_models || []);
 
       const installed = health.ollama_models || [];
       setOllamaModels(installed);
@@ -3545,7 +3554,7 @@ export const App: React.FC = () => {
 
                 <div className="routing-grid">
                   <div className="form-group">
-                    <label>Primary AI Provider</label>
+                    <label>Primary AI Provider / Engine</label>
                     <select
                       className="select-control"
                       value={providerConfig.active_provider}
@@ -3556,25 +3565,228 @@ export const App: React.FC = () => {
                         })
                       }
                     >
-                      <option value="ollama">Ollama (Local Offline AI)</option>
+                      <option value="oxide_native">
+                        Oxide Native Engine (Standalone llama.cpp &amp; Direct GGUF)
+                      </option>
+                      <option value="ollama">Ollama Local Engine (http://localhost:11434)</option>
+                      <option value="custom_openai">
+                        Custom OpenAI-Compatible (LM Studio / vLLM / llama-server)
+                      </option>
                       <option value="anthropic">Anthropic Claude (Cloud)</option>
                       <option value="openai">OpenAI GPT (Cloud)</option>
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label>Ollama Server URL</label>
-                    <input
-                      className="workspace-input"
-                      value={providerConfig.ollama_base_url}
-                      onChange={(e) =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          ollama_base_url: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
+                  {providerConfig.active_provider === "oxide_native" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "var(--bg-secondary)",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div>
+                          <strong>Oxide Native Engine (Standalone llama.cpp)</strong>
+                          <div
+                            style={{
+                              fontSize: "0.76rem",
+                              color: "var(--text-secondary)",
+                              marginTop: "0.2rem",
+                            }}
+                          >
+                            Zero external dependencies. Runs direct .gguf models with Vulkan/DirectML/CPU acceleration. ({nativeInstalled ? "llama-server.exe ready" : "llama-server.exe not found"})
+                          </div>
+                        </div>
+                        <span
+                          className={`hw-fit-badge ${
+                            nativeOnline ? "gpu_fast" : "tight_fit"
+                          }`}
+                        >
+                          {nativeOnline
+                            ? "[Active] Running on :11435"
+                            : "[Stopped] Ready"}
+                        </span>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Active Native GGUF Model</label>
+                        <select
+                          className="select-control"
+                          value={
+                            providerConfig.oxide_native_model ||
+                            nativeModels[0] ||
+                            ""
+                          }
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              oxide_native_model: e.target.value,
+                            })
+                          }
+                        >
+                          {nativeModels.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                          {nativeModels.length === 0 && (
+                            <option value="">(No .gguf models found in models directory)</option>
+                          )}
+                        </select>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "0.5rem",
+                          flexWrap: "wrap",
+                          marginTop: "0.25rem",
+                        }}
+                      >
+                        <button
+                          className="oxide-btn-primary"
+                          disabled={isStartingNative || nativeModels.length === 0}
+                          onClick={async () => {
+                            setIsStartingNative(true);
+                            try {
+                              const chosen =
+                                providerConfig.oxide_native_model ||
+                                nativeModels[0];
+                              await oxideBridge.startNativeEngine(
+                                chosen,
+                                providerConfig.gpu_offload_layers ?? 99
+                              );
+                              setStatusBanner(
+                                `[Native Engine] Started llama-server with ${chosen} on port 11435!`
+                              );
+                              await refreshWorkspaceState();
+                            } catch (e: any) {
+                              setStatusBanner(`Failed to start native engine: ${e.message}`);
+                            } finally {
+                              setIsStartingNative(false);
+                            }
+                          }}
+                        >
+                          {isStartingNative
+                            ? "Starting..."
+                            : nativeOnline
+                            ? "Restart Engine"
+                            : "Start Native Engine"}
+                        </button>
+
+                        {nativeOnline && (
+                          <button
+                            className="oxide-btn-secondary"
+                            onClick={async () => {
+                              try {
+                                await oxideBridge.stopNativeEngine();
+                                setStatusBanner("[Native Engine] Stopped.");
+                                await refreshWorkspaceState();
+                              } catch (e: any) {
+                                setStatusBanner(`Stop error: ${e.message}`);
+                              }
+                            }}
+                          >
+                            Stop Engine
+                          </button>
+                        )}
+
+                        <button
+                          className="oxide-btn-secondary"
+                          onClick={() => oxideBridge.openNativeModelsFolder()}
+                        >
+                          Open Models Folder
+                        </button>
+
+                        <button
+                          className="oxide-btn-secondary"
+                          onClick={() => oxideBridge.openNativeRuntimeFolder()}
+                        >
+                          Open Runtime Folder
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {providerConfig.active_provider === "custom_openai" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "var(--bg-secondary)",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <strong>OpenAI-Compatible Local Endpoint (LM Studio / vLLM / LocalAI)</strong>
+                      <div className="form-group">
+                        <label>Endpoint URL</label>
+                        <input
+                          className="workspace-input"
+                          placeholder="http://127.0.0.1:1234/v1"
+                          value={
+                            providerConfig.custom_openai_url ||
+                            "http://127.0.0.1:1234/v1"
+                          }
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              custom_openai_url: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Model Identifier</label>
+                        <input
+                          className="workspace-input"
+                          placeholder="local-model"
+                          value={
+                            providerConfig.custom_openai_model || "local-model"
+                          }
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              custom_openai_model: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {providerConfig.active_provider === "ollama" && (
+                    <div className="form-group">
+                      <label>
+                        Ollama Server URL ({ollamaOnline ? "[Online]" : "[Offline]"})
+                      </label>
+                      <input
+                        className="workspace-input"
+                        value={providerConfig.ollama_base_url}
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            ollama_base_url: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  )}
 
                   <div className="form-group">
                     <label>Anthropic Model (if using Claude)</label>
