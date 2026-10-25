@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - "index.html"
       - "*.md"
+      - "LICENSE"
       - ".nojekyll"
       - "*.ps1"
     tags:
@@ -46,7 +47,7 @@ jobs:
           save-if: true
 
       - name: Install frontend dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm install --prefer-offline --no-audit
 
       - name: Build Tauri Desktop Executable & Fast NSIS Installer
         run: npm run desktop:build
@@ -82,16 +83,10 @@ jobs:
           tag_name: v0.1.0
           name: "Oxide v0.1.0 — Standalone Windows Executable & Installer"
           body: |
-            ## Oxide Studio — Fast Windows Release (No SmartScreen Block)
-            ### Option 1: One-Line PowerShell Install (Bypasses Windows SmartScreen Automatically)
-            Run in PowerShell:
-            ```powershell
-            irm https://hanzkii.github.io/Oxide/install.ps1 | iex
-            ```
-            ### Option 2: Direct Download
-            - **`Oxide-Windows-x64.zip`**: Extract and double-click `Launch-Oxide.bat` (automatically unblocks SmartScreen and starts `Oxide-Portable.exe`).
-            - **`Oxide-Portable.exe`**: Standalone single-file executable.
+            ## Oxide Studio — Standalone Windows Release
             - **`Oxide_0.1.0_x64-setup.exe`**: Fast NSIS Windows installer.
+            - **`Oxide-Portable.exe`**: Standalone single-file executable.
+            - **`Oxide-Windows-x64.zip`**: Portable ZIP archive.
           draft: false
           prerelease: false
           files: release-assets/*

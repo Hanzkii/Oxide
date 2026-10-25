@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use sysinfo::System;
 use tokio::process::Command;
+
+static CACHED_GPU_INFO: OnceLock<(String, f32)> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareSpecs {
@@ -103,16 +106,32 @@ impl HardwareSpecs {
 }
 
 async fn detect_gpu() -> (String, f32) {
-    // 1. Try nvidia-smi for exact NVIDIA GPU name and total VRAM in MiB
-    if let Ok(out) = Command::new("nvidia-smi")
+    if let Some(cached) = CACHED_GPU_INFO.get() {
+        return cached.clone();
+    }
+
+    let detected = detect_gpu_uncached().await;
+    let _ = CACHED_GPU_INFO.set(detected.clone());
+    detected
+}
+
+async fn detect_gpu_uncached() -> (String, f32) {
+    // 1. Try nvidia-smi for exact NVIDIA GPU name and total VRAM in MiB (hidden window)
+    let mut nv_cmd = Command::new("nvidia-smi");
+    nv_cmd
         .args([
             "--query-gpu=name,memory.total",
             "--format=csv,noheader,nounits",
         ])
-        .stdin(Stdio::null())
-        .output()
-        .await
+        .stdin(Stdio::null());
+
+    #[cfg(target_os = "windows")]
     {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        nv_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    if let Ok(out) = nv_cmd.output().await {
         if out.status.success() {
             let text = String::from_utf8_lossy(&out.stdout);
             if let Some(first_line) = text.lines().next() {
@@ -126,12 +145,15 @@ async fn detect_gpu() -> (String, f32) {
         }
     }
 
-    // 2. Fallback on Windows: query Win32_VideoController via PowerShell
+    // 2. Fallback on Windows: query Win32_VideoController via PowerShell (hidden window)
     #[cfg(target_os = "windows")]
     {
         let mut cmd = Command::new("powershell");
         cmd.args([
             "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-Command",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ConvertTo-Json -Compress",
         ])

@@ -32,6 +32,9 @@ pub async fn pick_folder_dialog() -> OxideResult<Option<String>> {
         let mut cmd = Command::new("powershell");
         cmd.args([
             "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-Sta",
             "-Command",
             "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Oxide Studio'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",

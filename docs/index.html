@@ -527,28 +527,28 @@
       </section>
 
       <section id="start" class="block">
-        <div class="block-label">01 // HOW TO OPEN OXIDE (NO SMARTSCREEN POPUP)</div>
+        <div class="block-label">01 // HOW TO OPEN OXIDE</div>
         <div class="cmd-grid">
           <div class="cmd-box">
-            <strong>A. 1-Line PowerShell Install (Zero SmartScreen Block)</strong>
+            <strong>A. Windows Installer (.exe)</strong>
             <p>
-              Run in PowerShell to download <code>Oxide-Portable.exe</code>,
-              strip Windows SmartScreen's browser block (<code>Unblock-File</code>),
-              create a Desktop shortcut, and launch immediately:<br />
-              <code>irm https://hanzkii.github.io/Oxide/install.ps1 | iex</code>
-            </p>
-          </div>
-          <div class="cmd-box">
-            <strong>B. Direct ZIP / Executable or Local Clone</strong>
-            <p>
-              Download <code>Oxide-Windows-x64.zip</code> from
+              Download the latest <code>Oxide-Setup.exe</code> or
+              <code>Oxide-Portable.exe</code> from
               <a
                 href="https://github.com/Hanzkii/Oxide/releases/latest"
                 style="color: var(--rust-bright)"
                 >GitHub Releases</a
               >
-              and run <code>Launch-Oxide.bat</code>, or double-click
-              <code>start-oxide.bat</code> inside a local repo clone.
+              and launch Oxide Studio. Use the in-app <code>↻ Update</code>
+              button to pull future updates with one click.
+            </p>
+          </div>
+          <div class="cmd-box">
+            <strong>B. Local Repository Clone</strong>
+            <p>
+              Clone <code>https://github.com/Hanzkii/Oxide.git</code> and
+              double-click <code>start-oxide.bat</code> (or run
+              <code>npm run dev</code>) to launch the studio immediately.
             </p>
           </div>
         </div>
@@ -556,6 +556,14 @@
 
       <section id="specs" class="block">
         <div class="block-label">02 // SYSTEM ARCHITECTURE</div>
+        <div class="spec-row">
+          <div class="spec-key">1-Click AI Model Hub</div>
+          <div class="spec-val">
+            Built-in Ollama &amp; HuggingFace GGUF store that auto-detects your
+            PC RAM/VRAM and filters models by Coding, Uncensored/Abliterated,
+            Reasoning, and Fast Subagents.
+          </div>
+        </div>
         <div class="spec-row">
           <div class="spec-key">Lead Architect + Subagents</div>
           <div class="spec-val">

@@ -177,28 +177,30 @@ pub async fn install_github_update() -> OxideResult<UpdateInstallResult> {
         let target_path = env::temp_dir().join(&asset_name);
         fs::write(&target_path, &bytes)?;
 
-        // Strip NTFS Zone.Identifier (Mark of the Web) so Windows Defender SmartScreen
-        // never blocks the updated executable or installer.
+        // Strip NTFS Zone.Identifier and launch installer directly with CREATE_NO_WINDOW
+        // so no black cmd.exe terminal window ever pops up.
         #[cfg(target_os = "windows")]
         {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
             let zone_ads = format!("{}:Zone.Identifier", target_path.to_string_lossy());
             let _ = fs::remove_file(zone_ads);
 
-            Command::new("cmd")
-                .args(["/C", "start", "", &target_path.to_string_lossy()])
+            let mut installer_cmd = Command::new(&target_path);
+            installer_cmd
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| {
-                    OxideError::ExecutionError(format!("Failed to launch installer: {}", e))
-                })?;
+                .creation_flags(CREATE_NO_WINDOW);
+
+            installer_cmd.spawn().map_err(|e| {
+                OxideError::ExecutionError(format!("Failed to launch installer: {}", e))
+            })?;
         }
 
         return Ok(UpdateInstallResult {
             method: "release_installer".to_string(),
             message: format!(
-                "Downloaded and launched installer '{}' ({} KB).",
+                "Downloaded and launched update installer '{}' ({} KB).",
                 asset_name,
                 bytes.len() / 1024
             ),
@@ -206,9 +208,18 @@ pub async fn install_github_update() -> OxideResult<UpdateInstallResult> {
         });
     }
 
-    // 2. Otherwise, pull latest commits directly from GitHub origin/main
-    let output = Command::new("git")
+    // 2. Otherwise, pull latest commits directly from GitHub origin/main (strictly hidden window)
+    let mut git_pull = Command::new("git");
+    git_pull
         .args(["pull", "--rebase", "origin", "main"])
+        .stdin(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        git_pull.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = git_pull
         .output()
         .await
         .map_err(|e| OxideError::GitError(format!("Failed to run git pull: {}", e)))?;
@@ -237,11 +248,17 @@ pub async fn install_github_update() -> OxideResult<UpdateInstallResult> {
 }
 
 async fn get_local_git_head() -> Option<String> {
-    let output = Command::new("git")
+    let mut git_head = Command::new("git");
+    git_head
         .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .await
-        .ok()?;
+        .stdin(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        git_head.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = git_head.output().await.ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
