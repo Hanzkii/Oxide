@@ -6,6 +6,7 @@ import {
   GitCommitRecord,
   GitStatusSummary,
   HardwareSpecs,
+  McpServerConfig,
   ProviderConfig,
   ProviderKind,
   SubagentRunState,
@@ -88,9 +89,20 @@ export const App: React.FC = () => {
 
   // Modals
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showMcpModal, setShowMcpModal] = useState<boolean>(false);
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
+
+  // MCP State
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
+  const [mcpTestOutput, setMcpTestOutput] = useState<string>("");
+  const [newMcpId, setNewMcpId] = useState<string>("");
+  const [newMcpName, setNewMcpName] = useState<string>("");
+  const [newMcpCommand, setNewMcpCommand] = useState<string>("npx");
+  const [newMcpArgs, setNewMcpArgs] = useState<string>(
+    "-y @modelcontextprotocol/server-memory"
+  );
 
   // Agent & Terminal State
   const [prompt, setPrompt] = useState<string>("");
@@ -109,15 +121,17 @@ export const App: React.FC = () => {
 
   const refreshWorkspaceState = async (dir: string = currentDir) => {
     try {
-      const [fileList, git, health, hw] = await Promise.all([
+      const [fileList, git, health, hw, mcpList] = await Promise.all([
         oxideBridge.listWorkspaceFiles(dir),
         oxideBridge.getGitStatus(),
         oxideBridge.getProviderHealth(),
         oxideBridge.getHardwareSpecs(),
+        oxideBridge.listMcpServers(),
       ]);
       setFiles(fileList);
       setGitStatus(git);
       setHwSpecs(hw);
+      setMcpServers(mcpList);
       setOllamaOnline(health.ollama_reachable);
       if (health.ollama_models.length > 0) {
         setOllamaModels(health.ollama_models);
@@ -473,6 +487,75 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleToggleMcpServer = async (srv: McpServerConfig) => {
+    const updated: McpServerConfig = { ...srv, enabled: !srv.enabled };
+    const list = await oxideBridge.saveMcpServer(updated);
+    setMcpServers(list);
+  };
+
+  const handleDiscoverMcpTools = async (serverId: string) => {
+    setMcpTestOutput(`Probing MCP server '${serverId}' via JSON-RPC 2.0 (initialize -> tools/list)...`);
+    try {
+      const updated = await oxideBridge.discoverMcpTools(serverId);
+      const list = await oxideBridge.listMcpServers();
+      setMcpServers(list);
+      setMcpTestOutput(
+        `Discovered ${updated.discovered_tools.length} tool(s) on '${serverId}': ${updated.discovered_tools
+          .map((t) => t.name)
+          .join(", ")}`
+      );
+    } catch (err: any) {
+      setMcpTestOutput(`MCP Discovery Error (${serverId}): ${err?.message}`);
+    }
+  };
+
+  const handleTestMcpTool = async (serverId: string, toolName: string) => {
+    const defaultArgs =
+      toolName === "store_memory"
+        ? '{"key":"architecture_note","value":"Verified MCP JSON-RPC 2.0 tool execution"}'
+        : '{}';
+    const rawArgs = window.prompt(
+      `Enter JSON arguments for MCP tool '${serverId}/${toolName}':`,
+      defaultArgs
+    );
+    if (rawArgs === null) return;
+    try {
+      const parsed = rawArgs.trim() ? JSON.parse(rawArgs) : {};
+      const res = await oxideBridge.callMcpTool(serverId, toolName, parsed);
+      setMcpTestOutput(
+        `[${res.server_id}/${res.tool_name}] (${
+          res.succeeded ? "SUCCESS" : "ERROR"
+        }):\n${res.content}`
+      );
+    } catch (err: any) {
+      setMcpTestOutput(`MCP Tool Call Error: ${err?.message}`);
+    }
+  };
+
+  const handleAddMcpServer = async () => {
+    if (!newMcpId.trim() || !newMcpCommand.trim()) return;
+    const srv: McpServerConfig = {
+      id: newMcpId.trim(),
+      name: newMcpName.trim() || newMcpId.trim(),
+      transport: newMcpCommand.startsWith("http") ? "http" : "stdio",
+      command: newMcpCommand.trim(),
+      args: newMcpArgs
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean),
+      env: {},
+      url: newMcpCommand.startsWith("http") ? newMcpCommand.trim() : null,
+      enabled: true,
+      status: "configured",
+      discovered_tools: [],
+    };
+    const list = await oxideBridge.saveMcpServer(srv);
+    setMcpServers(list);
+    setNewMcpId("");
+    setNewMcpName("");
+    setMcpTestOutput(`Added MCP server '${srv.id}'. Click 'Discover Tools' to probe its tools/list.`);
+  };
+
   return (
     <div className="app-shell">
       {/* Top GUI Command Bar */}
@@ -553,6 +636,14 @@ export const App: React.FC = () => {
             title="Push commits to Git remote"
           >
             ⬆ Git Push
+          </button>
+
+          <button
+            className="btn"
+            onClick={() => setShowMcpModal(true)}
+            title="Manage Model Context Protocol (MCP) Servers & Tools"
+          >
+            🔌 MCP ({mcpServers.filter((s) => s.enabled).length})
           </button>
 
           <button
@@ -1237,6 +1328,188 @@ export const App: React.FC = () => {
                 onClick={() => handleSaveSettings(providerConfig)}
               >
                 Save Subagent &amp; Model Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Model Context Protocol (MCP) Hub Modal */}
+      {showMcpModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowMcpModal(false)}
+        >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <h3>🔌 Model Context Protocol (MCP) Server Hub</h3>
+              <span style={{ fontSize: "0.75rem", color: "#38bdf8" }}>
+                JSON-RPC 2.0 (Stdio &amp; HTTP)
+              </span>
+            </div>
+
+            <p style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+              Enabled MCP servers automatically expose their tools to the Lead
+              Architect AI and Subagents via <code>call_mcp_tool</code>.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.6rem",
+                maxHeight: "280px",
+                overflowY: "auto",
+              }}
+            >
+              {mcpServers.map((srv) => (
+                <div
+                  key={srv.id}
+                  style={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 8,
+                    padding: "0.7rem 0.85rem",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.4rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: "0.82rem" }}>
+                        {srv.name}
+                      </strong>{" "}
+                      <code style={{ fontSize: "0.72rem", color: "#38bdf8" }}>
+                        ({srv.id} • {srv.transport})
+                      </code>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.35rem" }}>
+                      <button
+                        className="btn"
+                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
+                        onClick={() => handleDiscoverMcpTools(srv.id)}
+                      >
+                        🔍 Discover Tools
+                      </button>
+                      <button
+                        className={`btn ${srv.enabled ? "btn-primary" : ""}`}
+                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
+                        onClick={() => handleToggleMcpServer(srv)}
+                      >
+                        {srv.enabled ? "Enabled" : "Disabled"}
+                      </button>
+                      {srv.transport !== "builtin" && (
+                        <button
+                          className="btn"
+                          style={{
+                            padding: "0.2rem 0.5rem",
+                            fontSize: "0.72rem",
+                          }}
+                          onClick={async () => {
+                            const list = await oxideBridge.removeMcpServer(
+                              srv.id
+                            );
+                            setMcpServers(list);
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                    Command: <code>{srv.command} {srv.args.join(" ")}</code> •
+                    Status: <strong>{srv.status}</strong>
+                  </div>
+
+                  {srv.discovered_tools.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.35rem",
+                        marginTop: "0.2rem",
+                      }}
+                    >
+                      {srv.discovered_tools.map((t) => (
+                        <button
+                          key={t.name}
+                          className="preset-chip"
+                          onClick={() => handleTestMcpTool(srv.id, t.name)}
+                          title={`${t.description} (Click to test tool call)`}
+                        >
+                          ▶ {t.name}()
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {mcpTestOutput && (
+              <div className="terminal-log" style={{ maxHeight: "110px" }}>
+                {mcpTestOutput}
+              </div>
+            )}
+
+            <div className="section-title">Add Custom MCP Server</div>
+            <div className="routing-grid">
+              <input
+                className="workspace-input"
+                placeholder="Server ID (e.g. git-mcp)"
+                value={newMcpId}
+                onChange={(e) => setNewMcpId(e.target.value)}
+              />
+              <input
+                className="workspace-input"
+                placeholder="Display Name"
+                value={newMcpName}
+                onChange={(e) => setNewMcpName(e.target.value)}
+              />
+              <input
+                className="workspace-input"
+                placeholder="Command (npx, uvx, node) or HTTP URL"
+                value={newMcpCommand}
+                onChange={(e) => setNewMcpCommand(e.target.value)}
+              />
+              <input
+                className="workspace-input"
+                placeholder="Arguments (e.g. -y @modelcontextprotocol/server-memory)"
+                value={newMcpArgs}
+                onChange={(e) => setNewMcpArgs(e.target.value)}
+              />
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "0.3rem",
+              }}
+            >
+              <button className="btn" onClick={handleAddMcpServer}>
+                + Add MCP Server
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowMcpModal(false)}
+              >
+                Done
               </button>
             </div>
           </div>

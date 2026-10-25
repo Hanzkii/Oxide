@@ -7,6 +7,8 @@ import {
   GitCommitRecord,
   GitStatusSummary,
   HardwareSpecs,
+  McpServerConfig,
+  McpToolCallResult,
   ProviderConfig,
   ProviderHealthReport,
   UpdateInstallResult,
@@ -68,6 +70,7 @@ To perform an action or delegate subtasks, output a single JSON object enclosed 
 - {"thought": "...", "action": "run_command", "command": "git status", "rationale": "..."}
 - {"thought": "...", "action": "git_action", "operation": "pull" | "push" | "commit" | "status", "message": "..."}
 - {"thought": "...", "action": "open_in_vscode", "path": "."}
+- {"thought": "...", "action": "call_mcp_tool", "server": "oxide-memory", "tool": "store_memory", "arguments": {"key": "...", "value": "..."}}
 - {"thought": "...", "action": "complete_task", "summary": "...", "auto_commit": true, "auto_push": false}`;
 
 function getModelForRole(config: ProviderConfig, role: AgentRoleKind): string {
@@ -92,6 +95,34 @@ export const oxideBridge = {
 
   async getHardwareSpecs(): Promise<HardwareSpecs> {
     return callBackend<HardwareSpecs>("get_hardware_specs");
+  },
+
+  async listMcpServers(): Promise<McpServerConfig[]> {
+    return callBackend<McpServerConfig[]>("list_mcp_servers");
+  },
+
+  async saveMcpServer(server: McpServerConfig): Promise<McpServerConfig[]> {
+    return callBackend<McpServerConfig[]>("save_mcp_server", { server });
+  },
+
+  async removeMcpServer(serverId: string): Promise<McpServerConfig[]> {
+    return callBackend<McpServerConfig[]>("remove_mcp_server", { serverId });
+  },
+
+  async discoverMcpTools(serverId: string): Promise<McpServerConfig> {
+    return callBackend<McpServerConfig>("discover_mcp_tools", { serverId });
+  },
+
+  async callMcpTool(
+    serverId: string,
+    toolName: string,
+    args: Record<string, any> = {}
+  ): Promise<McpToolCallResult> {
+    return callBackend<McpToolCallResult>("call_mcp_tool", {
+      serverId,
+      toolName,
+      arguments: args,
+    });
   },
 
   async setWorkspace(workspacePath: string): Promise<WorkspaceInfo> {
@@ -652,6 +683,30 @@ export const oxideBridge = {
       } else if (tool.action === "open_in_vscode") {
         await this.openInVsCode(tool.path);
         messages.push({ role: "user", content: `[OPENED_IN_VSCODE]` });
+      } else if (tool.action === "call_mcp_tool") {
+        try {
+          const mcpRes = await this.callMcpTool(
+            tool.server,
+            tool.tool,
+            tool.arguments || {}
+          );
+          emitLocalEvent({
+            type: "workflow_card",
+            step,
+            title: `MCP Tool: ${tool.server}/${tool.tool}`,
+            detail: mcpRes.content.slice(0, 140),
+            status: mcpRes.succeeded ? "succeeded" : "self_correcting",
+          });
+          messages.push({
+            role: "user",
+            content: `[MCP_TOOL_RESULT server="${tool.server}" tool="${tool.tool}"]\n${mcpRes.content}\n[/MCP_TOOL_RESULT]`,
+          });
+        } catch (e: any) {
+          messages.push({
+            role: "user",
+            content: `[MCP_TOOL_ERROR] ${e?.message}`,
+          });
+        }
       } else if (tool.action === "complete_task") {
         if (tool.auto_commit) {
           const rec = await this.triggerGitMilestone(tool.summary);

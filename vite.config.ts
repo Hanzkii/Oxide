@@ -30,6 +30,8 @@ interface LocalBridgeState {
     auto_throttle_on_high_load: boolean;
   };
   cachedGpu: { name: string; vramGb: number } | null;
+  mcpServers: any[];
+  builtinMemories: { key: string; value: string }[];
 }
 
 function createLocalSystemBridgePlugin(): Plugin {
@@ -54,7 +56,160 @@ function createLocalSystemBridgePlugin(): Plugin {
       auto_throttle_on_high_load: true,
     },
     cachedGpu: null,
+    builtinMemories: [
+      {
+        key: "project_overview",
+        value:
+          "Oxide Studio is a Tauri v2 + Rust + React autonomous AI coding agent with Subagents, Hardware Governor, and MCP support.",
+      },
+    ],
+    mcpServers: [
+      {
+        id: "oxide-memory",
+        name: "Oxide Knowledge Graph & Memory (Built-in)",
+        transport: "builtin",
+        command: "builtin:memory",
+        args: [],
+        env: {},
+        url: null,
+        enabled: true,
+        status: "ready",
+        discovered_tools: [
+          {
+            name: "store_memory",
+            description:
+              "Store a key-value architectural note or memory for future agent tasks",
+            input_schema: {
+              type: "object",
+              properties: {
+                key: { type: "string" },
+                value: { type: "string" },
+              },
+              required: ["key", "value"],
+            },
+          },
+          {
+            name: "recall_memories",
+            description:
+              "List or search stored architectural memories and project notes",
+            input_schema: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+              },
+            },
+          },
+        ],
+      },
+      {
+        id: "filesystem",
+        name: "MCP Filesystem Server (@modelcontextprotocol/server-filesystem)",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+        env: {},
+        url: null,
+        enabled: false,
+        status: "configured",
+        discovered_tools: [],
+      },
+      {
+        id: "sequential-thinking",
+        name: "MCP Sequential Thinking (@modelcontextprotocol/server-sequential-thinking)",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        env: {},
+        url: null,
+        enabled: false,
+        status: "configured",
+        discovered_tools: [],
+      },
+    ],
   };
+
+  function runStdioMcpRequest(
+    server: any,
+    method: string,
+    params: any
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const bin =
+        process.platform === "win32" && server.command === "npx"
+          ? "npx.cmd"
+          : server.command;
+      const child = spawn(bin, server.args || [], {
+        cwd: state.workspaceRoot,
+        shell: process.platform === "win32",
+        windowsHide: true,
+        env: { ...process.env, ...(server.env || {}) },
+      });
+
+      let buf = "";
+      let initialized = false;
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error("MCP server request timed out (25s)"));
+      }, 25000);
+
+      child.stdout.on("data", (chunk) => {
+        buf += chunk.toString();
+        let idx: number;
+        while ((idx = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.id === 1 && !initialized) {
+              initialized = true;
+              child.stdin.write(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  method: "notifications/initialized",
+                  params: {},
+                }) +
+                  "\n" +
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: 2,
+                    method,
+                    params,
+                  }) +
+                  "\n"
+              );
+            } else if (msg.id === 2) {
+              clearTimeout(timeout);
+              child.kill();
+              if (msg.error) {
+                reject(new Error(JSON.stringify(msg.error)));
+              } else {
+                resolve(msg.result ?? msg);
+              }
+            }
+          } catch {}
+        }
+      });
+
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      child.stdin.write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: "oxide-studio", version: "0.1.0" },
+          },
+        }) + "\n"
+      );
+    });
+  }
 
   function resolveInsideWorkspace(candidate: string): string {
     const resolved = path.resolve(state.workspaceRoot, candidate || ".");
@@ -318,6 +473,109 @@ function createLocalSystemBridgePlugin(): Plugin {
           if (action === "get_hardware_specs") {
             const specs = await inspectHardwareSpecs();
             res.end(JSON.stringify(specs));
+            return;
+          }
+
+          if (action === "list_mcp_servers") {
+            res.end(JSON.stringify(state.mcpServers));
+            return;
+          }
+
+          if (action === "save_mcp_server") {
+            const srv = args.server;
+            const idx = state.mcpServers.findIndex((s) => s.id === srv.id);
+            if (idx !== -1) state.mcpServers[idx] = srv;
+            else state.mcpServers.push(srv);
+            res.end(JSON.stringify(state.mcpServers));
+            return;
+          }
+
+          if (action === "remove_mcp_server") {
+            state.mcpServers = state.mcpServers.filter(
+              (s) => s.id !== args.serverId
+            );
+            res.end(JSON.stringify(state.mcpServers));
+            return;
+          }
+
+          if (action === "discover_mcp_tools") {
+            const srv = state.mcpServers.find((s) => s.id === args.serverId);
+            if (!srv) throw new Error(`MCP server '${args.serverId}' not found`);
+            if (srv.transport === "builtin") {
+              srv.status = "ready";
+              res.end(JSON.stringify(srv));
+              return;
+            }
+            const result = await runStdioMcpRequest(srv, "tools/list", {});
+            srv.discovered_tools = (result.tools || []).map((t: any) => ({
+              name: t.name,
+              description: t.description || "",
+              input_schema: t.inputSchema || { type: "object" },
+            }));
+            srv.status = "ready";
+            srv.enabled = true;
+            res.end(JSON.stringify(srv));
+            return;
+          }
+
+          if (action === "call_mcp_tool") {
+            const srv = state.mcpServers.find((s) => s.id === args.serverId);
+            if (!srv) throw new Error(`MCP server '${args.serverId}' not found`);
+            if (srv.transport === "builtin") {
+              const toolArgs = args.arguments || {};
+              if (args.toolName === "store_memory") {
+                const k = toolArgs.key || "note";
+                const v = toolArgs.value || "";
+                const ex = state.builtinMemories.find((m) => m.key === k);
+                if (ex) ex.value = v;
+                else state.builtinMemories.push({ key: k, value: v });
+                res.end(
+                  JSON.stringify({
+                    server_id: srv.id,
+                    tool_name: args.toolName,
+                    succeeded: true,
+                    content: `Stored memory '${k}' (${v.length} chars).`,
+                  })
+                );
+                return;
+              }
+              const q = (toolArgs.query || "").toLowerCase();
+              const matches = state.builtinMemories
+                .filter(
+                  (m) =>
+                    !q ||
+                    m.key.toLowerCase().includes(q) ||
+                    m.value.toLowerCase().includes(q)
+                )
+                .map((m) => `• [${m.key}]: ${m.value}`);
+              res.end(
+                JSON.stringify({
+                  server_id: srv.id,
+                  tool_name: args.toolName,
+                  succeeded: true,
+                  content: matches.join("\n") || "No matching memories found.",
+                })
+              );
+              return;
+            }
+
+            const result = await runStdioMcpRequest(srv, "tools/call", {
+              name: args.toolName,
+              arguments: args.arguments || {},
+            });
+            const content = Array.isArray(result.content)
+              ? result.content
+                  .map((b: any) => b.text || JSON.stringify(b))
+                  .join("\n")
+              : JSON.stringify(result, null, 2);
+            res.end(
+              JSON.stringify({
+                server_id: srv.id,
+                tool_name: args.toolName,
+                succeeded: !result.isError,
+                content,
+              })
+            );
             return;
           }
 

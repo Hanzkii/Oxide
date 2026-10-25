@@ -2,6 +2,7 @@ use crate::error::{OxideError, OxideResult};
 use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
 use crate::llm::ProviderConfig;
+use crate::mcp::{McpServerConfig, McpToolCallResult};
 use crate::orchestrator::git::{GitCommitRecord, GitManager, GitStatusSummary};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
 use crate::orchestrator::AgentOrchestrator;
@@ -10,6 +11,7 @@ use crate::updater::{
 };
 use crate::AppState;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
@@ -104,7 +106,6 @@ pub async fn update_provider_config(
 ) -> OxideResult<ProviderConfig> {
     let hw = HardwareSpecs::inspect().await;
     let mut sanitized = config;
-    // Never allow max_concurrent_subagents to exceed the PC's safe hardware ceiling
     sanitized.max_concurrent_subagents = sanitized
         .max_concurrent_subagents
         .clamp(1, hw.hard_limit_subagents.max(1));
@@ -112,6 +113,56 @@ pub async fn update_provider_config(
     let mut guard = state.provider_config.write().await;
     *guard = sanitized.clone();
     Ok(sanitized)
+}
+
+#[tauri::command]
+pub async fn list_mcp_servers(state: State<'_, AppState>) -> OxideResult<Vec<McpServerConfig>> {
+    let guard = state.mcp_registry.read().await;
+    Ok(guard.servers.clone())
+}
+
+#[tauri::command]
+pub async fn save_mcp_server(
+    server: McpServerConfig,
+    state: State<'_, AppState>,
+) -> OxideResult<Vec<McpServerConfig>> {
+    let mut guard = state.mcp_registry.write().await;
+    if let Some(existing) = guard.servers.iter_mut().find(|s| s.id == server.id) {
+        *existing = server;
+    } else {
+        guard.servers.push(server);
+    }
+    Ok(guard.servers.clone())
+}
+
+#[tauri::command]
+pub async fn remove_mcp_server(
+    server_id: String,
+    state: State<'_, AppState>,
+) -> OxideResult<Vec<McpServerConfig>> {
+    let mut guard = state.mcp_registry.write().await;
+    guard.servers.retain(|s| s.id != server_id);
+    Ok(guard.servers.clone())
+}
+
+#[tauri::command]
+pub async fn discover_mcp_tools(
+    server_id: String,
+    state: State<'_, AppState>,
+) -> OxideResult<McpServerConfig> {
+    let mut guard = state.mcp_registry.write().await;
+    guard.discover_server_tools(&server_id).await
+}
+
+#[tauri::command]
+pub async fn call_mcp_tool(
+    server_id: String,
+    tool_name: String,
+    arguments: Value,
+    state: State<'_, AppState>,
+) -> OxideResult<McpToolCallResult> {
+    let guard = state.mcp_registry.read().await;
+    guard.call_tool(&server_id, &tool_name, arguments).await
 }
 
 #[tauri::command]
@@ -128,7 +179,8 @@ pub async fn run_agent_task(
         .ok_or_else(|| OxideError::WorkspaceError("No active workspace configured".to_string()))?;
 
     let config = state.provider_config.read().await.clone();
-    let orchestrator = AgentOrchestrator::new(sandbox, config);
+    let mcp_registry = state.mcp_registry.clone();
+    let orchestrator = AgentOrchestrator::new(sandbox, config, mcp_registry);
     orchestrator.run_autonomous_loop(app, prompt).await
 }
 

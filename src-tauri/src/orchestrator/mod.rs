@@ -5,15 +5,17 @@ use crate::error::{OxideError, OxideResult};
 use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
 use crate::llm::{AgentRoleKind, ChatMessage, ProviderConfig};
+use crate::mcp::McpRegistry;
 use crate::orchestrator::git::{GitCommitRecord, GitManager};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
 use crate::security::WorkspaceSandbox;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Semaphore;
+use tokio::sync::{RwLock, Semaphore};
 
 const DEFAULT_MAX_AGENT_STEPS: usize = 12;
 
@@ -153,6 +155,20 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
   "auto_commit": true,
   "auto_push": false
 }
+```
+
+12. `call_mcp_tool` — Invoke any tool exposed by an enabled Model Context Protocol (MCP) server:
+```json
+{
+  "thought": "Calling the MCP memory server to store architectural notes",
+  "action": "call_mcp_tool",
+  "server": "oxide-memory",
+  "tool": "store_memory",
+  "arguments": {
+    "key": "auth_flow",
+    "value": "Uses local token validation"
+  }
+}
 ```"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,6 +260,14 @@ pub enum AgentToolAction {
         thought: Option<String>,
         plan: Option<Vec<String>>,
     },
+    CallMcpTool {
+        server: String,
+        tool: String,
+        #[serde(default)]
+        arguments: Value,
+        thought: Option<String>,
+        plan: Option<Vec<String>>,
+    },
     CompleteTask {
         summary: String,
         #[serde(default = "default_true")]
@@ -277,6 +301,7 @@ impl AgentToolAction {
             | Self::RunCommand { thought, .. }
             | Self::GitAction { thought, .. }
             | Self::OpenInVscode { thought, .. }
+            | Self::CallMcpTool { thought, .. }
             | Self::CompleteTask { thought, .. } => thought.as_deref(),
         }
     }
@@ -294,6 +319,7 @@ impl AgentToolAction {
             | Self::RunCommand { plan, .. }
             | Self::GitAction { plan, .. }
             | Self::OpenInVscode { plan, .. }
+            | Self::CallMcpTool { plan, .. }
             | Self::CompleteTask { plan, .. } => plan.as_deref(),
         }
     }
@@ -367,13 +393,19 @@ pub enum AgentStreamEvent {
 pub struct AgentOrchestrator {
     sandbox: WorkspaceSandbox,
     provider_config: ProviderConfig,
+    mcp_registry: Arc<RwLock<McpRegistry>>,
 }
 
 impl AgentOrchestrator {
-    pub fn new(sandbox: WorkspaceSandbox, provider_config: ProviderConfig) -> Self {
+    pub fn new(
+        sandbox: WorkspaceSandbox,
+        provider_config: ProviderConfig,
+        mcp_registry: Arc<RwLock<McpRegistry>>,
+    ) -> Self {
         Self {
             sandbox,
             provider_config,
+            mcp_registry,
         }
     }
 
@@ -392,10 +424,16 @@ impl AgentOrchestrator {
             .max_concurrent_subagents
             .clamp(1, hw.hard_limit_subagents.max(1));
 
+        let mcp_tools_summary = self
+            .mcp_registry
+            .read()
+            .await
+            .format_tools_for_agent_prompt();
+
         let mut conversation = vec![
             ChatMessage::system(AGENT_SYSTEM_PROMPT),
             ChatMessage::user(format!(
-                "Workspace Root: {}\nPC Hardware Governor: {} ({:.1} GB Free RAM, Max Concurrent Subagents: {})\nTask Model Routing: Architect={}, CoderSubagent={}, ResearchSubagent={}, TesterSubagent={}\nUser Request: {}",
+                "Workspace Root: {}\nPC Hardware Governor: {} ({:.1} GB Free RAM, Max Concurrent Subagents: {})\nTask Model Routing: Architect={}, CoderSubagent={}, ResearchSubagent={}, TesterSubagent={}\n[AVAILABLE_MCP_TOOLS]\n{}\n[/AVAILABLE_MCP_TOOLS]\nUser Request: {}",
                 self.sandbox.canonical_root().display(),
                 hw.governor_tier,
                 hw.available_ram_gb,
@@ -404,6 +442,7 @@ impl AgentOrchestrator {
                 self.provider_config.task_routing.coder_subagent_model,
                 self.provider_config.task_routing.research_subagent_model,
                 self.provider_config.task_routing.tester_subagent_model,
+                mcp_tools_summary,
                 user_prompt
             )),
         ];
@@ -945,6 +984,66 @@ impl AgentOrchestrator {
                         "[VSCODE_OPENED] {}",
                         target.display()
                     )));
+                }
+
+                AgentToolAction::CallMcpTool {
+                    server,
+                    tool,
+                    arguments,
+                    ..
+                } => {
+                    self.emit_event(
+                        &app,
+                        AgentStreamEvent::WorkflowCard {
+                            step,
+                            title: format!("Calling MCP Tool: `{}/{}`", server, tool),
+                            detail: arguments.to_string(),
+                            status: WorkflowStepStatus::Running,
+                        },
+                    );
+
+                    let mcp_guard = self.mcp_registry.read().await;
+                    match mcp_guard.call_tool(&server, &tool, arguments).await {
+                        Ok(mcp_res) => {
+                            self.emit_event(
+                                &app,
+                                AgentStreamEvent::WorkflowCard {
+                                    step,
+                                    title: format!("MCP Result: `{}/{}`", server, tool),
+                                    detail: mcp_res
+                                        .content
+                                        .lines()
+                                        .next()
+                                        .unwrap_or("Completed")
+                                        .to_string(),
+                                    status: if mcp_res.succeeded {
+                                        WorkflowStepStatus::Succeeded
+                                    } else {
+                                        WorkflowStepStatus::SelfCorrecting
+                                    },
+                                },
+                            );
+                            conversation.push(ChatMessage::tool(format!(
+                                "[MCP_TOOL_RESULT server=\"{}\" tool=\"{}\" succeeded={}]\n{}\n[/MCP_TOOL_RESULT]",
+                                server, tool, mcp_res.succeeded, mcp_res.content
+                            )));
+                        }
+                        Err(e) => {
+                            self.emit_event(
+                                &app,
+                                AgentStreamEvent::WorkflowCard {
+                                    step,
+                                    title: format!("MCP Tool Error: `{}/{}`", server, tool),
+                                    detail: e.to_string(),
+                                    status: WorkflowStepStatus::SelfCorrecting,
+                                },
+                            );
+                            conversation.push(ChatMessage::tool(format!(
+                                "[MCP_TOOL_ERROR server=\"{}\" tool=\"{}\"] {}",
+                                server, tool, e
+                            )));
+                        }
+                    }
                 }
 
                 AgentToolAction::CompleteTask {

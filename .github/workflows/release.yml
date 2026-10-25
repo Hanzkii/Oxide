@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "docs/**"
+      - "index.html"
+      - "*.md"
+      - ".nojekyll"
     tags:
       - "v*"
   workflow_dispatch:
@@ -59,7 +64,7 @@ jobs:
             - **`Oxide-Portable.exe`** (Standalone Portable Executable — no installation required)
             - **`Oxide_0.1.0_x64_en-US.msi`** (Windows MSI Package)
 
-            Includes built-in **Update from GitHub** button (`↻ Update`), live **AI Thinking & Reasoning** stream, interactive file explorer/editor, terminal runner, and Git push/pull controls.
+            Includes built-in **Update from GitHub** button (`↻ Update`), **Model Context Protocol (MCP)** Server Hub, **Lead Architect + Subagents** with **PC Hardware Concurrency Governor**, live **AI Thinking & Reasoning** stream, interactive file explorer/editor, terminal runner, and Git push/pull controls.
           draft: false
           prerelease: false
           files: release-assets/*

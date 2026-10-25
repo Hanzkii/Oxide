@@ -2,18 +2,22 @@ pub mod commands;
 pub mod error;
 pub mod hardware;
 pub mod llm;
+pub mod mcp;
 pub mod orchestrator;
 pub mod security;
 pub mod updater;
 
 use crate::llm::ProviderConfig;
+use crate::mcp::McpRegistry;
 use crate::security::{CommandPolicy, WorkspaceSandbox};
 use std::env;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct AppState {
     pub sandbox: RwLock<Option<WorkspaceSandbox>>,
     pub provider_config: RwLock<ProviderConfig>,
+    pub mcp_registry: Arc<RwLock<McpRegistry>>,
 }
 
 impl Default for AppState {
@@ -25,6 +29,7 @@ impl Default for AppState {
         Self {
             sandbox: RwLock::new(initial_sandbox),
             provider_config: RwLock::new(ProviderConfig::default()),
+            mcp_registry: Arc::new(RwLock::new(McpRegistry::default())),
         }
     }
 }
@@ -44,6 +49,11 @@ pub fn run() {
             commands::agent::get_hardware_specs,
             commands::agent::get_provider_health,
             commands::agent::update_provider_config,
+            commands::agent::list_mcp_servers,
+            commands::agent::save_mcp_server,
+            commands::agent::remove_mcp_server,
+            commands::agent::discover_mcp_tools,
+            commands::agent::call_mcp_tool,
             commands::agent::run_agent_task,
             commands::agent::execute_bounded_command,
             commands::agent::get_git_status,

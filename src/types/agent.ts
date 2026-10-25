@@ -13,6 +13,34 @@ export type SubagentRunState =
   | "completed"
   | "failed";
 
+export type McpTransportKind = "builtin" | "stdio" | "http";
+
+export interface McpToolSchema {
+  name: string;
+  description: string;
+  input_schema: Record<string, any>;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  transport: McpTransportKind;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  url: string | null;
+  enabled: boolean;
+  status: string;
+  discovered_tools: McpToolSchema[];
+}
+
+export interface McpToolCallResult {
+  server_id: string;
+  tool_name: string;
+  succeeded: boolean;
+  content: string;
+}
+
 export interface TaskModelRouting {
   architect_model: string;
   coder_subagent_model: string;
