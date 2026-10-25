@@ -13,6 +13,7 @@ import {
   HardwareSpecs,
   McpServerConfig,
   ProviderConfig,
+  ProviderKind,
   SubagentRunState,
   UpdateStatus,
   WorkflowStepStatus,
@@ -70,8 +71,16 @@ function getBaseName(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
+function isAppInstallDir(p: string): boolean {
+  const lower = p.replace(/[\\/]+$/, "").toLowerCase();
+  return (
+    lower.endsWith("\\appdata\\local\\oxide") ||
+    lower.endsWith("/appdata/local/oxide")
+  );
+}
+
 export const App: React.FC = () => {
-  // Multi-Project & Saved Conversation State
+  // Multi-Workspace & Saved Conversations
   const [projects, setProjects] = useState<ProjectWorkspace[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("default");
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
@@ -80,13 +89,13 @@ export const App: React.FC = () => {
     Record<string, boolean>
   >({});
 
-  // Right Overview & Drawer State ("none" | "files" | "review" | "terminal" | "editor")
+  // Right Dock & Drawer State
   const [rightDrawer, setRightDrawer] = useState<
     "overview" | "files" | "review" | "terminal" | "editor"
   >("overview");
   const [showRightPanel, setShowRightPanel] = useState<boolean>(true);
 
-  // Workspace Files & Built-in Editor State
+  // Explorer & Editor State
   const [files, setFiles] = useState<WorkspaceFileEntry[]>([]);
   const [currentDir, setCurrentDir] = useState<string>(".");
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -98,30 +107,25 @@ export const App: React.FC = () => {
   const [providerConfig, setProviderConfig] = useState<ProviderConfig>({
     active_provider: "ollama",
     ollama_base_url: "http://localhost:11434",
-    ollama_model: "qwen2.5-coder:latest",
+    ollama_model: "",
     anthropic_model: "claude-3-5-sonnet-latest",
     openai_model: "gpt-4o",
     enable_cloud_fallback: false,
     temperature: 0.1,
     task_routing: {
-      architect_model: "qwen2.5-coder:latest",
-      coder_subagent_model: "qwen2.5-coder:7b",
-      research_subagent_model: "gemma2:latest",
-      tester_subagent_model: "qwen2.5-coder:7b",
+      architect_model: "",
+      coder_subagent_model: "",
+      research_subagent_model: "",
+      tester_subagent_model: "",
     },
     enable_subagents: true,
     max_concurrent_subagents: 2,
     auto_throttle_on_high_load: true,
   });
 
-  const [ollamaModels, setOllamaModels] = useState<string[]>([
-    "qwen2.5-coder:14b",
-    "qwen2.5-coder:latest",
-    "qwen2.5-coder:7b",
-    "qwen2.5-coder:3b",
-    "gemma2:latest",
-    "deepseek-r1:latest",
-  ]);
+  // Real installed Ollama models only (starts empty until verified from Ollama)
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
 
   // Live Active Turn State
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -137,18 +141,23 @@ export const App: React.FC = () => {
   const [quickCommand, setQuickCommand] = useState<string>("git status");
   const [statusBanner, setStatusBanner] = useState<string>("");
 
-  // Modals
+  // Modals & Tabbed Settings State
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [settingsTab, setSettingsTab] = useState<
+    "general" | "providers" | "agents" | "mcp" | "updates"
+  >("general");
   const [showModelHubModal, setShowModelHubModal] = useState<boolean>(false);
-  const [showMcpModal, setShowMcpModal] = useState<boolean>(false);
-  const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
 
-  // 1-Click AI Model Hub (Ollama + HuggingFace GGUF) State
-  const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
+  // Model Store State
   const [modelCategoryFilter, setModelCategoryFilter] = useState<
-    "all" | "coding" | "uncensored" | "coding_uncensored" | "reasoning" | "subagent"
+    | "all"
+    | "coding"
+    | "uncensored"
+    | "coding_uncensored"
+    | "reasoning"
+    | "subagent"
   >("all");
   const [modelSourceFilter, setModelSourceFilter] = useState<
     "all" | "ollama" | "huggingface"
@@ -164,10 +173,13 @@ export const App: React.FC = () => {
   );
   const [customInstallTag, setCustomInstallTag] = useState<string>("");
 
-  // MCP State
+  // MCP Servers State
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
   const [newMcpId, setNewMcpId] = useState<string>("");
   const [newMcpCommand, setNewMcpCommand] = useState<string>("npx");
+  const [newMcpArgs, setNewMcpArgs] = useState<string>(
+    "-y @modelcontextprotocol/server-memory"
+  );
 
   const activeProject =
     projects.find((p) => p.id === activeProjectId) || projects[0];
@@ -207,20 +219,55 @@ export const App: React.FC = () => {
       setHwSpecs(hw);
       setMcpServers(mcpList);
       setOllamaOnline(health.ollama_reachable);
-      if (health.ollama_models.length > 0) {
-        setOllamaModels(health.ollama_models);
-      }
-      setProviderConfig((prev) => ({
-        ...prev,
-        ...health.config,
-        task_routing: health.config.task_routing || prev.task_routing,
-      }));
+
+      const installed = health.ollama_models || [];
+      setOllamaModels(installed);
+
+      setProviderConfig((prev) => {
+        const merged = {
+          ...prev,
+          ...health.config,
+          task_routing: {
+            ...prev.task_routing,
+            ...(health.config.task_routing || {}),
+          },
+        };
+        // Ensure selected models are actually in the installed list (if any are installed)
+        if (installed.length > 0) {
+          if (!installed.includes(merged.ollama_model)) {
+            merged.ollama_model = installed[0];
+          }
+          if (!installed.includes(merged.task_routing.architect_model)) {
+            merged.task_routing.architect_model = installed[0];
+          }
+          if (!installed.includes(merged.task_routing.coder_subagent_model)) {
+            merged.task_routing.coder_subagent_model =
+              installed[installed.length - 1] || installed[0];
+          }
+          if (
+            !installed.includes(merged.task_routing.research_subagent_model)
+          ) {
+            merged.task_routing.research_subagent_model =
+              installed[installed.length - 1] || installed[0];
+          }
+          if (!installed.includes(merged.task_routing.tester_subagent_model)) {
+            merged.task_routing.tester_subagent_model =
+              installed[installed.length - 1] || installed[0];
+          }
+        } else {
+          merged.ollama_model = "";
+          merged.task_routing.architect_model = "";
+          merged.task_routing.coder_subagent_model = "";
+          merged.task_routing.research_subagent_model = "";
+          merged.task_routing.tester_subagent_model = "";
+        }
+        return merged;
+      });
     } catch {}
   };
 
   useEffect(() => {
     (async () => {
-      // Load saved Projects & Conversations from disk or localStorage
       let restored = false;
       try {
         const rawDisk = await oxideBridge.loadStudioState();
@@ -233,17 +280,42 @@ export const App: React.FC = () => {
             parsed.projects.length > 0 &&
             Array.isArray(parsed.conversations)
           ) {
-            setProjects(parsed.projects);
-            setConversations(parsed.conversations);
-            const projId = parsed.activeProjectId || parsed.projects[0].id;
+            // Migrate any old AppData\Local\Oxide binary dir to the default `.oxide/scratch` folder
+            const defaultInfo = await oxideBridge.setWorkspace(".");
+            const migratedProjects: ProjectWorkspace[] = parsed.projects.map(
+              (p: ProjectWorkspace) => {
+                if (isAppInstallDir(p.path)) {
+                  return {
+                    ...p,
+                    name: getBaseName(defaultInfo.canonical_path),
+                    path: defaultInfo.canonical_path,
+                  };
+                }
+                return p;
+              }
+            );
+            const cleanedConvs: SavedConversation[] = parsed.conversations.map(
+              (c: SavedConversation) => ({
+                ...c,
+                title:
+                  c.title === "Initial Workspace Session" ||
+                  c.title === "New Workspace Session"
+                    ? "New Conversation"
+                    : c.title,
+              })
+            );
+
+            setProjects(migratedProjects);
+            setConversations(cleanedConvs);
+            const projId = parsed.activeProjectId || migratedProjects[0].id;
             setActiveProjectId(projId);
             setActiveConvId(
-              parsed.activeConvId || parsed.conversations[0]?.id || "conv-1"
+              parsed.activeConvId || cleanedConvs[0]?.id || "conv-1"
             );
             const proj =
-              parsed.projects.find(
+              migratedProjects.find(
                 (p: ProjectWorkspace) => p.id === projId
-              ) || parsed.projects[0];
+              ) || migratedProjects[0];
             await oxideBridge.setWorkspace(proj.path);
             restored = true;
           }
@@ -252,6 +324,7 @@ export const App: React.FC = () => {
 
       if (!restored) {
         try {
+          // "." automatically resolves to C:\Users\<user>\.oxide\scratch when run from installer
           const info = await oxideBridge.setWorkspace(".");
           const defaultProj: ProjectWorkspace = {
             id: "proj-default",
@@ -261,7 +334,7 @@ export const App: React.FC = () => {
           const defaultConv: SavedConversation = {
             id: "conv-default",
             projectId: defaultProj.id,
-            title: "Initial Workspace Session",
+            title: "New Conversation",
             updatedAt: "now",
             turns: [],
           };
@@ -356,19 +429,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Open Native Windows Folder Picker to Add/Switch Project Folder!
   const handlePickProjectFolder = async () => {
     try {
       const picked = await oxideBridge.pickFolderDialog();
-      const targetPath =
-        picked ||
-        window.prompt(
-          "Enter project folder path:",
-          activeProject?.path || "."
-        );
-      if (!targetPath?.trim()) return;
+      if (!picked?.trim()) return;
 
-      const info = await oxideBridge.setWorkspace(targetPath.trim());
+      const info = await oxideBridge.setWorkspace(picked.trim());
       const existingProj = projects.find(
         (p) => p.path.toLowerCase() === info.canonical_path.toLowerCase()
       );
@@ -388,8 +454,9 @@ export const App: React.FC = () => {
         targetProjId = newProj.id;
       }
 
-      // Create a fresh conversation inside this project if none exists
-      let projConvs = conversations.filter((c) => c.projectId === targetProjId);
+      const projConvs = conversations.filter(
+        (c) => c.projectId === targetProjId
+      );
       let nextConvs = [...conversations];
       let targetConvId: string;
 
@@ -397,7 +464,7 @@ export const App: React.FC = () => {
         const firstConv: SavedConversation = {
           id: `conv-${Date.now()}`,
           projectId: targetProjId,
-          title: "New Workspace Session",
+          title: "New Conversation",
           updatedAt: "now",
           turns: [],
         };
@@ -420,7 +487,7 @@ export const App: React.FC = () => {
         targetProjId,
         targetConvId
       );
-      setStatusBanner(`Opened project '${getBaseName(info.canonical_path)}'`);
+      setStatusBanner(`Opened workspace '${getBaseName(info.canonical_path)}'`);
     } catch (err: any) {
       setStatusBanner(`Folder error: ${err?.message || String(err)}`);
     }
@@ -443,6 +510,16 @@ export const App: React.FC = () => {
 
   const handleNewConversation = async (forProjectId?: string) => {
     const targetProjId = forProjectId || activeProjectId;
+    // Reuse an existing empty conversation in this project instead of creating duplicates
+    const existingEmpty = conversations.find(
+      (c) => c.projectId === targetProjId && c.turns.length === 0
+    );
+    if (existingEmpty) {
+      setActiveProjectId(targetProjId);
+      setActiveConvId(existingEmpty.id);
+      return;
+    }
+
     const newConv: SavedConversation = {
       id: `conv-${Date.now()}`,
       projectId: targetProjId,
@@ -473,7 +550,21 @@ export const App: React.FC = () => {
     e.stopPropagation();
     const remaining = conversations.filter((c) => c.id !== convId);
     if (remaining.length === 0) {
-      await handleNewConversation();
+      const fresh: SavedConversation = {
+        id: `conv-${Date.now()}`,
+        projectId: activeProjectId,
+        title: "New Conversation",
+        updatedAt: "now",
+        turns: [],
+      };
+      setConversations([fresh]);
+      setActiveConvId(fresh.id);
+      await persistStudioSessions(
+        projects,
+        [fresh],
+        activeProjectId,
+        fresh.id
+      );
       return;
     }
     const nextActiveId =
@@ -491,6 +582,19 @@ export const App: React.FC = () => {
   const handleRunTask = async (customPrompt?: string) => {
     const taskPrompt = (customPrompt ?? prompt).trim();
     if (!taskPrompt || isRunning) return;
+
+    // Guard: If using local Ollama and no models are installed yet, open the Model Store
+    if (
+      providerConfig.active_provider === "ollama" &&
+      ollamaModels.length === 0
+    ) {
+      setStatusBanner(
+        "No AI model installed yet — install a local AI model below first."
+      );
+      setShowModelHubModal(true);
+      return;
+    }
+
     if (!customPrompt) setPrompt("");
 
     const startTime = Date.now();
@@ -562,7 +666,6 @@ export const App: React.FC = () => {
         activeProjectId,
         activeConvId
       );
-      await refreshWorkspaceState(currentDir);
     } catch (err: any) {
       setStatusBanner(`Agent error: ${err?.message || String(err)}`);
     } finally {
@@ -594,7 +697,7 @@ export const App: React.FC = () => {
 
   const handleCreateNewFile = async () => {
     const name = window.prompt(
-      "New file path relative to project folder (e.g. src/utils.ts):"
+      "New file path relative to workspace folder (e.g. src/utils.ts):"
     );
     if (!name?.trim()) return;
     await oxideBridge.saveWorkspaceFile(name.trim(), "");
@@ -628,61 +731,41 @@ export const App: React.FC = () => {
   };
 
   const handleAutoAssignOptimalModels = async () => {
+    if (ollamaModels.length === 0) {
+      setStatusBanner("Install at least one AI model in Models first.");
+      setShowModelHubModal(true);
+      return;
+    }
     const hw = await oxideBridge.getHardwareSpecs();
     setHwSpecs(hw);
-    const isHighSpec = hw.total_ram_gb >= 28 || hw.gpu_vram_gb >= 12;
-    const isMidSpec = hw.total_ram_gb >= 14;
-    const firstAvailable = (candidates: string[], fallback: string) =>
-      candidates.find((c) => ollamaModels.includes(c)) ||
-      ollamaModels[0] ||
-      fallback;
-
-    const architect = isHighSpec
-      ? firstAvailable(
-          ["deepseek-r1:latest", "qwen2.5-coder:14b", "qwen2.5-coder:latest"],
-          "qwen2.5-coder:latest"
-        )
-      : firstAvailable(
-          ["qwen2.5-coder:latest", "qwen2.5-coder:7b"],
-          "qwen2.5-coder:latest"
-        );
-    const coder = isMidSpec
-      ? firstAvailable(
-          ["qwen2.5-coder:7b", "qwen2.5-coder:latest"],
-          "qwen2.5-coder:7b"
-        )
-      : firstAvailable(
-          ["qwen2.5-coder:3b", "gemma2:latest"],
-          "qwen2.5-coder:3b"
-        );
-    const research = firstAvailable(
-      ["gemma2:latest", "qwen2.5-coder:3b"],
-      "gemma2:latest"
-    );
+    const mainModel = ollamaModels[0];
+    const subModel = ollamaModels[ollamaModels.length - 1] || ollamaModels[0];
 
     const updated: ProviderConfig = {
       ...providerConfig,
-      ollama_model: architect,
+      ollama_model: mainModel,
       max_concurrent_subagents: hw.recommended_max_subagents,
       auto_throttle_on_high_load: true,
       task_routing: {
-        architect_model: architect,
-        coder_subagent_model: coder,
-        research_subagent_model: research,
-        tester_subagent_model: coder,
+        architect_model: mainModel,
+        coder_subagent_model: subModel,
+        research_subagent_model: subModel,
+        tester_subagent_model: subModel,
       },
     };
     const saved = await oxideBridge.updateProviderConfig(updated);
     setProviderConfig(saved);
+    setStatusBanner(
+      `Assigned Agent: ${mainModel} • Subagent: ${subModel}`
+    );
   };
 
   return (
     <div className="ag-shell">
-      {/* ==================== LEFT SIDEBAR (Antigravity Style) ==================== */}
+      {/* ==================== LEFT SIDEBAR ==================== */}
       <aside className="ag-sidebar">
         <div className="ag-sidebar-top">
           <div className="ag-brand">
-            {/* Rusted Pipe Flange Mini SVG Emblem */}
             <svg width="20" height="20" viewBox="0 0 64 64">
               <polygon
                 points="18,4 46,4 60,18 60,46 46,60 18,60 4,46 4,18"
@@ -708,7 +791,7 @@ export const App: React.FC = () => {
             <button
               className="ag-icon-btn"
               onClick={handlePickProjectFolder}
-              title="Open Project Folder (Native Folder Picker)"
+              title="Open Workspace Folder"
             >
               📁+
             </button>
@@ -718,7 +801,7 @@ export const App: React.FC = () => {
                 setRightDrawer("files");
                 setShowRightPanel(true);
               }}
-              title="Browse Project Files"
+              title="Open Explorer"
             >
               🔍
             </button>
@@ -745,56 +828,78 @@ export const App: React.FC = () => {
               setShowRightPanel(true);
             }}
           >
-            <span>📁 Project Files &amp; Editor</span>
+            <span>📁 Explorer</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {files.length}
             </span>
           </button>
+
           <button
             className="ag-nav-item"
             onClick={() => setShowModelHubModal(true)}
+            style={{
+              border:
+                ollamaModels.length === 0
+                  ? "1px solid rgba(212, 91, 44, 0.45)"
+                  : undefined,
+              background:
+                ollamaModels.length === 0
+                  ? "rgba(212, 91, 44, 0.1)"
+                  : undefined,
+            }}
           >
-            <span>⬇ AI Model Hub (1-Click)</span>
+            <span>🧠 Models</span>
             <span
               style={{
                 fontSize: "0.7rem",
-                color: ollamaOnline ? "#4ade80" : "var(--oxide-ember)",
+                color:
+                  ollamaModels.length > 0 ? "#4ade80" : "var(--oxide-ember)",
                 fontWeight: 600,
               }}
             >
-              {ollamaModels.length} installed
+              {ollamaModels.length > 0
+                ? `${ollamaModels.length} installed`
+                : "Install AI"}
             </span>
           </button>
+
           <button
             className="ag-nav-item"
-            onClick={() => setShowSettingsModal(true)}
+            onClick={() => {
+              setSettingsTab("agents");
+              setShowSettingsModal(true);
+            }}
           >
-            <span>⚡ Subagents &amp; Routing</span>
+            <span>⚡ Agents &amp; Subagents</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               Max {providerConfig.max_concurrent_subagents}
             </span>
           </button>
+
           <button
             className="ag-nav-item"
-            onClick={() => setShowMcpModal(true)}
+            onClick={() => {
+              setSettingsTab("mcp");
+              setShowSettingsModal(true);
+            }}
           >
-            <span>🔌 Customizations (MCP)</span>
+            <span>🔌 MCP Servers</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {mcpServers.filter((s) => s.enabled).length} active
             </span>
           </button>
         </div>
 
-        {/* Multi-Project & Saved Conversations Tree */}
+        {/* Workspaces & Saved Conversations Tree */}
         <div className="ag-projects-header">
-          <span>Projects</span>
+          <span>Workspaces</span>
           <button
             className="ag-icon-btn"
             onClick={handlePickProjectFolder}
-            title="Add / Open Another Project Folder"
-            style={{ padding: "0.1rem 0.35rem", fontSize: "0.78rem" }}
+            title="Open Folder as Workspace"
+            style={{ padding: "0.1rem 0.35rem", fontSize: "0.75rem" }}
           >
-            + Folder
+            + Open Folder
           </button>
         </div>
 
@@ -808,7 +913,7 @@ export const App: React.FC = () => {
                 <div
                   className="ag-project-title"
                   onClick={() => handleNewConversation(proj.id)}
-                  title={`${proj.path}\nClick to start a new conversation in ${proj.name}`}
+                  title={`${proj.path}\nClick to start a conversation in ${proj.name}`}
                 >
                   <span>📁 {proj.name}</span>
                   <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>+</span>
@@ -841,7 +946,10 @@ export const App: React.FC = () => {
         <div className="ag-sidebar-footer">
           <button
             className="ag-icon-btn"
-            onClick={() => setShowSettingsModal(true)}
+            onClick={() => {
+              setSettingsTab("general");
+              setShowSettingsModal(true);
+            }}
           >
             ⚙ Settings
           </button>
@@ -853,71 +961,66 @@ export const App: React.FC = () => {
                 : undefined,
               color: updateStatus?.update_available ? "#4ade80" : undefined,
             }}
-            onClick={async () => {
-              setShowUpdateModal(true);
+            onClick={() => {
+              setSettingsTab("updates");
+              setShowSettingsModal(true);
               oxideBridge
                 .checkGithubUpdate()
                 .then(setUpdateStatus)
                 .catch(() => {});
             }}
           >
-            ↻ {updateStatus?.update_available ? "Update!" : "Update"}
+            ↻ {updateStatus?.update_available ? "Update Available" : "Updates"}
           </button>
         </div>
       </aside>
 
       {/* ==================== CENTER MAIN WORKSPACE ==================== */}
       <main className="ag-main">
-        {/* Top Breadcrumb Bar */}
+        {/* Top Header Bar */}
         <header className="ag-topbar">
           <div className="ag-breadcrumbs">
             <span
               className="ag-breadcrumb-project"
               onClick={handlePickProjectFolder}
-              title={`Current folder: ${activeProject?.path}\nClick to switch project folder`}
+              title={`Workspace folder: ${activeProject?.path}\nClick to switch folder`}
             >
-              {activeProject?.name || "Workspace"}
+              {activeProject?.name || "scratch"}
             </span>
             <span>/</span>
             <span className="ag-breadcrumb-conv">
-              {activeConversation?.title || "Session"}
+              {activeConversation?.title || "New Conversation"}
             </span>
           </div>
 
           <div className="ag-topbar-right">
-            {hwSpecs && (
-              <button
-                className="ag-pill-btn"
-                onClick={() => setShowSettingsModal(true)}
-                title={`${hwSpecs.governor_tier}: ${hwSpecs.governor_advice}`}
-              >
-                <span>🖥 {hwSpecs.available_ram_gb}GB free</span>
-                <span>•</span>
-                <span>
-                  Max{" "}
-                  {Math.min(
-                    providerConfig.max_concurrent_subagents,
-                    hwSpecs.hard_limit_subagents
-                  )}{" "}
-                  Subagents
-                </span>
-              </button>
-            )}
+            <button
+              className="ag-pill-btn"
+              style={{
+                borderColor: "rgba(212, 91, 44, 0.55)",
+                color: "#f49d7c",
+                fontWeight: 600,
+              }}
+              onClick={() => setShowModelHubModal(true)}
+              title="Open AI Model Store (1-Click Install via Ollama & HuggingFace)"
+            >
+              🧠 Models ({ollamaModels.length} Installed)
+            </button>
 
             <button
               className="ag-pill-btn"
               onClick={() =>
                 oxideBridge.openInVsCode(activeFile || activeProject?.path)
               }
-              title="Open current project or file in Visual Studio Code"
+              title="Open current workspace in Visual Studio Code"
             >
-              Open IDE
+              Open in VS Code
             </button>
 
             <button
               className={`ag-pill-btn ${showRightPanel ? "active" : ""}`}
               onClick={() => setShowRightPanel((v) => !v)}
-              title="Toggle Overview & Files Panel"
+              title="Toggle Right Panel"
             >
               ▤
             </button>
@@ -925,7 +1028,7 @@ export const App: React.FC = () => {
         </header>
 
         <div className="ag-workspace-body">
-          {/* Center Conversation Column */}
+          {/* Center Conversation Stream */}
           <div className="ag-center-column">
             <div className="ag-chat-scroll">
               <div className="ag-chat-container">
@@ -934,7 +1037,7 @@ export const App: React.FC = () => {
                   !isRunning && (
                     <div
                       style={{
-                        marginTop: "12vh",
+                        marginTop: "10vh",
                         textAlign: "center",
                         display: "flex",
                         flexDirection: "column",
@@ -949,31 +1052,76 @@ export const App: React.FC = () => {
                           color: "var(--text-primary)",
                         }}
                       >
-                        {activeProject?.name || "Oxide Studio"}
+                        {activeProject?.name || "scratch"}
                       </div>
                       <div
                         style={{
-                          fontSize: "0.82rem",
+                          fontSize: "0.81rem",
                           color: "var(--text-secondary)",
-                          maxWidth: "460px",
+                          maxWidth: "520px",
                         }}
                       >
-                        Folder: <code>{activeProject?.path}</code>
+                        Workspace: <code>{activeProject?.path}</code>
                       </div>
+
+                      {ollamaModels.length === 0 && (
+                        <div
+                          className="hw-spec-box"
+                          style={{
+                            maxWidth: "500px",
+                            borderColor: "rgba(212, 91, 44, 0.5)",
+                            textAlign: "left",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              color: "var(--oxide-ember)",
+                            }}
+                          >
+                            ⚡ No Local AI Model Installed Yet
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "0.77rem",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            Open <strong>Models</strong> to 1-click install an
+                            AI model matched to your PC specs (Coding,
+                            Uncensored, or DeepSeek-R1 Reasoning).
+                          </div>
+                          <div>
+                            <button
+                              className="btn btn-primary"
+                              onClick={() => setShowModelHubModal(true)}
+                            >
+                              🧠 Open Models (1-Click Install)
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       <div
                         style={{
                           display: "flex",
                           gap: "0.5rem",
                           flexWrap: "wrap",
                           justifyContent: "center",
-                          marginTop: "0.4rem",
+                          marginTop: "0.3rem",
                         }}
                       >
                         <button
                           className="ag-pill-btn"
                           onClick={handlePickProjectFolder}
                         >
-                          📁 Open Project Folder...
+                          📁 Open Folder...
+                        </button>
+                        <button
+                          className="ag-pill-btn"
+                          onClick={() => setShowModelHubModal(true)}
+                        >
+                          🧠 Models ({ollamaModels.length} Installed)
                         </button>
                         <button
                           className="ag-pill-btn"
@@ -982,17 +1130,7 @@ export const App: React.FC = () => {
                             setShowRightPanel(true);
                           }}
                         >
-                          📄 Browse Files ({files.length})
-                        </button>
-                        <button
-                          className="ag-pill-btn"
-                          onClick={() =>
-                            handleRunTask(
-                              "List the files in this project folder and give me a concise overview of its structure."
-                            )
-                          }
-                        >
-                          🔍 Analyze This Folder
+                          📄 Explorer ({files.length})
                         </button>
                       </div>
                     </div>
@@ -1029,24 +1167,34 @@ export const App: React.FC = () => {
                         </button>
 
                         {isExpanded && (
-                          <div className="ag-thought-box">{turn.thought}</div>
+                          <div className="ag-thought-body">
+                            {turn.thought}
+                            {turn.plan.length > 0 && (
+                              <div style={{ marginTop: "0.45rem" }}>
+                                {turn.plan.map((p, idx) => (
+                                  <div key={idx}>
+                                    {idx + 1}. {p}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
 
-                        {turn.steps.map((st) => (
-                          <div key={st.id} className="ag-inline-step">
-                            <span>
-                              {st.status === "succeeded"
-                                ? "✔"
-                                : st.status === "self_correcting"
-                                ? "⚠"
-                                : "•"}
+                        {turn.steps.map((s) => (
+                          <div key={s.id} className="ag-tool-step">
+                            <span className="ag-tool-step-icon">
+                              {s.title.toLowerCase().includes("command") ||
+                              s.title.toLowerCase().includes("terminal")
+                                ? ">_"
+                                : "📄"}
                             </span>
-                            <span>{st.title}</span>
-                            {st.detail && (
-                              <span style={{ color: "var(--text-muted)" }}>
-                                — {st.detail}
-                              </span>
-                            )}
+                            <span className="ag-tool-step-label">
+                              {s.title}
+                            </span>
+                            <span className="ag-tool-step-badge">
+                              {s.detail.slice(0, 72)}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -1058,7 +1206,7 @@ export const App: React.FC = () => {
                   );
                 })}
 
-                {/* Active Streaming Turn */}
+                {/* Live Running Turn */}
                 {isRunning && (
                   <div
                     style={{
@@ -1069,41 +1217,42 @@ export const App: React.FC = () => {
                   >
                     <div className="ag-trace-group">
                       <div className="ag-thought-toggle">
-                        <span style={{ color: "var(--oxide-rust)" }}>
-                          ⟳ Thinking ({providerConfig.task_routing.architect_model})...
+                        <span style={{ color: "var(--oxide-ember)" }}>
+                          ⟳ Thinking...
                         </span>
                       </div>
-                      {liveThinking && (
-                        <div className="ag-thought-box">{liveThinking}</div>
-                      )}
-                      {planChecklist.length > 0 && (
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "0.35rem",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          {planChecklist.map((p, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                fontSize: "0.72rem",
-                                background: "var(--bg-elevated)",
-                                padding: "0.15rem 0.5rem",
-                                borderRadius: 5,
-                                color: "var(--text-secondary)",
-                              }}
-                            >
-                              {i + 1}. {p}
-                            </span>
-                          ))}
+                      <div className="ag-thought-body">
+                        {liveThinking}
+                        {planChecklist.length > 0 && (
+                          <div style={{ marginTop: "0.45rem" }}>
+                            {planChecklist.map((item, idx) => (
+                              <div key={idx}>
+                                {idx + 1}. {item}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {subagents.slice(0, 3).map((sub) => (
+                        <div key={sub.id} className="ag-tool-step">
+                          <span className="ag-tool-step-icon">⚡</span>
+                          <span className="ag-tool-step-label">
+                            [{sub.role.toUpperCase()}] {sub.title}
+                          </span>
+                          <span className="ag-tool-step-badge">
+                            {sub.model} • {sub.state}
+                          </span>
                         </div>
-                      )}
-                      {liveSteps.map((st) => (
-                        <div key={st.id} className="ag-inline-step">
-                          <span>•</span>
-                          <span>{st.title}</span>
+                      ))}
+
+                      {liveSteps.map((s) => (
+                        <div key={s.id} className="ag-tool-step">
+                          <span className="ag-tool-step-icon">📄</span>
+                          <span className="ag-tool-step-label">{s.title}</span>
+                          <span className="ag-tool-step-badge">
+                            {s.detail.slice(0, 70)}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -1118,12 +1267,12 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Bottom Floating Antigravity Composer Card */}
-            <div className="ag-composer-wrap">
+            {/* ==================== BOTTOM FLOATING CHAT COMPOSER ==================== */}
+            <div className="ag-composer-dock">
               <div className="ag-composer-card">
                 <textarea
-                  className="ag-composer-input"
-                  placeholder="Ask Oxide anything, edit files, run terminal commands, or delegate to subagents..."
+                  className="ag-composer-textarea"
+                  placeholder="Ask Oxide to write code, edit files, or run commands..."
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => {
@@ -1135,42 +1284,160 @@ export const App: React.FC = () => {
                 />
 
                 <div className="ag-composer-toolbar">
+                  {/* Main Agent & Subagent Selectors (ONLY Installed Models) */}
                   <div className="ag-toolbar-left">
-                    <button
-                      className="ag-icon-btn"
-                      onClick={handlePickProjectFolder}
-                      title="Open / Switch Project Folder"
-                    >
-                      +
-                    </button>
-
-                    <select
-                      className="ag-model-picker-inline"
-                      value={providerConfig.task_routing.architect_model}
-                      onChange={async (e) => {
-                        const model = e.target.value;
-                        const updated: ProviderConfig = {
-                          ...providerConfig,
-                          ollama_model: model,
-                          task_routing: {
-                            ...providerConfig.task_routing,
-                            architect_model: model,
-                          },
-                        };
-                        setProviderConfig(updated);
-                        await oxideBridge.updateProviderConfig(updated);
+                    {/* Main Agent Model Picker */}
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
                       }}
                     >
-                      {ollamaModels.map((m) => (
-                        <option
-                          key={m}
-                          value={m}
-                          style={{ background: "#1a1a1e", color: "#ececef" }}
+                      <span
+                        style={{
+                          fontSize: "0.71rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        Agent:
+                      </span>
+                      {ollamaModels.length > 0 ? (
+                        <select
+                          className="ag-model-picker-inline"
+                          style={{
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-subtle)",
+                          }}
+                          value={
+                            providerConfig.task_routing.architect_model ||
+                            ollamaModels[0]
+                          }
+                          onChange={async (e) => {
+                            const model = e.target.value;
+                            const updated: ProviderConfig = {
+                              ...providerConfig,
+                              ollama_model: model,
+                              task_routing: {
+                                ...providerConfig.task_routing,
+                                architect_model: model,
+                              },
+                            };
+                            setProviderConfig(updated);
+                            await oxideBridge.updateProviderConfig(updated);
+                          }}
                         >
-                          {m}
-                        </option>
-                      ))}
-                    </select>
+                          {ollamaModels.map((m) => (
+                            <option
+                              key={m}
+                              value={m}
+                              style={{ background: "#18181b", color: "#ececef" }}
+                            >
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button
+                          className="ag-model-picker-inline"
+                          style={{
+                            color: "var(--oxide-ember)",
+                            border: "1px solid rgba(212, 91, 44, 0.45)",
+                          }}
+                          onClick={() => setShowModelHubModal(true)}
+                        >
+                          + Install Agent Model
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Subagent Model Picker */}
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "0.71rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        Subagent:
+                      </span>
+                      {ollamaModels.length > 0 ? (
+                        <select
+                          className="ag-model-picker-inline"
+                          style={{
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-subtle)",
+                          }}
+                          value={
+                            !providerConfig.enable_subagents
+                              ? "__off__"
+                              : providerConfig.task_routing
+                                  .coder_subagent_model || ollamaModels[0]
+                          }
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            if (val === "__off__") {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                enable_subagents: false,
+                              };
+                              setProviderConfig(updated);
+                              await oxideBridge.updateProviderConfig(updated);
+                            } else {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                enable_subagents: true,
+                                task_routing: {
+                                  ...providerConfig.task_routing,
+                                  coder_subagent_model: val,
+                                  research_subagent_model: val,
+                                  tester_subagent_model: val,
+                                },
+                              };
+                              setProviderConfig(updated);
+                              await oxideBridge.updateProviderConfig(updated);
+                            }
+                          }}
+                        >
+                          {ollamaModels.map((m) => (
+                            <option
+                              key={m}
+                              value={m}
+                              style={{ background: "#18181b", color: "#ececef" }}
+                            >
+                              {m}
+                            </option>
+                          ))}
+                          <option
+                            value="__off__"
+                            style={{ background: "#18181b", color: "#a1a1aa" }}
+                          >
+                            Off (Single Agent)
+                          </option>
+                        </select>
+                      ) : (
+                        <button
+                          className="ag-model-picker-inline"
+                          onClick={() => setShowModelHubModal(true)}
+                        >
+                          None
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      className="ag-model-picker-inline"
+                      onClick={() => setShowModelHubModal(true)}
+                      title="Install or manage AI models"
+                    >
+                      + Models
+                    </button>
                   </div>
 
                   <div className="ag-toolbar-right">
@@ -1179,25 +1446,16 @@ export const App: React.FC = () => {
                         style={{
                           fontSize: "0.72rem",
                           color: "var(--text-muted)",
+                          maxWidth: "240px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                         }}
+                        title={statusBanner}
                       >
                         {statusBanner}
                       </span>
                     )}
-                    <button
-                      className="ag-model-picker-inline"
-                      onClick={() => setShowModelHubModal(true)}
-                      title="Open 1-Click AI Model Hub (Ollama & HuggingFace)"
-                    >
-                      ⬇ + Install AI
-                    </button>
-                    <button
-                      className="ag-model-picker-inline"
-                      onClick={() => setShowSettingsModal(true)}
-                      title="Configure Subagents & PC Governor"
-                    >
-                      ⚡ Turbo ({providerConfig.max_concurrent_subagents} Sub)
-                    </button>
 
                     <button
                       className="ag-send-btn"
@@ -1213,13 +1471,15 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* ==================== RIGHT FLOATING OVERVIEW CARD & DRAWER ==================== */}
+          {/* ==================== RIGHT DOCK: OVERVIEW + PC HARDWARE GOVERNOR ==================== */}
           {showRightPanel && (
             <aside className="ag-right-dock">
               <div className="ag-overview-card">
                 <div className="ag-overview-header">
                   <span>Overview</span>
-                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                  <span
+                    style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}
+                  >
                     {gitStatus?.branch || "local"}
                   </span>
                 </div>
@@ -1231,7 +1491,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("review")}
                   >
-                    <span>📋 Review &amp; Git</span>
+                    <span>📋 Source Control</span>
                     <span style={{ fontSize: "0.72rem" }}>
                       {gitStatus?.changed_files.length || 0} changed
                     </span>
@@ -1245,7 +1505,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("files")}
                   >
-                    <span>📁 Files</span>
+                    <span>📁 Explorer</span>
                     <span style={{ fontSize: "0.72rem" }}>{files.length}</span>
                   </button>
 
@@ -1263,69 +1523,156 @@ export const App: React.FC = () => {
 
                   <button
                     className="ag-overview-row"
-                    onClick={() => setShowMcpModal(true)}
-                  >
-                    <span>🔌 Extensions (MCP)</span>
-                    <span style={{ fontSize: "0.72rem" }}>›</span>
-                  </button>
-                </div>
-
-                {/* Subagents & Background Tasks */}
-                <div className="ag-overview-section">
-                  <div
-                    style={{
-                      fontSize: "0.72rem",
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
+                    onClick={() => {
+                      setSettingsTab("mcp");
+                      setShowSettingsModal(true);
                     }}
                   >
-                    Background Tasks &amp; Subagents ({subagents.length})
-                  </div>
-                  {subagents.slice(0, 3).map((s) => (
-                    <div
-                      key={s.id}
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "var(--text-secondary)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span>🤖 {s.title}</span>
-                      <span style={{ color: "var(--oxide-rust)" }}>
-                        {s.state}
-                      </span>
-                    </div>
-                  ))}
+                    <span>🔌 MCP Servers</span>
+                    <span style={{ fontSize: "0.72rem" }}>
+                      {mcpServers.filter((s) => s.enabled).length} active
+                    </span>
+                  </button>
                 </div>
               </div>
 
-              {/* Contextual Side Drawer Content (Files / Editor / Git Review / Terminal) */}
+              {/* Dedicated 🖥 PC HARDWARE GOVERNOR Card (Matches Docs Showcase) */}
+              <div
+                className="ag-overview-card"
+                style={{ padding: "0.8rem 0.9rem" }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--text-secondary)",
+                    marginBottom: "0.35rem",
+                    display: "flex",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>🖥 PC HARDWARE GOVERNOR</span>
+                  <span
+                    style={{
+                      color: ollamaOnline ? "#4ade80" : "var(--text-muted)",
+                    }}
+                  >
+                    {ollamaOnline ? "● Ollama Online" : "○ Ollama Offline"}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "0.82rem",
+                    color: hwSpecs?.throttled_by_load ? "#fbbf24" : "#4ade80",
+                  }}
+                >
+                  ⚡ {hwSpecs?.governor_tier || "Inspecting PC Specs..."}
+                </div>
+                {hwSpecs && (
+                  <div
+                    style={{
+                      fontSize: "0.74rem",
+                      color: "var(--text-secondary)",
+                      marginTop: "0.25rem",
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <div>
+                      {hwSpecs.total_ram_gb} GB RAM ({hwSpecs.available_ram_gb}{" "}
+                      GB free) • {hwSpecs.gpu_name}
+                    </div>
+                    <div>
+                      Max{" "}
+                      {Math.min(
+                        providerConfig.max_concurrent_subagents,
+                        hwSpecs.hard_limit_subagents
+                      )}{" "}
+                      Concurrent Subagents (Hard Limit:{" "}
+                      {hwSpecs.hard_limit_subagents})
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Expandable Right Drawer Content */}
+              {rightDrawer === "overview" && (
+                <div className="ag-drawer-panel" style={{ padding: "0.9rem" }}>
+                  <div
+                    style={{
+                      fontSize: "0.74rem",
+                      fontWeight: 600,
+                      color: "var(--text-secondary)",
+                      marginBottom: "0.5rem",
+                    }}
+                  >
+                    Active Workspace
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.76rem",
+                      color: "var(--text-muted)",
+                      wordBreak: "break-all",
+                      marginBottom: "0.75rem",
+                    }}
+                  >
+                    {activeProject?.path}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <button
+                      className="btn"
+                      onClick={handlePickProjectFolder}
+                      style={{ justifyContent: "center" }}
+                    >
+                      📁 Switch Workspace Folder...
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => setRightDrawer("files")}
+                      style={{ justifyContent: "center" }}
+                    >
+                      📄 Browse Explorer ({files.length})
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => setShowModelHubModal(true)}
+                      style={{ justifyContent: "center" }}
+                    >
+                      🧠 Open Models ({ollamaModels.length} Installed)
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {rightDrawer === "files" && (
                 <div className="ag-drawer-panel">
                   <div className="ag-overview-header">
-                    <span>Files ({currentDir})</span>
-                    <div style={{ display: "flex", gap: "0.25rem" }}>
+                    <span>Explorer ({currentDir})</span>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
                       {currentDir !== "." && (
                         <button
-                          className="ag-icon-btn"
-                          onClick={() => {
-                            const parent =
-                              currentDir.split("/").slice(0, -1).join("/") ||
-                              ".";
-                            setCurrentDir(parent);
-                            oxideBridge
-                              .listWorkspaceFiles(parent)
-                              .then(setFiles);
+                          className="btn"
+                          style={{ padding: "0.18rem 0.45rem" }}
+                          onClick={async () => {
+                            setCurrentDir(".");
+                            setFiles(await oxideBridge.listWorkspaceFiles("."));
                           }}
                         >
-                          ↑
+                          ↑ Root
                         </button>
                       )}
                       <button
-                        className="ag-icon-btn"
+                        className="btn"
+                        style={{ padding: "0.18rem 0.45rem" }}
                         onClick={handleCreateNewFile}
-                        title="New File"
                       >
                         + File
                       </button>
@@ -1338,17 +1685,16 @@ export const App: React.FC = () => {
                       padding: "0.4rem",
                     }}
                   >
-                    {files.map((f) => (
+                    {files.map((entry) => (
                       <div
-                        key={f.relative_path}
+                        key={entry.relative_path}
                         className={`file-item ${
-                          activeFile === f.relative_path ? "active" : ""
+                          activeFile === entry.relative_path ? "active" : ""
                         }`}
-                        onClick={() => handleOpenFileOrDir(f)}
+                        onClick={() => handleOpenFileOrDir(entry)}
                       >
                         <span>
-                          {f.is_dir ? "📁 " : "📄 "}
-                          {f.name}
+                          {entry.is_dir ? "📁" : "📄"} {entry.name}
                         </span>
                       </div>
                     ))}
@@ -1356,23 +1702,32 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {rightDrawer === "editor" && activeFile && (
+              {rightDrawer === "editor" && (
                 <div className="ag-drawer-panel">
                   <div className="ag-overview-header">
-                    <span>📄 {activeFile}</span>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {activeFile || "Untitled"}
+                    </span>
                     <div style={{ display: "flex", gap: "0.3rem" }}>
                       <button
-                        className="ag-icon-btn"
-                        onClick={handleSaveActiveFile}
-                        title="Save File"
-                      >
-                        💾
-                      </button>
-                      <button
-                        className="ag-icon-btn"
+                        className="btn"
+                        style={{ padding: "0.18rem 0.45rem" }}
                         onClick={() => setRightDrawer("files")}
                       >
-                        ✕
+                        ← Files
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: "0.18rem 0.55rem" }}
+                        onClick={handleSaveActiveFile}
+                      >
+                        Save
                       </button>
                     </div>
                   </div>
@@ -1380,53 +1735,63 @@ export const App: React.FC = () => {
                     className="code-editor"
                     value={activeFileContent}
                     onChange={(e) => setActiveFileContent(e.target.value)}
+                    spellCheck={false}
                   />
                 </div>
               )}
 
               {rightDrawer === "review" && (
-                <div className="ag-drawer-panel" style={{ padding: "0.75rem" }}>
+                <div
+                  className="ag-drawer-panel"
+                  style={{ padding: "0.75rem", gap: "0.6rem" }}
+                >
                   <div
                     style={{
                       display: "flex",
-                      gap: "0.4rem",
-                      marginBottom: "0.75rem",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                     }}
                   >
-                    <button
-                      className="btn"
-                      onClick={() => handleGitAction("pull")}
-                    >
-                      ⬇ Pull
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => handleGitAction("commit")}
-                    >
-                      ✔ Commit
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => handleGitAction("push")}
-                    >
-                      ⬆ Push
-                    </button>
+                    <strong style={{ fontSize: "0.8rem" }}>
+                      Source Control ({gitStatus?.branch})
+                    </strong>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
+                      <button
+                        className="btn"
+                        onClick={() => handleGitAction("pull")}
+                      >
+                        ↓ Pull
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => handleGitAction("commit")}
+                      >
+                        ✓ Commit
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => handleGitAction("push")}
+                      >
+                        ↑ Push
+                      </button>
+                    </div>
                   </div>
-                  <div
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "var(--text-secondary)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.3rem",
-                    }}
-                  >
+                  <div style={{ flex: 1, overflowY: "auto" }}>
                     {gitStatus?.changed_files.length ? (
                       gitStatus.changed_files.map((f, i) => (
-                        <div key={i}>• {f}</div>
+                        <div key={i} className="file-item">
+                          {f}
+                        </div>
                       ))
                     ) : (
-                      <div>Working tree is clean.</div>
+                      <div
+                        style={{
+                          fontSize: "0.78rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        Working tree is clean.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1435,9 +1800,9 @@ export const App: React.FC = () => {
               {rightDrawer === "terminal" && (
                 <div
                   className="ag-drawer-panel"
-                  style={{ padding: "0.75rem", gap: "0.6rem" }}
+                  style={{ padding: "0.75rem", gap: "0.55rem" }}
                 >
-                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <div style={{ display: "flex", gap: "0.35rem" }}>
                     <input
                       className="workspace-input"
                       style={{ flex: 1 }}
@@ -1482,7 +1847,7 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* ==================== 1-CLICK AI MODEL HUB (OLLAMA + HUGGINGFACE) ==================== */}
+      {/* ==================== 1-CLICK AI MODEL STORE MODAL ==================== */}
       {showModelHubModal && (
         <div
           className="modal-backdrop"
@@ -1501,7 +1866,7 @@ export const App: React.FC = () => {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
-                  ⬇ 1-Click AI Model Hub (Ollama &amp; HuggingFace GGUF)
+                  🧠 AI Models (Ollama &amp; HuggingFace 1-Click Installer)
                 </h3>
                 <div
                   style={{
@@ -1511,7 +1876,7 @@ export const App: React.FC = () => {
                   }}
                 >
                   Auto-matched to your PC hardware • Filter by Coding,
-                  Uncensored/Abliterated, Reasoning &amp; Fast Subagents
+                  Uncensored, Reasoning &amp; Fast Subagents
                 </div>
               </div>
               <button
@@ -1522,7 +1887,6 @@ export const App: React.FC = () => {
               </button>
             </div>
 
-            {/* PC Specs & Ollama Runtime Banner */}
             <div
               className="hw-spec-box"
               style={{
@@ -1561,15 +1925,19 @@ export const App: React.FC = () => {
                     }}
                   >
                     {ollamaOnline
-                      ? `Online (${ollamaModels.length} models ready)`
-                      : "Not detected / Offline"}
+                      ? `Online (${ollamaModels.length} installed)`
+                      : "Not Running / Not Installed"}
                   </strong>
                   {" • "}
-                  Active Lead AI:{" "}
-                  <code>{providerConfig.task_routing.architect_model}</code>
+                  Agent:{" "}
+                  <code>
+                    {providerConfig.task_routing.architect_model || "None"}
+                  </code>
                   {" • "}
                   Subagent:{" "}
-                  <code>{providerConfig.task_routing.coder_subagent_model}</code>
+                  <code>
+                    {providerConfig.task_routing.coder_subagent_model || "None"}
+                  </code>
                 </div>
               </div>
 
@@ -1595,17 +1963,17 @@ export const App: React.FC = () => {
                     ⚡ 1-Click Start / Install Ollama
                   </button>
                 )}
-                <button
-                  className="btn"
-                  onClick={handleAutoAssignOptimalModels}
-                  title="Auto-assign installed models to Lead Architect and Subagents based on your PC RAM/VRAM"
-                >
-                  ✨ Auto-Assign Best Models for PC
-                </button>
+                {ollamaModels.length > 0 && (
+                  <button
+                    className="btn"
+                    onClick={handleAutoAssignOptimalModels}
+                  >
+                    ✨ Auto-Assign Installed Models
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Category & Uncensored / Coding Filter Bar */}
             <div
               style={{
                 display: "flex",
@@ -1679,7 +2047,6 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Search & Live HuggingFace GGUF Lookup + Direct Tag Pull */}
             <div
               style={{
                 display: "grid",
@@ -1731,19 +2098,18 @@ export const App: React.FC = () => {
               >
                 {isSearchingHf
                   ? "🤗 Searching HF..."
-                  : "🤗 Search HuggingFace Hub Live"}
+                  : "🤗 Search HuggingFace Live"}
               </button>
               {hfSearchResults.length > 0 && (
                 <button
                   className="btn"
                   onClick={() => setHfSearchResults([])}
                 >
-                  Clear HF Results ({hfSearchResults.length})
+                  Clear HF ({hfSearchResults.length})
                 </button>
               )}
             </div>
 
-            {/* Direct Custom Ollama / HuggingFace Repo 1-Click Pull */}
             <div
               style={{
                 display: "flex",
@@ -1785,11 +2151,10 @@ export const App: React.FC = () => {
                 {installingModelId === customInstallTag.trim() &&
                 customInstallTag.trim()
                   ? "⟳ Installing..."
-                  : "⬇ Pull Custom Model"}
+                  : "⬇ Install Tag"}
               </button>
             </div>
 
-            {/* Filtered Model Cards Grid */}
             <div className="model-grid">
               {[
                 ...hfSearchResults,
@@ -1905,7 +2270,6 @@ export const App: React.FC = () => {
                                 ? "🤗 HuggingFace GGUF"
                                 : "🦙 Ollama Registry"}{" "}
                               • <code>{model.params}</code> • {model.size_gb} GB
-                              download
                             </div>
                           </div>
 
@@ -1917,7 +2281,6 @@ export const App: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Capability Badges */}
                         <div
                           style={{
                             display: "flex",
@@ -1999,11 +2362,6 @@ export const App: React.FC = () => {
                                       model.install_id
                                     );
                                   setStatusBanner(res.message);
-                                  setOllamaModels((prev) =>
-                                    prev.includes(model.install_id)
-                                      ? prev
-                                      : [model.install_id, ...prev]
-                                  );
                                   await refreshWorkspaceState(currentDir);
                                 } catch (err: any) {
                                   setStatusBanner(
@@ -2018,7 +2376,7 @@ export const App: React.FC = () => {
                             >
                               {isInstallingThis
                                 ? "⟳ Installing..."
-                                : "⬇ 1-Click Install"}
+                                : "⬇ Install"}
                             </button>
                           ) : (
                             <>
@@ -2042,11 +2400,11 @@ export const App: React.FC = () => {
                                     );
                                   setProviderConfig(saved);
                                   setStatusBanner(
-                                    `Set ${model.name} as Lead Architect AI`
+                                    `Set ${model.name} as Main Agent`
                                   );
                                 }}
                               >
-                                {isLead ? "✓ Lead AI" : "🧠 Use as Lead"}
+                                {isLead ? "✓ Agent" : "Set as Agent"}
                               </button>
                               <button
                                 className={`btn ${
@@ -2055,9 +2413,11 @@ export const App: React.FC = () => {
                                 onClick={async () => {
                                   const next: ProviderConfig = {
                                     ...providerConfig,
+                                    enable_subagents: true,
                                     task_routing: {
                                       ...providerConfig.task_routing,
                                       coder_subagent_model: model.install_id,
+                                      research_subagent_model: model.install_id,
                                       tester_subagent_model: model.install_id,
                                     },
                                   };
@@ -2067,23 +2427,20 @@ export const App: React.FC = () => {
                                     );
                                   setProviderConfig(saved);
                                   setStatusBanner(
-                                    `Set ${model.name} as Fast Subagent AI`
+                                    `Set ${model.name} as Subagent`
                                   );
                                 }}
                               >
                                 {isSubagent
                                   ? "✓ Subagent"
-                                  : "⚡ Use as Subagent"}
+                                  : "Set as Subagent"}
                               </button>
                               <button
                                 className="btn"
-                                title="Uninstall model from disk"
+                                title="Uninstall model"
                                 onClick={async () => {
                                   await oxideBridge.deleteAiModel(
                                     model.install_id
-                                  );
-                                  setOllamaModels((prev) =>
-                                    prev.filter((m) => m !== model.install_id)
                                   );
                                   await refreshWorkspaceState(currentDir);
                                 }}
@@ -2102,13 +2459,17 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== SETTINGS & SUBAGENTS MODAL ==================== */}
+      {/* ==================== MULTI-TABBED SETTINGS WINDOW ==================== */}
       {showSettingsModal && (
         <div
           className="modal-backdrop"
           onClick={() => setShowSettingsModal(false)}
         >
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="model-hub-card"
+            style={{ width: "800px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div
               style={{
                 display: "flex",
@@ -2116,283 +2477,698 @@ export const App: React.FC = () => {
                 alignItems: "center",
               }}
             >
-              <h3>⚙ Subagents, Task Model Routing &amp; PC Governor</h3>
-              <button
-                className="btn btn-primary"
-                onClick={handleAutoAssignOptimalModels}
-              >
-                ✨ Auto-Configure for My PC
-              </button>
-            </div>
-
-            {hwSpecs && (
-              <div className="hw-spec-box">
-                <strong>
-                  🖥 {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb} GB Free
-                  / {hwSpecs.total_ram_gb} GB RAM • {hwSpecs.cpu_cores} Cores)
-                </strong>
-                <div style={{ color: "var(--text-secondary)" }}>
-                  {hwSpecs.governor_advice}
-                </div>
-              </div>
-            )}
-
-            <div className="routing-grid">
-              <div className="form-group">
-                <label>🧠 Lead Architect AI (Complex Thinking)</label>
-                <input
-                  className="workspace-input"
-                  value={providerConfig.task_routing.architect_model}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      ollama_model: e.target.value,
-                      task_routing: {
-                        ...providerConfig.task_routing,
-                        architect_model: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </div>
-
-              <div className="form-group">
-                <label>💻 Coder Subagent (Fast File Edits)</label>
-                <input
-                  className="workspace-input"
-                  value={providerConfig.task_routing.coder_subagent_model}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      task_routing: {
-                        ...providerConfig.task_routing,
-                        coder_subagent_model: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </div>
-
-              <div className="form-group">
-                <label>🔍 Research Subagent (Fast Search)</label>
-                <input
-                  className="workspace-input"
-                  value={providerConfig.task_routing.research_subagent_model}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      task_routing: {
-                        ...providerConfig.task_routing,
-                        research_subagent_model: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </div>
-
-              <div className="form-group">
-                <label>
-                  Max Concurrent Subagents (
-                  {providerConfig.max_concurrent_subagents} / Hard Limit:{" "}
-                  {hwSpecs?.hard_limit_subagents ?? 2})
-                </label>
-                <input
-                  type="range"
-                  min="1"
-                  max={hwSpecs?.hard_limit_subagents ?? 4}
-                  value={providerConfig.max_concurrent_subagents}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      max_concurrent_subagents: parseInt(e.target.value, 10),
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "0.5rem",
-              }}
-            >
+              <h3 style={{ margin: 0 }}>⚙ Oxide Studio Settings</h3>
               <button
                 className="btn"
                 onClick={() => setShowSettingsModal(false)}
               >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={async () => {
-                  const saved = await oxideBridge.updateProviderConfig(
-                    providerConfig
-                  );
-                  setProviderConfig(saved);
-                  setShowSettingsModal(false);
-                }}
-              >
-                Save Settings
+                ✕ Close
               </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ==================== MCP HUB MODAL ==================== */}
-      {showMcpModal && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowMcpModal(false)}
-        >
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>🔌 Model Context Protocol (MCP) Servers</h3>
-            {mcpServers.map((srv) => (
+            {/* Settings Navigation Tabs */}
+            <div
+              className="model-filter-bar"
+              style={{
+                borderBottom: "1px solid var(--border-subtle)",
+                paddingBottom: "0.65rem",
+              }}
+            >
+              {(
+                [
+                  ["general", "📁 General & Workspace"],
+                  ["providers", "🔑 AI Providers & Runtime"],
+                  ["agents", "⚡ Agents & Hardware Governor"],
+                  ["mcp", "🔌 MCP Servers"],
+                  ["updates", "↻ Updates & About"],
+                ] as const
+              ).map(([tabKey, tabLabel]) => (
+                <button
+                  key={tabKey}
+                  className={`model-filter-pill ${
+                    settingsTab === tabKey ? "active" : ""
+                  }`}
+                  onClick={() => setSettingsTab(tabKey)}
+                >
+                  {tabLabel}
+                </button>
+              ))}
+            </div>
+
+            {/* TAB 1: GENERAL & WORKSPACE */}
+            {settingsTab === "general" && (
               <div
-                key={srv.id}
                 style={{
-                  background: "var(--bg-elevated)",
-                  padding: "0.7rem",
-                  borderRadius: 8,
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  flexDirection: "column",
+                  gap: "0.85rem",
                 }}
               >
-                <div>
-                  <strong>{srv.name}</strong>{" "}
-                  <code style={{ fontSize: "0.72rem" }}>({srv.id})</code>
+                <div className="hw-spec-box">
+                  <div style={{ fontWeight: 600 }}>Active Workspace Folder</div>
+                  <div
+                    style={{
+                      fontSize: "0.78rem",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <code>{activeProject?.path}</code>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "0.5rem",
+                      marginTop: "0.35rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      className="btn btn-primary"
+                      onClick={handlePickProjectFolder}
+                    >
+                      📁 Open Folder...
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        const info = await oxideBridge.setWorkspace(".");
+                        const defaultProj: ProjectWorkspace = {
+                          id: "proj-scratch",
+                          name: getBaseName(info.canonical_path),
+                          path: info.canonical_path,
+                        };
+                        const nextProjects = [
+                          defaultProj,
+                          ...projects.filter(
+                            (p) => p.path !== info.canonical_path
+                          ),
+                        ];
+                        setProjects(nextProjects);
+                        setActiveProjectId(defaultProj.id);
+                        await refreshWorkspaceState(".");
+                        setStatusBanner(
+                          `Opened default scratch workspace: ${info.canonical_path}`
+                        );
+                      }}
+                    >
+                      Open Default Scratch Folder (`.oxide/scratch`)
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() =>
+                        oxideBridge.openInVsCode(activeProject?.path)
+                      }
+                    >
+                      Open in VS Code
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: "0.4rem" }}>
+
+                <div className="hw-spec-box">
+                  <div style={{ fontWeight: 600 }}>
+                    Saved Conversations &amp; Session Storage
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.76rem",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    Conversations are automatically saved to{" "}
+                    <code>
+                      %LOCALAPPDATA%/OxideStudio/studio_sessions.json
+                    </code>
+                    .
+                  </div>
+                  <div>
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        const freshConv: SavedConversation = {
+                          id: `conv-${Date.now()}`,
+                          projectId: activeProjectId,
+                          title: "New Conversation",
+                          updatedAt: "now",
+                          turns: [],
+                        };
+                        setConversations([freshConv]);
+                        setActiveConvId(freshConv.id);
+                        await persistStudioSessions(
+                          projects,
+                          [freshConv],
+                          activeProjectId,
+                          freshConv.id
+                        );
+                        setStatusBanner("Cleared saved conversation history.");
+                      }}
+                    >
+                      🗑 Clear Conversation History
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: AI PROVIDERS & RUNTIME */}
+            {settingsTab === "providers" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.85rem",
+                }}
+              >
+                <div className="hw-spec-box">
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <strong>Local Ollama Runtime</strong>:{" "}
+                      <span
+                        style={{
+                          color: ollamaOnline ? "#4ade80" : "#fbbf24",
+                        }}
+                      >
+                        {ollamaOnline
+                          ? `Online (${ollamaModels.length} models installed)`
+                          : "Offline / Not Installed"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.4rem" }}>
+                      {!ollamaOnline && (
+                        <button
+                          className="btn btn-primary"
+                          onClick={async () => {
+                            const msg = await oxideBridge.ensureOllamaEngine();
+                            setStatusBanner(msg);
+                            await refreshWorkspaceState(currentDir);
+                          }}
+                        >
+                          ⚡ Start / Install Ollama
+                        </button>
+                      )}
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setShowSettingsModal(false);
+                          setShowModelHubModal(true);
+                        }}
+                      >
+                        🧠 Open Model Store
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="routing-grid">
+                  <div className="form-group">
+                    <label>Primary AI Provider</label>
+                    <select
+                      className="select-control"
+                      value={providerConfig.active_provider}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          active_provider: e.target.value as ProviderKind,
+                        })
+                      }
+                    >
+                      <option value="ollama">Ollama (Local Offline AI)</option>
+                      <option value="anthropic">Anthropic Claude (Cloud)</option>
+                      <option value="openai">OpenAI GPT (Cloud)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Ollama Server URL</label>
+                    <input
+                      className="workspace-input"
+                      value={providerConfig.ollama_base_url}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          ollama_base_url: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Anthropic Model (if using Claude)</label>
+                    <input
+                      className="workspace-input"
+                      value={providerConfig.anthropic_model}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          anthropic_model: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>OpenAI Model (if using OpenAI)</label>
+                    <input
+                      className="workspace-input"
+                      value={providerConfig.openai_model}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          openai_model: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      Sampling Temperature ({providerConfig.temperature})
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={providerConfig.temperature}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          temperature: parseFloat(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ justifyContent: "end" }}>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={providerConfig.enable_cloud_fallback}
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            enable_cloud_fallback: e.target.checked,
+                          })
+                        }
+                      />
+                      Enable Cloud Fallback if Local Model Fails
+                    </label>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      const saved = await oxideBridge.updateProviderConfig(
+                        providerConfig
+                      );
+                      setProviderConfig(saved);
+                      setStatusBanner("Saved Provider settings.");
+                    }}
+                  >
+                    Save Provider Settings
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: AGENTS & HARDWARE GOVERNOR (Lists ONLY Installed Models) */}
+            {settingsTab === "agents" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.85rem",
+                }}
+              >
+                {hwSpecs && (
+                  <div className="hw-spec-box">
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong>
+                          🖥 {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
+                          GB Free / {hwSpecs.total_ram_gb} GB RAM •{" "}
+                          {hwSpecs.cpu_cores} Cores)
+                        </strong>
+                        <div
+                          style={{
+                            color: "var(--text-secondary)",
+                            marginTop: "0.2rem",
+                          }}
+                        >
+                          {hwSpecs.governor_advice}
+                        </div>
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleAutoAssignOptimalModels}
+                      >
+                        ✨ Auto-Assign Installed Models
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {ollamaModels.length === 0 ? (
+                  <div className="hw-spec-box">
+                    <div style={{ color: "var(--oxide-ember)", fontWeight: 600 }}>
+                      No Local Models Installed Yet
+                    </div>
+                    <div>
+                      Install at least one model in the Model Store to assign
+                      Agent and Subagent models.
+                    </div>
+                    <div>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setShowSettingsModal(false);
+                          setShowModelHubModal(true);
+                        }}
+                      >
+                        🧠 Open Model Store
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="routing-grid">
+                    <div className="form-group">
+                      <label>🧠 Main Agent (Lead Architect)</label>
+                      <select
+                        className="select-control"
+                        value={
+                          providerConfig.task_routing.architect_model ||
+                          ollamaModels[0]
+                        }
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            ollama_model: e.target.value,
+                            task_routing: {
+                              ...providerConfig.task_routing,
+                              architect_model: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        {ollamaModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>💻 Coder Subagent (Fast File Edits)</label>
+                      <select
+                        className="select-control"
+                        value={
+                          providerConfig.task_routing.coder_subagent_model ||
+                          ollamaModels[0]
+                        }
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            task_routing: {
+                              ...providerConfig.task_routing,
+                              coder_subagent_model: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        {ollamaModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>🔍 Research Subagent (Fast Search)</label>
+                      <select
+                        className="select-control"
+                        value={
+                          providerConfig.task_routing.research_subagent_model ||
+                          ollamaModels[0]
+                        }
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            task_routing: {
+                              ...providerConfig.task_routing,
+                              research_subagent_model: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        {ollamaModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>
+                        Max Concurrent Subagents (
+                        {providerConfig.max_concurrent_subagents} / Hard Limit:{" "}
+                        {hwSpecs?.hard_limit_subagents ?? 2})
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max={hwSpecs?.hard_limit_subagents ?? 4}
+                        value={providerConfig.max_concurrent_subagents}
+                        onChange={(e) =>
+                          setProviderConfig({
+                            ...providerConfig,
+                            max_concurrent_subagents: parseInt(
+                              e.target.value,
+                              10
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      const saved = await oxideBridge.updateProviderConfig(
+                        providerConfig
+                      );
+                      setProviderConfig(saved);
+                      setStatusBanner("Saved Agent & Subagent routing.");
+                    }}
+                  >
+                    Save Agent Settings
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: MCP SERVERS */}
+            {settingsTab === "mcp" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem",
+                }}
+              >
+                {mcpServers.map((srv) => (
+                  <div
+                    key={srv.id}
+                    style={{
+                      background: "var(--bg-elevated)",
+                      padding: "0.7rem",
+                      borderRadius: 8,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <strong>{srv.name}</strong>{" "}
+                      <code style={{ fontSize: "0.72rem" }}>({srv.id})</code>
+                      <div
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        Tools discovered: {srv.discovered_tools.length} •
+                        Status: {srv.status}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.4rem" }}>
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          await oxideBridge.discoverMcpTools(srv.id);
+                          setMcpServers(await oxideBridge.listMcpServers());
+                        }}
+                      >
+                        Discover Tools
+                      </button>
+                      <button
+                        className={`btn ${srv.enabled ? "btn-primary" : ""}`}
+                        onClick={async () => {
+                          const list = await oxideBridge.saveMcpServer({
+                            ...srv,
+                            enabled: !srv.enabled,
+                          });
+                          setMcpServers(list);
+                        }}
+                      >
+                        {srv.enabled ? "Enabled" : "Disabled"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr 1.4fr auto",
+                    gap: "0.45rem",
+                  }}
+                >
+                  <input
+                    className="workspace-input"
+                    placeholder="Server ID (e.g. memory)"
+                    value={newMcpId}
+                    onChange={(e) => setNewMcpId(e.target.value)}
+                  />
+                  <input
+                    className="workspace-input"
+                    placeholder="Command (e.g. npx)"
+                    value={newMcpCommand}
+                    onChange={(e) => setNewMcpCommand(e.target.value)}
+                  />
+                  <input
+                    className="workspace-input"
+                    placeholder="Args (e.g. -y @modelcontextprotocol/server-memory)"
+                    value={newMcpArgs}
+                    onChange={(e) => setNewMcpArgs(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      if (!newMcpId.trim()) return;
+                      const list = await oxideBridge.saveMcpServer({
+                        id: newMcpId.trim(),
+                        name: newMcpId.trim(),
+                        transport: "stdio",
+                        command: newMcpCommand.trim(),
+                        args: newMcpArgs.split(/\s+/).filter(Boolean),
+                        env: {},
+                        url: null,
+                        enabled: true,
+                        status: "configured",
+                        discovered_tools: [],
+                      });
+                      setMcpServers(list);
+                      setNewMcpId("");
+                    }}
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: UPDATES & ABOUT */}
+            {settingsTab === "updates" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.85rem",
+                }}
+              >
+                <div className="hw-spec-box">
+                  <div>
+                    Installed Version:{" "}
+                    <code>{updateStatus?.current_version || "v0.1.0"}</code>
+                  </div>
+                  <div>
+                    Latest on GitHub:{" "}
+                    <code>
+                      {updateStatus?.latest_version || "Checking..."}
+                    </code>
+                  </div>
+                  {updateStatus?.latest_commit_message && (
+                    <div>
+                      Latest Commit: {updateStatus.latest_commit_message}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button
                     className="btn"
                     onClick={async () => {
-                      await oxideBridge.discoverMcpTools(srv.id);
-                      setMcpServers(await oxideBridge.listMcpServers());
+                      const st = await oxideBridge.checkGithubUpdate();
+                      setUpdateStatus(st);
                     }}
                   >
-                    Discover Tools
+                    Check for Updates
                   </button>
                   <button
-                    className={`btn ${srv.enabled ? "btn-primary" : ""}`}
+                    className="btn btn-primary"
+                    disabled={isUpdating}
                     onClick={async () => {
-                      const list = await oxideBridge.saveMcpServer({
-                        ...srv,
-                        enabled: !srv.enabled,
-                      });
-                      setMcpServers(list);
+                      setIsUpdating(true);
+                      try {
+                        const res = await oxideBridge.performGithubUpdate();
+                        setStatusBanner(res.message);
+                      } finally {
+                        setIsUpdating(false);
+                      }
                     }}
                   >
-                    {srv.enabled ? "Enabled" : "Disabled"}
+                    {isUpdating ? "Updating..." : "Install Latest Update"}
                   </button>
                 </div>
               </div>
-            ))}
-
-            <div className="routing-grid">
-              <input
-                className="workspace-input"
-                placeholder="Server ID"
-                value={newMcpId}
-                onChange={(e) => setNewMcpId(e.target.value)}
-              />
-              <input
-                className="workspace-input"
-                placeholder="Command (e.g. npx)"
-                value={newMcpCommand}
-                onChange={(e) => setNewMcpCommand(e.target.value)}
-              />
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-              }}
-            >
-              <button
-                className="btn"
-                onClick={async () => {
-                  if (!newMcpId.trim()) return;
-                  const list = await oxideBridge.saveMcpServer({
-                    id: newMcpId.trim(),
-                    name: newMcpId.trim(),
-                    transport: "stdio",
-                    command: newMcpCommand.trim(),
-                    args: ["-y", "@modelcontextprotocol/server-memory"],
-                    env: {},
-                    url: null,
-                    enabled: true,
-                    status: "configured",
-                    discovered_tools: [],
-                  });
-                  setMcpServers(list);
-                  setNewMcpId("");
-                }}
-              >
-                + Add Server
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowMcpModal(false)}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== GITHUB SELF-UPDATER MODAL ==================== */}
-      {showUpdateModal && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowUpdateModal(false)}
-        >
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>↻ Update Oxide from GitHub</h3>
-            {updateStatus && (
-              <div className="hw-spec-box">
-                <div>
-                  Installed: <code>{updateStatus.current_version}</code>
-                </div>
-                <div>
-                  Latest on GitHub: <code>{updateStatus.latest_version}</code>
-                </div>
-                <div>Latest Commit: {updateStatus.latest_commit_message}</div>
-              </div>
             )}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "0.5rem",
-              }}
-            >
-              <button
-                className="btn"
-                onClick={() => setShowUpdateModal(false)}
-              >
-                Close
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={isUpdating}
-                onClick={async () => {
-                  setIsUpdating(true);
-                  try {
-                    const res = await oxideBridge.performGithubUpdate();
-                    setStatusBanner(res.message);
-                  } finally {
-                    setIsUpdating(false);
-                  }
-                }}
-              >
-                {isUpdating ? "Updating..." : "Install Latest Update"}
-              </button>
-            </div>
           </div>
         </div>
       )}

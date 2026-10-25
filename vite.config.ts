@@ -613,9 +613,20 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "set_workspace") {
-            const target = path.resolve(args.workspacePath || ".");
-            if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
-              throw new Error(`Directory does not exist: ${target}`);
+            const rawPath = String(args.workspacePath || "").trim();
+            const defaultScratch = path.join(os.homedir(), ".oxide", "scratch");
+            let target =
+              !rawPath || rawPath === "."
+                ? defaultScratch
+                : path.resolve(rawPath);
+            if (
+              target.toLowerCase().endsWith("\\appdata\\local\\oxide") ||
+              fs.existsSync(path.join(target, "uninstall.exe"))
+            ) {
+              target = defaultScratch;
+            }
+            if (!fs.existsSync(target)) {
+              fs.mkdirSync(target, { recursive: true });
             }
             state.workspaceRoot = target;
             const git = await getGitStatusSummary(target);
@@ -737,16 +748,6 @@ function createLocalSystemBridgePlugin(): Plugin {
                 ollamaModels = (data.models || []).map((m: any) => m.name);
               }
             } catch {}
-            if (ollamaModels.length === 0) {
-              ollamaModels = [
-                "qwen2.5-coder:14b",
-                "qwen2.5-coder:latest",
-                "qwen2.5-coder:7b",
-                "qwen2.5-coder:3b",
-                "gemma2:latest",
-                "deepseek-r1:latest",
-              ];
-            }
             res.end(
               JSON.stringify({
                 active_provider: state.providerConfig.active_provider,

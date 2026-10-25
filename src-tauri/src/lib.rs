@@ -22,9 +22,11 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        let initial_sandbox = env::current_dir()
+        let initial_dir = env::current_dir()
             .ok()
-            .and_then(|cwd| WorkspaceSandbox::new(cwd, CommandPolicy::default()).ok());
+            .filter(|cwd| !commands::workspace::is_installer_binary_dir(cwd))
+            .unwrap_or_else(commands::workspace::default_projects_scratch_dir);
+        let initial_sandbox = WorkspaceSandbox::new(initial_dir, CommandPolicy::default()).ok();
 
         Self {
             sandbox: RwLock::new(initial_sandbox),

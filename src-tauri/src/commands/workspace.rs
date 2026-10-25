@@ -67,6 +67,26 @@ fn studio_state_file_path() -> PathBuf {
     dir.join("studio_sessions.json")
 }
 
+/// Returns the default user projects scratch folder (`C:\Users\<user>\.oxide\scratch`),
+/// creating it automatically if it does not exist yet (just like Google Antigravity's `.gemini/antigravity/scratch`).
+pub fn default_projects_scratch_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let scratch = home.join(".oxide").join("scratch");
+    let _ = fs::create_dir_all(&scratch);
+    scratch
+}
+
+/// Checks if a path is the NSIS installer application directory (`AppData\Local\Oxide`) rather than a user project.
+pub fn is_installer_binary_dir(path: &Path) -> bool {
+    let s = path.to_string_lossy().to_lowercase();
+    s.ends_with("\\appdata\\local\\oxide")
+        || s.ends_with("/appdata/local/oxide")
+        || path.join("uninstall.exe").exists()
+}
+
 /// Loads persisted Projects and Conversation History from disk (`%LOCALAPPDATA%/OxideStudio/studio_sessions.json`).
 #[tauri::command]
 pub async fn load_studio_state() -> OxideResult<Option<String>> {
@@ -91,8 +111,26 @@ pub async fn set_workspace(
     workspace_path: String,
     state: State<'_, AppState>,
 ) -> OxideResult<WorkspaceInfo> {
+    let trimmed = workspace_path.trim();
+    let candidate = if trimmed.is_empty() || trimmed == "." {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| default_projects_scratch_dir());
+        if is_installer_binary_dir(&cwd) {
+            default_projects_scratch_dir()
+        } else {
+            cwd
+        }
+    } else {
+        let p = PathBuf::from(trimmed);
+        if is_installer_binary_dir(&p) {
+            default_projects_scratch_dir()
+        } else {
+            p
+        }
+    };
+
+    let _ = fs::create_dir_all(&candidate);
     let policy = CommandPolicy::default();
-    let sandbox = WorkspaceSandbox::new(&workspace_path, policy.clone())?;
+    let sandbox = WorkspaceSandbox::new(&candidate, policy.clone())?;
     let canonical_path = sandbox.canonical_root().to_string_lossy().to_string();
 
     let git_manager = GitManager::new(sandbox.clone());

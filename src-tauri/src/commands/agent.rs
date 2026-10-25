@@ -78,17 +78,6 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
         }
     }
 
-    if ollama_models.is_empty() {
-        ollama_models = vec![
-            "qwen2.5-coder:14b".to_string(),
-            "qwen2.5-coder:latest".to_string(),
-            "qwen2.5-coder:7b".to_string(),
-            "qwen2.5-coder:3b".to_string(),
-            "gemma2:latest".to_string(),
-            "deepseek-r1:latest".to_string(),
-        ];
-    }
-
     Ok(ProviderHealthReport {
         active_provider: format!("{:?}", config.active_provider).to_lowercase(),
         ollama_reachable: ollama_ok,
