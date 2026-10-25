@@ -37,7 +37,7 @@ export function evaluateModelHardwareFit(
     return {
       tier: "ram_compatible",
       canRun: true,
-      label: "✓ Ready to Install",
+      label: "[Ready to Install]",
       detail: `Requires ~${model.min_ram_gb} GB RAM`,
     };
   }
@@ -50,8 +50,8 @@ export function evaluateModelHardwareFit(
     return {
       tier: "gpu_fast",
       canRun: true,
-      label: "⚡ Runs Fast on GPU",
-      detail: `Fits in ${hw.gpu_name} (${vram}GB VRAM ≥ ${model.recommended_vram_gb}GB needed)`,
+      label: "[Fast GPU]",
+      detail: `Fits in ${hw.gpu_name} (${vram}GB VRAM >= ${model.recommended_vram_gb}GB needed)`,
     };
   }
 
@@ -60,8 +60,8 @@ export function evaluateModelHardwareFit(
     return {
       tier: vram === 0 && totalRam >= model.recommended_vram_gb * 1.5 ? "gpu_fast" : "ram_compatible",
       canRun: true,
-      label: "✓ Compatible with Your PC",
-      detail: `Needs ${model.min_ram_gb}GB RAM • Your PC has ${totalRam}GB RAM`,
+      label: "[Compatible]",
+      detail: `Needs ${model.min_ram_gb}GB RAM | Your PC has ${totalRam}GB RAM`,
     };
   }
 
@@ -70,8 +70,8 @@ export function evaluateModelHardwareFit(
     return {
       tier: "tight_fit",
       canRun: true,
-      label: "⚠ Tight RAM Fit (Slower)",
-      detail: `Needs ~${model.min_ram_gb}GB RAM • Close to your ${totalRam}GB limit`,
+      label: "[Tight RAM Fit]",
+      detail: `Needs ~${model.min_ram_gb}GB RAM | Close to your ${totalRam}GB limit`,
     };
   }
 
@@ -79,7 +79,7 @@ export function evaluateModelHardwareFit(
   return {
     tier: "too_heavy",
     canRun: false,
-    label: `⛔ Too Heavy (${model.min_ram_gb}GB RAM req)`,
+    label: `[Too Heavy: ${model.min_ram_gb}GB req]`,
     detail: `Requires ${model.min_ram_gb}GB RAM / ${model.recommended_vram_gb}GB VRAM (Your PC: ${totalRam}GB RAM)`,
   };
 }
@@ -211,7 +211,7 @@ export const CURATED_MODEL_CATALOG: CatalogModelEntry[] = [
     is_reasoning: false,
     is_fast_subagent: true,
     summary:
-      "Best balance of speed and coding accuracy for Subagent workers on 8GB–16GB RAM PCs.",
+      "Best balance of speed and coding accuracy for Subagent workers on 8GB-16GB RAM PCs.",
   },
   {
     id: "qwen2.5-coder:7b",

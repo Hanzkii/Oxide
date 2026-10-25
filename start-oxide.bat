@@ -21,7 +21,7 @@ if not exist "node_modules" (
     call npm install
 )
 
-:: 3. Instant Desktop GUI Window Mode (uses Edge/Chrome App Mode + Local System Bridge)
-echo [*] Launching Oxide GUI Studio Window...
-start "" cmd /c "timeout /t 2 /nobreak >nul && start msedge --app=http://localhost:1420 --window-size=1400,880"
+:: 3. Launch Oxide in Default Browser or App Mode (Never requires Edge!)
+echo [*] Launching Oxide Studio...
+start "" powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 2; if (Get-Command chrome -ErrorAction SilentlyContinue) { Start-Process chrome '--app=http://localhost:1420 --window-size=1400,880' } elseif (Get-Command brave -ErrorAction SilentlyContinue) { Start-Process brave '--app=http://localhost:1420 --window-size=1400,880' } elseif (Get-Command msedge -ErrorAction SilentlyContinue) { Start-Process msedge '--app=http://localhost:1420 --window-size=1400,880' } else { Start-Process 'http://localhost:1420' }"
 call npm run dev

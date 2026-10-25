@@ -150,24 +150,24 @@ function formatModelDisplayName(modelId: string): string {
       .replace(/:latest$/, "")
       .replace(/-GGUF$/i, "")
       .replace(/-Instruct$/i, "");
-    return repo.length > 20 ? repo.slice(0, 18) + "â€¦" : repo;
+    return repo.length > 20 ? repo.slice(0, 18) + "..." : repo;
   }
   if (modelId.includes(":")) {
     const clean = modelId.replace(":latest", "");
-    return clean.length > 20 ? clean.slice(0, 18) + "â€¦" : clean;
+    return clean.length > 20 ? clean.slice(0, 18) + "..." : clean;
   }
-  return modelId.length > 20 ? modelId.slice(0, 18) + "â€¦" : modelId;
+  return modelId.length > 20 ? modelId.slice(0, 18) + "..." : modelId;
 }
 
 function getStepIcon(title: string): string {
   const t = title.toLowerCase();
-  if (t.includes("read") || t.includes("search") || t.includes("list")) return "ðŸ”";
-  if (t.includes("wrote") || t.includes("write") || t.includes("edit") || t.includes("modify")) return "âœï¸";
-  if (t.includes("command") || t.includes("execut") || t.includes("terminal")) return "âš¡";
-  if (t.includes("git") || t.includes("commit") || t.includes("push") || t.includes("pull")) return "ðŸŒ¿";
-  if (t.includes("subagent") || t.includes("delegat") || t.includes("worker")) return "ðŸ¤–";
-  if (t.includes("mcp") || t.includes("tool")) return "ðŸ”Œ";
-  return "ðŸ“„";
+  if (t.includes("read") || t.includes("search") || t.includes("list")) return "[Search]";
+  if (t.includes("wrote") || t.includes("write") || t.includes("edit") || t.includes("modify")) return "[Edit]";
+  if (t.includes("command") || t.includes("execut") || t.includes("terminal")) return ">";
+  if (t.includes("git") || t.includes("commit") || t.includes("push") || t.includes("pull")) return "[Git]";
+  if (t.includes("subagent") || t.includes("delegat") || t.includes("worker")) return "[Subagent]";
+  if (t.includes("mcp") || t.includes("tool")) return "[MCP]";
+  return "[File]";
 }
 
 function getBaseName(p: string): string {
@@ -833,7 +833,7 @@ export const App: React.FC = () => {
       ollamaModels.length === 0
     ) {
       setStatusBanner(
-        "No AI model installed yet â€” install a local AI model below first."
+        "No AI model installed yet - install a local AI model below first."
       );
       setShowModelHubModal(true);
       return;
@@ -1001,7 +1001,7 @@ export const App: React.FC = () => {
     const saved = await oxideBridge.updateProviderConfig(updated);
     setProviderConfig(saved);
     setStatusBanner(
-      `Assigned Agent: ${mainModel} • Subagent: ${subModel}`
+      `Assigned Agent: ${mainModel} | Subagent: ${subModel}`
     );
   };
 
@@ -1020,7 +1020,7 @@ export const App: React.FC = () => {
 
     try {
       const msg = await oxideBridge.ensureOllamaEngine();
-      setOllamaInstallStep("✓ Ollama installed and running!");
+      setOllamaInstallStep("[OK] Ollama installed and running!");
       setStatusBanner(msg);
       await refreshWorkspaceState(currentDir);
     } catch (err: any) {
@@ -1069,7 +1069,7 @@ export const App: React.FC = () => {
               onClick={handlePickProjectFolder}
               title="Open Workspace Folder"
             >
-              ðŸ“+
+              + Folder
             </button>
             <button
               className="ag-icon-btn"
@@ -1079,7 +1079,7 @@ export const App: React.FC = () => {
               }}
               title="Open Explorer"
             >
-              ðŸ”
+              [Search]
             </button>
           </div>
         </div>
@@ -1104,7 +1104,7 @@ export const App: React.FC = () => {
               setShowRightPanel(true);
             }}
           >
-            <span>ðŸ“ Explorer</span>
+            <span>Explorer</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {files.length}
             </span>
@@ -1124,7 +1124,7 @@ export const App: React.FC = () => {
                   : undefined,
             }}
           >
-            <span>ðŸ§  Models</span>
+            <span>AI Models</span>
             <span
               style={{
                 fontSize: "0.7rem",
@@ -1146,7 +1146,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            <span>âš¡ Agents &amp; Subagents</span>
+            <span>Agents &amp; Subagents</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               Max {providerConfig.max_concurrent_subagents}
             </span>
@@ -1159,7 +1159,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            <span>ðŸ”Œ MCP Servers</span>
+            <span>MCP Servers</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {mcpServers.filter((s) => s.enabled).length} active
             </span>
@@ -1198,7 +1198,7 @@ export const App: React.FC = () => {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    ðŸ“ {proj.name}
+                    [Dir] {proj.name}
                   </span>
                   <div
                     style={{
@@ -1230,7 +1230,7 @@ export const App: React.FC = () => {
                         opacity: 0.65,
                       }}
                     >
-                      âœ•
+                      x
                     </span>
                   </div>
                 </div>
@@ -1253,7 +1253,7 @@ export const App: React.FC = () => {
                         }}
                       >
                         <span className="ag-conv-meta">
-                          {isActive && isRunning ? "âŸ³" : conv.updatedAt}
+                          {isActive && isRunning ? "..." : conv.updatedAt}
                         </span>
                         <span
                           className="ag-conv-meta"
@@ -1264,7 +1264,7 @@ export const App: React.FC = () => {
                             fontSize: "0.72rem",
                           }}
                         >
-                          âœ•
+                          x
                         </span>
                       </div>
                     </div>
@@ -1283,7 +1283,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            âš™ Settings
+            Settings
           </button>
           <button
             className="ag-pill-btn"
@@ -1302,7 +1302,7 @@ export const App: React.FC = () => {
                 .catch(() => {});
             }}
           >
-            â†» {updateStatus?.update_available ? "Update Available" : "Updates"}
+            Updates {updateStatus?.update_available ? "Update Available" : "Updates"}
           </button>
         </div>
       </aside>
@@ -1335,7 +1335,7 @@ export const App: React.FC = () => {
                 }}
                 title={`PC Hardware Governor: ${hwSpecs.governor_tier}\nCPU: ${hwSpecs.cpu_brand} (${hwSpecs.cpu_cores} Cores)\nRAM: ${hwSpecs.available_ram_gb} GB free / ${hwSpecs.total_ram_gb} GB\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nClick to configure hardware acceleration.`}
               >
-                ðŸ–¥ {hwSpecs.gpu_name} ({hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : `${hwSpecs.available_ram_gb} GB free`})
+                [GPU] {hwSpecs.gpu_name} ({hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : `${hwSpecs.available_ram_gb} GB free`})
               </button>
             )}
 
@@ -1349,7 +1349,7 @@ export const App: React.FC = () => {
               onClick={() => setShowModelHubModal(true)}
               title="Open AI Model Store (1-Click Install via Ollama & HuggingFace)"
             >
-              ðŸ§  Models ({ollamaModels.length} Installed)
+              AI Models ({ollamaModels.length} Installed)
             </button>
 
             <button
@@ -1367,7 +1367,7 @@ export const App: React.FC = () => {
               onClick={() => setShowRightPanel((v) => !v)}
               title="Toggle Right Panel"
             >
-              â–¤
+              v
             </button>
           </div>
         </header>
@@ -1424,7 +1424,7 @@ export const App: React.FC = () => {
                               color: "var(--oxide-ember)",
                             }}
                           >
-                            âš¡ No Local AI Model Installed Yet
+                            No Local AI Model Installed Yet
                           </div>
                           <div
                             style={{
@@ -1441,7 +1441,7 @@ export const App: React.FC = () => {
                               className="btn btn-primary"
                               onClick={() => setShowModelHubModal(true)}
                             >
-                              ðŸ§  Open Models (1-Click Install)
+                              Open Models (1-Click Install)
                             </button>
                           </div>
                         </div>
@@ -1460,13 +1460,13 @@ export const App: React.FC = () => {
                           className="ag-pill-btn"
                           onClick={handlePickProjectFolder}
                         >
-                          ðŸ“ Open Folder...
+                          Open Folder...
                         </button>
                         <button
                           className="ag-pill-btn"
                           onClick={() => setShowModelHubModal(true)}
                         >
-                          ðŸ§  Models ({ollamaModels.length} Installed)
+                          AI Models ({ollamaModels.length} Installed)
                         </button>
                         <button
                           className="ag-pill-btn"
@@ -1475,7 +1475,7 @@ export const App: React.FC = () => {
                             setShowRightPanel(true);
                           }}
                         >
-                          ðŸ“„ Explorer ({files.length})
+                          Explorer ({files.length})
                         </button>
                       </div>
                     </div>
@@ -1497,21 +1497,21 @@ export const App: React.FC = () => {
 
                       {liveMetrics && (
                       <div className="oxide-thinking-gauge">
-                        <span style={{ fontSize: "0.9rem" }}>🧠</span>
+                        <span style={{ fontSize: "0.9rem" }}>[AI]</span>
                         <span style={{ fontWeight: 600 }}>
                           {liveMetrics.phase === "reasoning" ? "Deep Reasoning" : "Executing Code"}
                         </span>
-                        <span>•</span>
+                        <span>|</span>
                         <span>Turn Step {liveMetrics.step}</span>
-                        <span>•</span>
+                        <span>|</span>
                         <span className="oxide-token-speed">
-                          ⚡ {liveMetrics.tokens_generated} tokens ({liveMetrics.tokens_per_second.toFixed(1)} tok/s)
+                           {liveMetrics.tokens_generated} tokens ({liveMetrics.tokens_per_second.toFixed(1)} tok/s)
                         </span>
                         {liveMetrics.gpu_layers && liveMetrics.gpu_layers > 0 && (
                           <>
-                            <span>•</span>
+                            <span>|</span>
                             <span style={{ color: "#34d399", fontWeight: 600 }}>
-                              🎮 GPU: {liveMetrics.gpu_layers} layers
+                              GPU: {liveMetrics.gpu_layers} layers
                             </span>
                           </>
                         )}
@@ -1529,7 +1529,7 @@ export const App: React.FC = () => {
                         >
                           <span>
                             Thought for {turn.thoughtSeconds}s{" "}
-                            {isExpanded ? "â–¾" : "â€º"}
+                            {isExpanded ? "v" : ">"}
                           </span>
                         </button>
 
@@ -1583,7 +1583,7 @@ export const App: React.FC = () => {
                         onClick={() => setLiveThoughtExpanded((v) => !v)}
                       >
                         <span style={{ color: "var(--oxide-ember)" }}>
-                          âš¡ Thinking... {liveThoughtExpanded ? "â–¾" : "â€º"}
+                          Thinking... {liveThoughtExpanded ? "v" : ">"}
                         </span>
                       </button>
                       {liveThoughtExpanded && (
@@ -1603,12 +1603,12 @@ export const App: React.FC = () => {
 
                       {subagents.slice(0, 3).map((sub) => (
                         <div key={sub.id} className="ag-tool-step">
-                          <span className="ag-tool-step-icon">âš¡</span>
+                          <span className="ag-tool-step-icon">&gt;</span>
                           <span className="ag-tool-step-label">
                             [{sub.role.toUpperCase()}] {sub.title}
                           </span>
                           <span className="ag-tool-step-badge">
-                            {sub.model} â€¢ {sub.state}
+                            {sub.model} | {sub.state}
                           </span>
                         </div>
                       ))}
@@ -1651,8 +1651,8 @@ export const App: React.FC = () => {
                         justifyContent: "space-between",
                       }}
                     >
-                      <span>⚡ Slash Commands</span>
-                      <span>Tab / Enter to select • Esc to dismiss</span>
+                      <span>/ Slash Commands</span>
+                      <span>Tab / Enter to select | Esc to dismiss</span>
                     </div>
                     {SLASH_COMMANDS.filter((cmd) =>
                       cmd.command.toLowerCase().startsWith(prompt.toLowerCase())
@@ -1880,7 +1880,7 @@ export const App: React.FC = () => {
                         color: providerConfig.enable_subagents ? "#86efac" : undefined,
                       }}
                     >
-                      🤖 Subagents
+                      Subagents
                     </button>
                   </div>
 
@@ -1911,12 +1911,12 @@ export const App: React.FC = () => {
                       >
                         <span style={{ fontSize: "0.85rem" }}>
                           {providerConfig.security_mode === "request_review"
-                            ? "🛡️"
+                            ? "[Review]"
                             : providerConfig.security_mode === "default"
-                            ? "🔒"
+                            ? "[Default]"
                             : providerConfig.security_mode === "auto"
-                            ? "✨"
-                            : "⚡"}
+                            ? "[Auto]"
+                            : ""}
                         </span>
                         <span>
                           {providerConfig.security_mode === "request_review"
@@ -1928,7 +1928,7 @@ export const App: React.FC = () => {
                             : "Turbo"}
                         </span>
                         <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>
-                          {showSecurityMenu ? "▴" : "▾"}
+                          {showSecurityMenu ? "^" : "v"}
                         </span>
                       </button>
 
@@ -1953,7 +1953,7 @@ export const App: React.FC = () => {
                               setStatusBanner("Execution mode set to Request Review.");
                             }}
                           >
-                            <span className="oxide-security-item-icon">🛡️</span>
+                            <span className="oxide-security-item-icon">[Review]</span>
                             <div className="oxide-security-item-body">
                               <span className="oxide-security-item-title">Request Review</span>
                               <span className="oxide-security-item-desc">
@@ -1961,7 +1961,7 @@ export const App: React.FC = () => {
                               </span>
                             </div>
                             {providerConfig.security_mode === "request_review" && (
-                              <span className="oxide-security-item-check">✓</span>
+                              <span className="oxide-security-item-check">[OK]</span>
                             )}
                           </button>
 
@@ -1981,7 +1981,7 @@ export const App: React.FC = () => {
                               setStatusBanner("Execution mode set to Default.");
                             }}
                           >
-                            <span className="oxide-security-item-icon">🔒</span>
+                            <span className="oxide-security-item-icon">[Default]</span>
                             <div className="oxide-security-item-body">
                               <span className="oxide-security-item-title">Default</span>
                               <span className="oxide-security-item-desc">
@@ -1989,7 +1989,7 @@ export const App: React.FC = () => {
                               </span>
                             </div>
                             {providerConfig.security_mode === "default" && (
-                              <span className="oxide-security-item-check">✓</span>
+                              <span className="oxide-security-item-check">[OK]</span>
                             )}
                           </button>
 
@@ -2009,7 +2009,7 @@ export const App: React.FC = () => {
                               setStatusBanner("Execution mode set to Auto (Preview).");
                             }}
                           >
-                            <span className="oxide-security-item-icon">✨</span>
+                            <span className="oxide-security-item-icon">[Auto]</span>
                             <div className="oxide-security-item-body">
                               <span className="oxide-security-item-title">Auto (Preview)</span>
                               <span className="oxide-security-item-desc">
@@ -2017,7 +2017,7 @@ export const App: React.FC = () => {
                               </span>
                             </div>
                             {providerConfig.security_mode === "auto" && (
-                              <span className="oxide-security-item-check">✓</span>
+                              <span className="oxide-security-item-check">[OK]</span>
                             )}
                           </button>
 
@@ -2039,7 +2039,7 @@ export const App: React.FC = () => {
                               setStatusBanner("Execution mode set to Turbo (Unrestricted).");
                             }}
                           >
-                            <span className="oxide-security-item-icon">⚡</span>
+                            <span className="oxide-security-item-icon"></span>
                             <div className="oxide-security-item-body">
                               <span className="oxide-security-item-title">Turbo</span>
                               <span className="oxide-security-item-desc">
@@ -2048,7 +2048,7 @@ export const App: React.FC = () => {
                             </div>
                             {(providerConfig.security_mode === "turbo" ||
                               !providerConfig.security_mode) && (
-                              <span className="oxide-security-item-check">✓</span>
+                              <span className="oxide-security-item-check">[OK]</span>
                             )}
                           </button>
                         </div>
@@ -2061,7 +2061,7 @@ export const App: React.FC = () => {
                       onClick={() => handleRunTask()}
                       title="Send (Enter)"
                     >
-                      â†’
+                      -&gt;
                     </button>
                   </div>
                 </div>
@@ -2089,7 +2089,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("review")}
                   >
-                    <span>ðŸ“‹ Source Control</span>
+                    <span>Source Control</span>
                     <span style={{ fontSize: "0.72rem" }}>
                       {gitStatus?.changed_files.length || 0} changed
                     </span>
@@ -2103,7 +2103,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("files")}
                   >
-                    <span>ðŸ“ Explorer</span>
+                    <span>Explorer</span>
                     <span style={{ fontSize: "0.72rem" }}>{files.length}</span>
                   </button>
 
@@ -2126,7 +2126,7 @@ export const App: React.FC = () => {
                       setShowSettingsModal(true);
                     }}
                   >
-                    <span>ðŸ”Œ MCP Servers</span>
+                    <span>MCP Servers</span>
                     <span style={{ fontSize: "0.72rem" }}>
                       {mcpServers.filter((s) => s.enabled).length} active
                     </span>
@@ -2169,21 +2169,21 @@ export const App: React.FC = () => {
                       onClick={handlePickProjectFolder}
                       style={{ justifyContent: "center" }}
                     >
-                      ðŸ“ Switch Workspace Folder...
+                      Switch Workspace Folder...
                     </button>
                     <button
                       className="btn"
                       onClick={() => setRightDrawer("files")}
                       style={{ justifyContent: "center" }}
                     >
-                      ðŸ“„ Browse Explorer ({files.length})
+                      Browse Explorer ({files.length})
                     </button>
                     <button
                       className="btn"
                       onClick={() => setShowModelHubModal(true)}
                       style={{ justifyContent: "center" }}
                     >
-                      ðŸ§  Open Models ({ollamaModels.length} Installed)
+                      Open Models ({ollamaModels.length} Installed)
                     </button>
                   </div>
                 </div>
@@ -2203,7 +2203,7 @@ export const App: React.FC = () => {
                             setFiles(await oxideBridge.listWorkspaceFiles("."));
                           }}
                         >
-                          â†‘ Root
+                          Root
                         </button>
                       )}
                       <button
@@ -2231,7 +2231,7 @@ export const App: React.FC = () => {
                         onClick={() => handleOpenFileOrDir(entry)}
                       >
                         <span>
-                          {entry.is_dir ? "ðŸ“" : "ðŸ“„"} {entry.name}
+                          {entry.is_dir ? "[Dir]" : "[File]"} {entry.name}
                         </span>
                       </div>
                     ))}
@@ -2257,7 +2257,7 @@ export const App: React.FC = () => {
                         style={{ padding: "0.18rem 0.45rem" }}
                         onClick={() => setRightDrawer("files")}
                       >
-                        â† Files
+                        &lt; Files
                       </button>
                       <button
                         className="btn btn-primary"
@@ -2297,19 +2297,19 @@ export const App: React.FC = () => {
                         className="btn"
                         onClick={() => handleGitAction("pull")}
                       >
-                        â†“ Pull
+                        Pull
                       </button>
                       <button
                         className="btn"
                         onClick={() => handleGitAction("commit")}
                       >
-                        âœ“ Commit
+                        Commit
                       </button>
                       <button
                         className="btn btn-primary"
                         onClick={() => handleGitAction("push")}
                       >
-                        â†‘ Push
+                        Push
                       </button>
                     </div>
                   </div>
@@ -2403,7 +2403,7 @@ export const App: React.FC = () => {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
-                  ðŸ§  AI Models (Ollama &amp; HuggingFace 1-Click Installer)
+                  AI Models (Ollama &amp; HuggingFace 1-Click Installer)
                 </h3>
                 <div
                   style={{
@@ -2412,7 +2412,7 @@ export const App: React.FC = () => {
                     marginTop: "0.2rem",
                   }}
                 >
-                  Auto-matched to your PC hardware â€¢ Filter by Coding,
+                  Auto-matched to your PC hardware | Filter by Coding,
                   Uncensored, Reasoning &amp; Fast Subagents
                 </div>
               </div>
@@ -2420,7 +2420,7 @@ export const App: React.FC = () => {
                 className="btn"
                 onClick={() => setShowModelHubModal(false)}
               >
-                âœ• Close
+                Close
               </button>
             </div>
 
@@ -2437,10 +2437,10 @@ export const App: React.FC = () => {
             >
               <div>
                 <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                  ðŸ–¥ Detected PC Specs:{" "}
+                  Detected PC Specs:{" "}
                   <span style={{ color: "var(--oxide-ember)" }}>
                     {hwSpecs
-                      ? `${hwSpecs.total_ram_gb} GB RAM (${hwSpecs.available_ram_gb} GB free) â€¢ ${hwSpecs.gpu_name}${
+                      ? `${hwSpecs.total_ram_gb} GB RAM (${hwSpecs.available_ram_gb} GB free) | ${hwSpecs.gpu_name}${
                           hwSpecs.gpu_vram_gb > 0
                             ? ` (${hwSpecs.gpu_vram_gb} GB VRAM)`
                             : ""
@@ -2465,12 +2465,12 @@ export const App: React.FC = () => {
                       ? `Online (${ollamaModels.length} installed)`
                       : "Not Running / Not Installed"}
                   </strong>
-                  {" â€¢ "}
+                  {" | "}
                   Agent:{" "}
                   <code>
                     {providerConfig.task_routing.architect_model || "None"}
                   </code>
-                  {" â€¢ "}
+                  {" | "}
                   Subagent:{" "}
                   <code>
                     {providerConfig.task_routing.coder_subagent_model || "None"}
@@ -2486,7 +2486,7 @@ export const App: React.FC = () => {
                       disabled={isInstallingOllama}
                       onClick={handleInstallOllama}
                     >
-                      {isInstallingOllama ? "↻ Installing Ollama..." : "⚡ 1-Click Start / Install Ollama"}
+                      {isInstallingOllama ? "Installing Ollama..." : "1-Click Start / Install Ollama"}
                     </button>
                     {isInstallingOllama && (
                       <div style={{ width: "260px" }}>
@@ -2508,7 +2508,7 @@ export const App: React.FC = () => {
                     className="btn"
                     onClick={handleAutoAssignOptimalModels}
                   >
-                    âœ¨ Auto-Assign Installed Models
+                    Auto-Assign Installed Models
                   </button>
                 )}
               </div>
@@ -2527,11 +2527,11 @@ export const App: React.FC = () => {
                 {(
                   [
                     ["all", "All Models"],
-                    ["coding", "ðŸ’» Coding"],
-                    ["uncensored", "ðŸ”“ Uncensored"],
-                    ["coding_uncensored", "ðŸ”¥ Coding + Uncensored"],
-                    ["reasoning", "ðŸ§  Reasoning (R1)"],
-                    ["subagent", "âš¡ Fast Subagents"],
+                    ["coding", "Coding"],
+                    ["uncensored", "Uncensored"],
+                    ["coding_uncensored", "Coding + Uncensored"],
+                    ["reasoning", "Reasoning (R1)"],
+                    ["subagent", "Fast Subagents"],
                   ] as const
                 ).map(([key, label]) => (
                   <button
@@ -2550,8 +2550,8 @@ export const App: React.FC = () => {
                 {(
                   [
                     ["all", "All Sources"],
-                    ["ollama", "ðŸ¦™ Ollama"],
-                    ["huggingface", "ðŸ¤— HuggingFace"],
+                    ["ollama", "Ollama"],
+                    ["huggingface", "HuggingFace"],
                   ] as const
                 ).map(([srcKey, srcLabel]) => (
                   <button
@@ -2582,7 +2582,7 @@ export const App: React.FC = () => {
                     checked={onlyFitsMyPc}
                     onChange={(e) => setOnlyFitsMyPc(e.target.checked)}
                   />
-                  âœ… Fits My PC Only
+                  Fits My PC Only
                 </label>
               </div>
             </div>
@@ -2637,8 +2637,8 @@ export const App: React.FC = () => {
                 }}
               >
                 {isSearchingHf
-                  ? "ðŸ¤— Searching HF..."
-                  : "ðŸ¤— Search HuggingFace Live"}
+                  ? "Searching HF..."
+                  : "Search HuggingFace Live"}
               </button>
               {hfSearchResults.length > 0 && (
                 <button
@@ -2690,8 +2690,8 @@ export const App: React.FC = () => {
               >
                 {installingModelId === customInstallTag.trim() &&
                 customInstallTag.trim()
-                  ? `${(modelProgressMap[customInstallTag.trim()]?.percent ?? 0) > 0 ? `${modelProgressMap[customInstallTag.trim()].percent.toFixed(0)}%` : "âŸ³"} Installing...`
-                  : "â¬‡ Install Tag"}
+                  ? `${(modelProgressMap[customInstallTag.trim()]?.percent ?? 0) > 0 ? `${modelProgressMap[customInstallTag.trim()].percent.toFixed(0)}%` : "..."} Installing...`
+                  : "Install Tag"}
               </button>
             </div>
 
@@ -2807,9 +2807,9 @@ export const App: React.FC = () => {
                               }}
                             >
                               {model.source === "huggingface"
-                                ? "ðŸ¤— HuggingFace GGUF"
-                                : "ðŸ¦™ Ollama Registry"}{" "}
-                              â€¢ <code>{model.params}</code> â€¢ {model.size_gb} GB
+                                ? "HuggingFace GGUF"
+                                : "Ollama Registry"}{" "}
+                              | <code>{model.params}</code> | {model.size_gb} GB
                             </div>
                           </div>
 
@@ -2830,22 +2830,22 @@ export const App: React.FC = () => {
                         >
                           {model.is_coding && (
                             <span className="model-badge coding">
-                              ðŸ’» Coding
+                              Coding
                             </span>
                           )}
                           {model.is_uncensored && (
                             <span className="model-badge uncensored">
-                              ðŸ”“ Uncensored
+                              Uncensored
                             </span>
                           )}
                           {model.is_reasoning && (
                             <span className="model-badge reasoning">
-                              ðŸ§  Reasoning
+                              Reasoning
                             </span>
                           )}
                           {model.is_fast_subagent && (
                             <span className="model-badge subagent">
-                              âš¡ Fast Subagent
+                              Fast Subagent
                             </span>
                           )}
                         </div>
@@ -2916,8 +2916,8 @@ export const App: React.FC = () => {
                               }}
                             >
                               {isInstallingThis
-                                ? `${(modelProgressMap[model.install_id]?.percent ?? 0) > 0 ? `${modelProgressMap[model.install_id].percent.toFixed(0)}%` : "âŸ³"} Installing...`
-                                : "â¬‡ Install"}
+                                ? `${(modelProgressMap[model.install_id]?.percent ?? 0) > 0 ? `${modelProgressMap[model.install_id].percent.toFixed(0)}%` : "..."} Installing...`
+                                : "Install"}
                             </button>
                             {isInstallingThis && (
                               <div style={{ marginTop: "0.3rem", width: "100%" }}>
@@ -2969,7 +2969,7 @@ export const App: React.FC = () => {
                                   );
                                 }}
                               >
-                                {isLead ? "âœ“ Agent" : "Set as Agent"}
+                                {isLead ? "[Agent]" : "Set as Agent"}
                               </button>
                               <button
                                 className={`btn ${
@@ -2997,7 +2997,7 @@ export const App: React.FC = () => {
                                 }}
                               >
                                 {isSubagent
-                                  ? "âœ“ Subagent"
+                                  ? "[Subagent]"
                                   : "Set as Subagent"}
                               </button>
                               <button
@@ -3010,7 +3010,7 @@ export const App: React.FC = () => {
                                   await refreshWorkspaceState(currentDir);
                                 }}
                               >
-                                ðŸ—‘
+                                [Delete]
                               </button>
                             </>
                           )}
@@ -3042,12 +3042,12 @@ export const App: React.FC = () => {
                 alignItems: "center",
               }}
             >
-              <h3 style={{ margin: 0 }}>âš™ Oxide Studio Settings</h3>
+              <h3 style={{ margin: 0 }}>Oxide Studio Settings</h3>
               <button
                 className="btn"
                 onClick={() => setShowSettingsModal(false)}
               >
-                âœ• Close
+                Close
               </button>
             </div>
 
@@ -3061,13 +3061,13 @@ export const App: React.FC = () => {
             >
               {(
                 [
-                  ["general", "ðŸ“ General"],
-                  ["hardware", "ðŸ–¥ Hardware & Acceleration"],
-                  ["security", "🔒 Security & Sandbox"],
-                  ["providers", "ðŸ”‘ AI Providers"],
-                  ["agents", "âš¡ Agent Routing"],
-                  ["mcp", "ðŸ”Œ MCP Servers"],
-                  ["updates", "â†» Updates"],
+                  ["general", "General"],
+                  ["hardware", "Hardware & Acceleration"],
+                  ["security", "Security & Sandbox"],
+                  ["providers", "AI Providers"],
+                  ["agents", "Agent Routing"],
+                  ["mcp", "MCP Servers"],
+                  ["updates", "Updates"],
                 ] as const
               ).map(([tabKey, tabLabel]) => (
                 <button
@@ -3113,7 +3113,7 @@ export const App: React.FC = () => {
                       className="btn btn-primary"
                       onClick={handlePickProjectFolder}
                     >
-                      ðŸ“ Open Folder...
+                      Open Folder...
                     </button>
                     <button
                       className="btn"
@@ -3189,7 +3189,7 @@ export const App: React.FC = () => {
                         setStatusBanner("Cleared saved conversation history.");
                       }}
                     >
-                      ðŸ—‘ Clear Conversation History
+                      Clear Conversation History
                     </button>
                   </div>
                 </div>
@@ -3203,13 +3203,13 @@ export const App: React.FC = () => {
                   <div className="hw-spec-box">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
-                        <strong>ðŸ–¥ {hwSpecs.gpu_name}</strong>
+                        <strong>[GPU] {hwSpecs.gpu_name}</strong>
                         <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                          {hwSpecs.governor_tier} â€¢ {hwSpecs.cpu_brand} ({hwSpecs.cpu_cores} Cores)
+                          {hwSpecs.governor_tier} | {hwSpecs.cpu_brand} ({hwSpecs.cpu_cores} Cores)
                         </div>
                       </div>
                       <span className="hw-fit-badge gpu_fast">
-                        âš¡ {hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : "System GPU"}
+                        [GPU] {hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : "System GPU"}
                       </span>
                     </div>
 
@@ -3224,7 +3224,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.6rem" }}>
-                      ðŸ’¡ {hwSpecs.governor_advice}
+                      Note: {hwSpecs.governor_advice}
                     </div>
                   </div>
                 )}
@@ -3263,10 +3263,10 @@ export const App: React.FC = () => {
                         })
                       }
                     >
-                      <option value="hybrid_split">⚡ Hybrid Split (Auto-calculate VRAM + System RAM split)</option>
-                      <option value="full_gpu">🚀 Full GPU (Offload all layers to VRAM - Fastest)</option>
-                      <option value="custom_layers">⚙️ Custom Layers (Use manual slider below)</option>
-                      <option value="cpu_only">🖥️ CPU Only (0 layers on GPU)</option>
+                      <option value="hybrid_split">Hybrid Split (Auto-calculate VRAM + System RAM split)</option>
+                      <option value="full_gpu">Full GPU (Offload all layers to VRAM - Fastest)</option>
+                      <option value="custom_layers">Custom Layers (Use manual slider below)</option>
+                      <option value="cpu_only">CPU Only (0 layers on GPU)</option>
                     </select>
                   </div>
                 </div>
@@ -3311,10 +3311,10 @@ export const App: React.FC = () => {
                     <div className="hw-spec-box" style={{ marginTop: "0.5rem" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.74rem", marginBottom: "0.25rem" }}>
                         <span style={{ color: "#34d399", fontWeight: 600 }}>
-                          🎮 GPU VRAM Offload: {gpuPercent}% (~{effectiveGpuLayers} layers)
+                          GPU VRAM Offload: {gpuPercent}% (~{effectiveGpuLayers} layers)
                         </span>
                         <span style={{ color: "#60a5fa", fontWeight: 600 }}>
-                          🖥️ System RAM (CPU): {cpuPercent}% (~{Math.max(0, 99 - effectiveGpuLayers)} layers)
+                          System RAM (CPU): {cpuPercent}% (~{Math.max(0, 99 - effectiveGpuLayers)} layers)
                         </span>
                       </div>
                       <div className="oxide-split-bar">
@@ -3326,7 +3326,7 @@ export const App: React.FC = () => {
                         </div>
                       </div>
                       <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.35rem", lineHeight: 1.4 }}>
-                        💡 <strong>GPU Layer Offloading (Hybrid Split Inference):</strong> Oxide partitions transformer neural layers across your dedicated GPU VRAM and high-speed System RAM. This enables running heavyweight 14B, 32B, and 70B models that exceed physical VRAM without Out-Of-Memory (OOM) errors.
+                        <strong>GPU Layer Offloading (Hybrid Split Inference):</strong> Oxide partitions transformer neural layers across your dedicated GPU VRAM and high-speed System RAM. This enables running heavyweight 14B, 32B, and 70B models that exceed physical VRAM without Out-Of-Memory (OOM) errors.
                       </div>
                     </div>
                   );
@@ -3359,13 +3359,13 @@ export const App: React.FC = () => {
                 <div className="hw-spec-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <strong>🔒 Active Workspace Sandbox Jail</strong>
+                      <strong>Active Workspace Sandbox Jail</strong>
                       <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
                         Restricts AI tools, file mutations, and terminal executions strictly to your active project folder
                       </div>
                     </div>
                     <span className="hw-fit-badge gpu_fast">
-                      ✓ Sandbox Active
+                      [OK] Sandbox Active
                     </span>
                   </div>
                   <div style={{ marginTop: "0.5rem", fontSize: "0.76rem", color: "var(--text-secondary)" }}>
@@ -3380,7 +3380,7 @@ export const App: React.FC = () => {
                 <div className="hw-spec-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <strong>🌐 Model Internet Access &amp; Web Search</strong>
+                      <strong>Model Internet Access &amp; Web Search</strong>
                       <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
                         Allows the AI model to search the web and fetch documentation from online URLs
                       </div>
@@ -3395,7 +3395,7 @@ export const App: React.FC = () => {
                         })
                       }
                     >
-                      {providerConfig.allow_internet_access ? "✓ Internet Enabled" : "✕ Offline Mode"}
+                      {providerConfig.allow_internet_access ? "[OK] Internet Enabled" : "[Offline] Offline Mode"}
                     </button>
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem", lineHeight: 1.4 }}>
@@ -3419,10 +3419,10 @@ export const App: React.FC = () => {
                         })
                       }
                     >
-                      <option value="turbo">⚡ Turbo (Run all commands without restrictions)</option>
-                      <option value="auto">✨ Auto / Preview (Automatically evaluate command safety)</option>
-                      <option value="default">🔒 Default (Ask before sensitive or destructive operations)</option>
-                      <option value="request_review">🛡️ Request Review (Every command requires approval)</option>
+                      <option value="turbo">Turbo (Run all commands without restrictions)</option>
+                      <option value="auto">Auto / Preview (Automatically evaluate command safety)</option>
+                      <option value="default">Default (Ask before sensitive or destructive operations)</option>
+                      <option value="request_review">Request Review (Every command requires approval)</option>
                     </select>
                   </div>
 
@@ -3438,8 +3438,8 @@ export const App: React.FC = () => {
                         })
                       }
                     >
-                      <option value="true">🔒 Strict Sandbox (Block all paths outside workspace)</option>
-                      <option value="false">⚠️ Permissive (Allow read-only outside workspace)</option>
+                      <option value="true">Strict Sandbox (Block all paths outside workspace)</option>
+                      <option value="false">Permissive (Allow read-only outside workspace)</option>
                     </select>
                   </div>
                 </div>
@@ -3455,7 +3455,7 @@ export const App: React.FC = () => {
                   <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.45rem" }}>
                     {["cargo", "rustc", "npm", "npx", "node", "git", "python", "pytest", "ollama", "tsc", "vite"].map((b) => (
                       <span key={b} className="oxide-slash-badge" style={{ color: "#86efac", borderColor: "rgba(34, 197, 94, 0.3)" }}>
-                        ✓ {b}
+                        [OK] {b}
                       </span>
                     ))}
                   </div>
@@ -3513,7 +3513,7 @@ export const App: React.FC = () => {
                             disabled={isInstallingOllama}
                             onClick={handleInstallOllama}
                           >
-                            {isInstallingOllama ? "↻ Installing Ollama..." : "⚡ Start / Install Ollama"}
+                            {isInstallingOllama ? "Installing Ollama..." : "Start / Install Ollama"}
                           </button>
                           {isInstallingOllama && (
                             <div style={{ width: "240px" }}>
@@ -3537,7 +3537,7 @@ export const App: React.FC = () => {
                           setShowModelHubModal(true);
                         }}
                       >
-                        ðŸ§  Open Model Store
+                        Open Model Store
                       </button>
                     </div>
                   </div>
@@ -3690,8 +3690,8 @@ export const App: React.FC = () => {
                     >
                       <div>
                         <strong>
-                          ðŸ–¥ {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
-                          GB Free / {hwSpecs.total_ram_gb} GB RAM â€¢{" "}
+                          [GPU] {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
+                          GB Free / {hwSpecs.total_ram_gb} GB RAM |{" "}
                           {hwSpecs.cpu_cores} Cores)
                         </strong>
                         <div
@@ -3707,7 +3707,7 @@ export const App: React.FC = () => {
                         className="btn btn-primary"
                         onClick={handleAutoAssignOptimalModels}
                       >
-                        âœ¨ Auto-Assign Installed Models
+                        Auto-Assign Installed Models
                       </button>
                     </div>
                   </div>
@@ -3730,14 +3730,14 @@ export const App: React.FC = () => {
                           setShowModelHubModal(true);
                         }}
                       >
-                        ðŸ§  Open Model Store
+                        Open Model Store
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="routing-grid">
                     <div className="form-group">
-                      <label>ðŸ§  Main Agent (Lead Architect)</label>
+                      <label>Main Agent (Lead Architect)</label>
                       <select
                         className="select-control"
                         value={
@@ -3764,7 +3764,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>ðŸ’» Coder Subagent (Fast File Edits)</label>
+                      <label>Coder Subagent (Fast File Edits)</label>
                       <select
                         className="select-control"
                         value={
@@ -3790,7 +3790,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>ðŸ” Research Subagent (Fast Search)</label>
+                      <label>Research Subagent (Fast Search)</label>
                       <select
                         className="select-control"
                         value={
@@ -3891,7 +3891,7 @@ export const App: React.FC = () => {
                           color: "var(--text-secondary)",
                         }}
                       >
-                        Tools discovered: {srv.discovered_tools.length} â€¢
+                        Tools discovered: {srv.discovered_tools.length} |
                         Status: {srv.status}
                       </div>
                     </div>
@@ -4068,7 +4068,7 @@ export const App: React.FC = () => {
             >
               <div>
                 <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span>🤖</span>
+                  <span>[Agent]</span>
                   <span>Oxide Multi-Agent Architecture</span>
                 </h3>
                 <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
@@ -4079,7 +4079,7 @@ export const App: React.FC = () => {
                 className="btn"
                 onClick={() => setShowSubagentsGuide(false)}
               >
-                ✕ Close
+                Close
               </button>
             </div>
 
@@ -4095,7 +4095,7 @@ export const App: React.FC = () => {
                   lineHeight: 1.5,
                 }}
               >
-                <strong>🧠 How Subagent Delegation Works in Oxide:</strong>
+                <strong>[AI] How Subagent Delegation Works in Oxide:</strong>
                 <p style={{ margin: "0.35rem 0 0" }}>
                   Complex coding tasks overwhelm single-threaded LLMs with context pollution and hallucination. In Oxide, your <strong>Lead Architect</strong> reasons deeply inside <code>&lt;think&gt;</code> tags, breaks down the user request into concrete subtasks, and issues parallel orders to <strong>Specialized Subagents</strong>.
                 </p>
@@ -4111,7 +4111,7 @@ export const App: React.FC = () => {
               >
                 <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(242, 108, 58, 0.3)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "var(--oxide-ember)" }}>
-                    <span>👑 Lead Architect (Main Agent)</span>
+                    <span>Lead Architect (Main Agent)</span>
                   </div>
                   <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
                     Analyzes user requests, forms multi-step plans, reasons about architecture, and synthesizes final deliverables. Emits <code>delegate_subagents</code> tool calls to trigger subagents.
@@ -4123,7 +4123,7 @@ export const App: React.FC = () => {
 
                 <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(96, 165, 250, 0.3)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#60a5fa" }}>
-                    <span>⚡ Coder Subagent</span>
+                    <span>Coder Subagent</span>
                   </div>
                   <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
                     Specialized in granular code mutations (<code>write_file</code>, <code>replace_in_file</code>). Performs fast, clean code edits across files concurrently without distracting the Lead Architect.
@@ -4135,7 +4135,7 @@ export const App: React.FC = () => {
 
                 <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(167, 139, 250, 0.3)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#a78bfa" }}>
-                    <span>🔍 Research Subagent</span>
+                    <span>Research Subagent</span>
                   </div>
                   <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
                     Fast read-only exploration. Traverses project files, parses symbols, and checks dependencies using <code>search_codebase</code> and <code>read_file</code> to verify facts before changes.
@@ -4147,7 +4147,7 @@ export const App: React.FC = () => {
 
                 <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(52, 211, 153, 0.3)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#34d399" }}>
-                    <span>🧪 Tester Subagent</span>
+                    <span>Tester Subagent</span>
                   </div>
                   <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
                     Executes test suites (<code>cargo test</code>, <code>npm test</code>, linters), parses terminal compiler errors, and reports exact diagnostics back to the Lead Architect.
@@ -4176,8 +4176,8 @@ export const App: React.FC = () => {
                   </div>
                   <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>
                     {providerConfig.enable_subagents
-                      ? "Enabled — Lead Architect delegates subtasks to parallel subagents."
-                      : "Disabled — Lead Architect handles all steps in a single thread."}
+                      ? "Enabled - Lead Architect delegates subtasks to parallel subagents."
+                      : "Disabled - Lead Architect handles all steps in a single thread."}
                   </div>
                 </div>
                 <button
@@ -4196,13 +4196,13 @@ export const App: React.FC = () => {
                     );
                   }}
                 >
-                  {providerConfig.enable_subagents ? "✓ Enabled" : "Enable Multi-Agent"}
+                  {providerConfig.enable_subagents ? "[OK] Enabled" : "Enable Multi-Agent"}
                 </button>
               </div>
 
               {/* Slash Command Hint */}
               <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                💡 <strong>Tip:</strong> You can type <code>/subagents &lt;your request&gt;</code> in chat to explicitly demand multi-agent delegation, or <code>/plan</code> to have the Lead Architect draft a breakdown before execution.
+                <strong>Tip:</strong> You can type <code>/subagents &lt;your request&gt;</code> in chat to explicitly demand multi-agent delegation, or <code>/plan</code> to have the Lead Architect draft a breakdown before execution.
               </div>
             </div>
           </div>

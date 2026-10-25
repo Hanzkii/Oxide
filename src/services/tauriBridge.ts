@@ -480,7 +480,7 @@ export const oxideBridge = {
           type: "workflow_card",
           step,
           title: `Delegating ${subtasks.length} Subagent(s) [PC Limit: ${limit} concurrent]`,
-          detail: `${liveHw.governor_tier} • Free RAM: ${liveHw.available_ram_gb} GB • CPU: ${liveHw.cpu_usage_percent}%`,
+          detail: `${liveHw.governor_tier} | Free RAM: ${liveHw.available_ram_gb} GB | CPU: ${liveHw.cpu_usage_percent}%`,
           status: "running",
         });
 
@@ -496,7 +496,7 @@ export const oxideBridge = {
               ? "throttled_waiting_for_hardware"
               : "queued",
             thought:
-              "Queued by Hardware Governor — waiting for available RAM/CPU slot...",
+              "Queued by Hardware Governor - waiting for available RAM/CPU slot...",
             output_preview: "",
             active_workers: 0,
             max_allowed_workers: limit,
@@ -740,7 +740,7 @@ export const oxideBridge = {
           step,
           title: res.succeeded
             ? `Command Succeeded: ${tool.command}`
-            : `Exit ${res.exit_code} — Self-Correcting`,
+            : `Exit ${res.exit_code} - Self-Correcting`,
           detail: res.succeeded
             ? `${res.duration_ms}ms`
             : res.stderr.slice(0, 120),
@@ -844,7 +844,7 @@ export const oxideBridge = {
                   .trim()
                   .replace(/^>/, "")
                   .trim();
-                if (cleaned) snippets.push(`• ${cleaned}`);
+                if (cleaned) snippets.push(`- ${cleaned}`);
               }
             }
             const results =

@@ -138,9 +138,10 @@ function createLocalSystemBridgePlugin(): Plugin {
         process.platform === "win32" && server.command === "npx"
           ? "npx.cmd"
           : server.command;
-      const child = spawn(bin, server.args || [], {
+      const fullCmd = [bin, ...(server.args || [])].join(" ");
+      const child = spawn(fullCmd, {
         cwd: state.workspaceRoot,
-        shell: process.platform === "win32",
+        shell: true,
         windowsHide: true,
         env: { ...process.env, ...(server.env || {}) },
       });
@@ -245,13 +246,14 @@ function createLocalSystemBridgePlugin(): Plugin {
         trimmed
           .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
           ?.map((t) => t.replace(/^['"]|['"]$/g, "")) ?? [];
-      const program = tokens[0];
+      const program = tokens[0] || trimmed;
       const args = tokens.slice(1);
       const start = Date.now();
 
-      const child = spawn(program, args, {
+      // Pass command string directly to avoid Node.js [DEP0190] DeprecationWarning
+      const child = spawn(trimmed, {
         cwd,
-        shell: process.platform === "win32",
+        shell: true,
         windowsHide: true,
         env: {
           ...process.env,
@@ -351,7 +353,7 @@ function createLocalSystemBridgePlugin(): Plugin {
     let recommendedMaxSubagents = 1;
     let governorTier = "Compact / Memory-Saver Tier";
     let governorAdvice =
-      "Limited available RAM detected. Subagents will execute 1 at a time in a sequential queue using compact models (1.5B–3B).";
+      "Limited available RAM detected. Subagents will execute 1 at a time in a sequential queue using compact models (1.5B-3B).";
 
     if (throttledByLoad) {
       hardLimitSubagents = 1;
@@ -367,13 +369,13 @@ function createLocalSystemBridgePlugin(): Plugin {
       recommendedMaxSubagents = 3;
       governorTier = "Workstation Tier (High Spec)";
       governorAdvice =
-        "Your PC can comfortably run 1 Large Architect model (14B–32B) + up to 3 fast Subagents (1.5B–7B) concurrently.";
+        "Your PC can comfortably run 1 Large Architect model (14B-32B) + up to 3 fast Subagents (1.5B-7B) concurrently.";
     } else if (totalRamGb >= 15 && availableRamGb >= 5.5) {
       hardLimitSubagents = 2;
       recommendedMaxSubagents = 2;
       governorTier = "Balanced Desktop Tier (Mid Spec)";
       governorAdvice =
-        "Recommended: 1 Architect model (7B–14B) + up to 2 fast Subagents (1.5B–3B) concurrently to stay well within RAM limits.";
+        "Recommended: 1 Architect model (7B-14B) + up to 2 fast Subagents (1.5B-3B) concurrently to stay well within RAM limits.";
     }
 
     return {
@@ -446,7 +448,7 @@ function createLocalSystemBridgePlugin(): Plugin {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Oxide Studio — Autonomous AI Command Center</title>
+    <title>Oxide Studio - Autonomous AI Command Center</title>
   </head>
   <body>
     <div id="root"></div>
@@ -602,7 +604,7 @@ function createLocalSystemBridgePlugin(): Plugin {
                     m.key.toLowerCase().includes(q) ||
                     m.value.toLowerCase().includes(q)
                 )
-                .map((m) => `• [${m.key}]: ${m.value}`);
+                .map((m) => `- [${m.key}]: ${m.value}`);
               res.end(
                 JSON.stringify({
                   server_id: srv.id,
@@ -762,10 +764,10 @@ function createLocalSystemBridgePlugin(): Plugin {
               ? resolveInsideWorkspace(args.workspacePath)
               : state.workspaceRoot;
             const bin = process.platform === "win32" ? "code.cmd" : "code";
-            spawn(bin, ["--", target], {
+            spawn(`${bin} -- "${target}"`, {
               detached: true,
               stdio: "ignore",
-              shell: process.platform === "win32",
+              shell: true,
               windowsHide: true,
             }).unref();
             res.end(JSON.stringify(target));
@@ -1156,11 +1158,11 @@ function createLocalSystemBridgePlugin(): Plugin {
                 is_uncensored,
                 is_reasoning,
                 is_fast_subagent,
-                summary: `HuggingFace GGUF — ${(
+                summary: `HuggingFace GGUF - ${(
                   item.downloads || 0
-                ).toLocaleString()} downloads, ♥ ${
+                ).toLocaleString()} downloads, ${
                   item.likes || 0
-                }. 1-Click direct pull via hf.co.`,
+                } likes. 1-Click direct pull via hf.co.`,
               };
             });
             res.end(JSON.stringify(mapped));
