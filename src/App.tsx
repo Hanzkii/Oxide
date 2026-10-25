@@ -312,9 +312,27 @@ export const App: React.FC = () => {
   const [liveThoughtExpanded, setLiveThoughtExpanded] = useState<boolean>(true);
   const [showSubagentsGuide, setShowSubagentsGuide] = useState<boolean>(false);
   const [showSecurityMenu, setShowSecurityMenu] = useState<boolean>(false);
-  const [isInstallingOllama, setIsInstallingOllama] = useState<boolean>(false);
-  const [ollamaInstallStep, setOllamaInstallStep] = useState<string>("");
   const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>(0);
+
+  // Deletion Confirmation Modal State
+  const [confirmDelete, setConfirmDelete] = useState<{
+    type: string;
+    name: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+
+  // API Key & Connection Testing State
+  const [showApiKeys, setShowApiKeys] = useState<{
+    anthropic: boolean;
+    openai: boolean;
+    gemini: boolean;
+    deepseek: boolean;
+  }>({ anthropic: false, openai: false, gemini: false, deepseek: false });
+  const [testConnStatus, setTestConnStatus] = useState<{
+    testing: boolean;
+    success?: boolean;
+    message?: string;
+  }>({ testing: false });
   const [liveMetrics, setLiveMetrics] = useState<{
     step: number;
     tokens_generated: number;
@@ -374,8 +392,11 @@ export const App: React.FC = () => {
       setNativeInstalled(Boolean(health.oxide_native_installed));
       setNativeModels(health.oxide_native_models || []);
 
-      const installed = health.ollama_models || [];
-      setOllamaModels(installed);
+      const nativeList = health.oxide_native_models || [];
+      const ollamaList = health.ollama_models || [];
+      const allInstalledLocal = Array.from(new Set([...nativeList, ...ollamaList]));
+      setNativeModels(nativeList);
+      setOllamaModels(allInstalledLocal);
 
       setProviderConfig((prev) => {
         const merged = {
@@ -386,34 +407,26 @@ export const App: React.FC = () => {
             ...(health.config.task_routing || {}),
           },
         };
-        // Ensure selected models are actually in the installed list (if any are installed)
-        if (installed.length > 0) {
-          if (!installed.includes(merged.ollama_model)) {
-            merged.ollama_model = installed[0];
+        // Auto-heal local models if using local engine
+        if (allInstalledLocal.length > 0) {
+          if (!merged.ollama_model || !allInstalledLocal.includes(merged.ollama_model)) {
+            merged.ollama_model = allInstalledLocal[0];
           }
-          if (!installed.includes(merged.task_routing.architect_model)) {
-            merged.task_routing.architect_model = installed[0];
+          if (!merged.task_routing.architect_model) {
+            merged.task_routing.architect_model = allInstalledLocal[0];
           }
-          if (!installed.includes(merged.task_routing.coder_subagent_model)) {
+          if (!merged.task_routing.coder_subagent_model) {
             merged.task_routing.coder_subagent_model =
-              installed[installed.length - 1] || installed[0];
+              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
           }
-          if (
-            !installed.includes(merged.task_routing.research_subagent_model)
-          ) {
+          if (!merged.task_routing.research_subagent_model) {
             merged.task_routing.research_subagent_model =
-              installed[installed.length - 1] || installed[0];
+              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
           }
-          if (!installed.includes(merged.task_routing.tester_subagent_model)) {
+          if (!merged.task_routing.tester_subagent_model) {
             merged.task_routing.tester_subagent_model =
-              installed[installed.length - 1] || installed[0];
+              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
           }
-        } else {
-          merged.ollama_model = "";
-          merged.task_routing.architect_model = "";
-          merged.task_routing.coder_subagent_model = "";
-          merged.task_routing.research_subagent_model = "";
-          merged.task_routing.tester_subagent_model = "";
         }
         return merged;
       });
@@ -720,130 +733,170 @@ export const App: React.FC = () => {
     );
   };
 
-  const handleDeleteProject = async (
+  const handleDeleteProject = (
     e: React.MouseEvent,
     projectId: string
   ) => {
     e.stopPropagation();
-    const remainingProjects = projects.filter((p) => p.id !== projectId);
-    const remainingConvs = conversations.filter(
-      (c) => c.projectId !== projectId
-    );
-
-    if (remainingProjects.length === 0) {
-      try {
-        const info = await oxideBridge.setWorkspace(".");
-        const defaultProj: ProjectWorkspace = {
-          id: `proj-${Date.now()}`,
-          name: getBaseName(info.canonical_path),
-          path: info.canonical_path,
-        };
-        const defaultConv: SavedConversation = {
-          id: `conv-${Date.now()}`,
-          projectId: defaultProj.id,
-          title: "New Conversation",
-          updatedAt: "now",
-          turns: [],
-        };
-        setProjects([defaultProj]);
-        setConversations([defaultConv]);
-        setActiveProjectId(defaultProj.id);
-        setActiveConvId(defaultConv.id);
-        await persistStudioSessions(
-          [defaultProj],
-          [defaultConv],
-          defaultProj.id,
-          defaultConv.id
+    const proj = projects.find((p) => p.id === projectId);
+    const projName = proj ? proj.name : projectId;
+    setConfirmDelete({
+      type: "project workspace",
+      name: projName,
+      onConfirm: async () => {
+        const remainingProjects = projects.filter((p) => p.id !== projectId);
+        const remainingConvs = conversations.filter(
+          (c) => c.projectId !== projectId
         );
-      } catch {}
-      return;
-    }
 
-    const nextProj =
-      activeProjectId === projectId
-        ? remainingProjects[0]
-        : projects.find((p) => p.id === activeProjectId) ||
-          remainingProjects[0];
+        if (remainingProjects.length === 0) {
+          try {
+            const info = await oxideBridge.setWorkspace(".");
+            const defaultProj: ProjectWorkspace = {
+              id: `proj-${Date.now()}`,
+              name: getBaseName(info.canonical_path),
+              path: info.canonical_path,
+            };
+            const defaultConv: SavedConversation = {
+              id: `conv-${Date.now()}`,
+              projectId: defaultProj.id,
+              title: "New Conversation",
+              updatedAt: "now",
+              turns: [],
+            };
+            setProjects([defaultProj]);
+            setConversations([defaultConv]);
+            setActiveProjectId(defaultProj.id);
+            setActiveConvId(defaultConv.id);
+            await persistStudioSessions(
+              [defaultProj],
+              [defaultConv],
+              defaultProj.id,
+              defaultConv.id
+            );
+          } catch {}
+          return;
+        }
 
-    let nextConvs = [...remainingConvs];
-    let nextProjConvs = nextConvs.filter((c) => c.projectId === nextProj.id);
-    if (nextProjConvs.length === 0) {
-      const fresh: SavedConversation = {
-        id: `conv-${Date.now()}`,
-        projectId: nextProj.id,
-        title: "New Conversation",
-        updatedAt: "now",
-        turns: [],
-      };
-      nextConvs = [fresh, ...nextConvs];
-      nextProjConvs = [fresh];
-    }
+        const nextProj =
+          activeProjectId === projectId
+            ? remainingProjects[0]
+            : projects.find((p) => p.id === activeProjectId) ||
+              remainingProjects[0];
 
-    const nextConvId = nextProjConvs[0].id;
-    setProjects(remainingProjects);
-    setConversations(nextConvs);
-    setActiveProjectId(nextProj.id);
-    setActiveConvId(nextConvId);
-    try {
-      await oxideBridge.setWorkspace(nextProj.path);
-      await refreshWorkspaceState(".");
-    } catch {}
-    await persistStudioSessions(
-      remainingProjects,
-      nextConvs,
-      nextProj.id,
-      nextConvId
-    );
+        let nextConvs = [...remainingConvs];
+        let nextProjConvs = nextConvs.filter((c) => c.projectId === nextProj.id);
+        if (nextProjConvs.length === 0) {
+          const fresh: SavedConversation = {
+            id: `conv-${Date.now()}`,
+            projectId: nextProj.id,
+            title: "New Conversation",
+            updatedAt: "now",
+            turns: [],
+          };
+          nextConvs = [fresh, ...nextConvs];
+          nextProjConvs = [fresh];
+        }
+
+        const nextConvId = nextProjConvs[0].id;
+        setProjects(remainingProjects);
+        setConversations(nextConvs);
+        setActiveProjectId(nextProj.id);
+        setActiveConvId(nextConvId);
+        try {
+          await oxideBridge.setWorkspace(nextProj.path);
+          await refreshWorkspaceState(".");
+        } catch {}
+        await persistStudioSessions(
+          remainingProjects,
+          nextConvs,
+          nextProj.id,
+          nextConvId
+        );
+      },
+    });
   };
 
-  const handleDeleteConversation = async (
+  const handleDeleteConversation = (
     e: React.MouseEvent,
     convId: string
   ) => {
     e.stopPropagation();
-    const remaining = conversations.filter((c) => c.id !== convId);
-    if (remaining.length === 0) {
-      const fresh: SavedConversation = {
-        id: `conv-${Date.now()}`,
-        projectId: activeProjectId,
-        title: "New Conversation",
-        updatedAt: "now",
-        turns: [],
-      };
-      setConversations([fresh]);
-      setActiveConvId(fresh.id);
-      await persistStudioSessions(
-        projects,
-        [fresh],
-        activeProjectId,
-        fresh.id
-      );
-      return;
-    }
-    const nextActiveId =
-      activeConvId === convId ? remaining[0].id : activeConvId;
-    setConversations(remaining);
-    setActiveConvId(nextActiveId);
-    await persistStudioSessions(
-      projects,
-      remaining,
-      activeProjectId,
-      nextActiveId
-    );
+    const conv = conversations.find((c) => c.id === convId);
+    const convTitle = conv ? conv.title : convId;
+    setConfirmDelete({
+      type: "conversation",
+      name: convTitle,
+      onConfirm: async () => {
+        const remaining = conversations.filter((c) => c.id !== convId);
+        if (remaining.length === 0) {
+          const fresh: SavedConversation = {
+            id: `conv-${Date.now()}`,
+            projectId: activeProjectId,
+            title: "New Conversation",
+            updatedAt: "now",
+            turns: [],
+          };
+          setConversations([fresh]);
+          setActiveConvId(fresh.id);
+          await persistStudioSessions(
+            projects,
+            [fresh],
+            activeProjectId,
+            fresh.id
+          );
+          return;
+        }
+        const nextActiveId =
+          activeConvId === convId ? remaining[0].id : activeConvId;
+        setConversations(remaining);
+        setActiveConvId(nextActiveId);
+        await persistStudioSessions(
+          projects,
+          remaining,
+          activeProjectId,
+          nextActiveId
+        );
+      },
+    });
   };
 
   const handleRunTask = async (customPrompt?: string) => {
     const taskPrompt = (customPrompt ?? prompt).trim();
     if (!taskPrompt || isRunning) return;
 
-    // Guard: If using local Ollama and no models are installed yet, open the Model Store
-    if (
-      providerConfig.active_provider === "ollama" &&
-      ollamaModels.length === 0
-    ) {
-      setStatusBanner(
-        "No AI model installed yet - install a local AI model below first."
-      );
+    // Validate Provider Prerequisites
+    if (providerConfig.active_provider === "anthropic" && !providerConfig.anthropic_api_key) {
+      setStatusBanner("Please enter your Anthropic API Key in Settings -> AI Providers first.");
+      setSettingsTab("providers");
+      setShowSettingsModal(true);
+      return;
+    }
+    if (providerConfig.active_provider === "openai" && !providerConfig.openai_api_key) {
+      setStatusBanner("Please enter your OpenAI API Key in Settings -> AI Providers first.");
+      setSettingsTab("providers");
+      setShowSettingsModal(true);
+      return;
+    }
+    if (providerConfig.active_provider === "gemini" && !providerConfig.gemini_api_key) {
+      setStatusBanner("Please enter your Google Gemini API Key in Settings -> AI Providers first.");
+      setSettingsTab("providers");
+      setShowSettingsModal(true);
+      return;
+    }
+    if (providerConfig.active_provider === "deepseek" && !providerConfig.deepseek_api_key) {
+      setStatusBanner("Please enter your DeepSeek API Key in Settings -> AI Providers first.");
+      setSettingsTab("providers");
+      setShowSettingsModal(true);
+      return;
+    }
+    if (providerConfig.active_provider === "oxide_native" && nativeModels.length === 0) {
+      setStatusBanner("No GGUF models installed for Native Engine - install one from Models below.");
+      setShowModelHubModal(true);
+      return;
+    }
+    if (providerConfig.active_provider === "ollama" && ollamaModels.length === 0) {
+      setStatusBanner("No Ollama models installed yet - install a model from Models below.");
       setShowModelHubModal(true);
       return;
     }
@@ -1012,37 +1065,6 @@ export const App: React.FC = () => {
     setStatusBanner(
       `Assigned Agent: ${mainModel} | Subagent: ${subModel}`
     );
-  };
-
-  const handleInstallOllama = async () => {
-    setIsInstallingOllama(true);
-    setOllamaInstallStep("Step 1/3: Checking local system & Winget repository...");
-    setStatusBanner("Installing Ollama local AI engine...");
-
-    const t1 = setTimeout(() => {
-      setOllamaInstallStep("Step 2/3: Downloading & installing Ollama background service...");
-    }, 2500);
-
-    const t2 = setTimeout(() => {
-      setOllamaInstallStep("Step 3/3: Waiting for Ollama daemon on http://localhost:11434...");
-    }, 7000);
-
-    try {
-      const msg = await oxideBridge.ensureOllamaEngine();
-      setOllamaInstallStep("[OK] Ollama installed and running!");
-      setStatusBanner(msg);
-      await refreshWorkspaceState(currentDir);
-    } catch (err: any) {
-      setOllamaInstallStep(`Installation error: ${err?.message || String(err)}`);
-      setStatusBanner(`Ollama setup error: ${err?.message || String(err)}`);
-    } finally {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      setTimeout(() => {
-        setIsInstallingOllama(false);
-        setOllamaInstallStep("");
-      }, 4000);
-    }
   };
 
   return (
@@ -1311,7 +1333,7 @@ export const App: React.FC = () => {
                 .catch(() => {});
             }}
           >
-            Updates {updateStatus?.update_available ? "Update Available" : "Updates"}
+            {updateStatus?.update_available ? "Update Available" : "Updates"}
           </button>
         </div>
       </aside>
@@ -1748,7 +1770,22 @@ export const App: React.FC = () => {
                     {/* Main Agent Pill */}
                     <div className="ag-pill-container" title="Select Lead Architect Model">
                       <span className="ag-pill-label">Agent:</span>
-                      {ollamaModels.length > 0 ? (
+                      {["anthropic", "openai", "gemini", "deepseek"].includes(providerConfig.active_provider) ? (
+                        <button
+                          className="ag-pill-select"
+                          style={{ color: "#60a5fa", fontWeight: 600 }}
+                          onClick={() => {
+                            setSettingsTab("providers");
+                            setShowSettingsModal(true);
+                          }}
+                          title={`Cloud Model (${providerConfig.active_provider.toUpperCase()}) - Click to configure`}
+                        >
+                          {providerConfig.active_provider === "anthropic" && (providerConfig.anthropic_model || "Claude 3.5 Sonnet")}
+                          {providerConfig.active_provider === "openai" && (providerConfig.openai_model || "GPT-4o")}
+                          {providerConfig.active_provider === "gemini" && (providerConfig.gemini_model || "Gemini 2.0 Flash")}
+                          {providerConfig.active_provider === "deepseek" && (providerConfig.deepseek_model || "DeepSeek-V3")}
+                        </button>
+                      ) : ollamaModels.length > 0 ? (
                         <select
                           className="ag-pill-select"
                           value={
@@ -2364,7 +2401,7 @@ export const App: React.FC = () => {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
-                  AI Models (Ollama &amp; HuggingFace 1-Click Installer)
+                  AI Models &amp; Direct GGUF Installer
                 </h3>
                 <div
                   style={{
@@ -2373,8 +2410,7 @@ export const App: React.FC = () => {
                     marginTop: "0.2rem",
                   }}
                 >
-                  Auto-matched to your PC hardware | Filter by Coding,
-                  Uncensored, Reasoning &amp; Fast Subagents
+                  Direct 1-Click download to your Oxide library | Standalone execution on AMD Radeon &amp; CPU
                 </div>
               </div>
               <button
@@ -2416,16 +2452,20 @@ export const App: React.FC = () => {
                     marginTop: "0.18rem",
                   }}
                 >
-                  Local Ollama Engine:{" "}
+                  Native Engine:{" "}
                   <strong
                     style={{
-                      color: ollamaOnline ? "#4ade80" : "#fbbf24",
+                      color: nativeOnline ? "#4ade80" : "#60a5fa",
                     }}
                   >
-                    {ollamaOnline
-                      ? `Online (${ollamaModels.length} installed)`
-                      : "Not Running / Not Installed"}
+                    {nativeOnline
+                      ? `Online (Port ${providerConfig.oxide_native_port || 11435})`
+                      : nativeInstalled
+                      ? "Ready (AMD Vulkan & CPU)"
+                      : "Installed"}
                   </strong>
+                  {" | "}
+                  Library: <strong>{nativeModels.length} GGUF models</strong>
                   {" | "}
                   Agent:{" "}
                   <code>
@@ -2440,31 +2480,27 @@ export const App: React.FC = () => {
               </div>
 
               <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
-                {!ollamaOnline && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                    <button
-                      className="btn btn-primary"
-                      disabled={isInstallingOllama}
-                      onClick={handleInstallOllama}
-                    >
-                      {isInstallingOllama ? "Installing Ollama..." : "1-Click Start / Install Ollama"}
-                    </button>
-                    {isInstallingOllama && (
-                      <div style={{ width: "260px" }}>
-                        <div className="oxide-progress-track">
-                          <div
-                            className="oxide-progress-fill"
-                            style={{ width: "70%", animation: "pulse 1.5s infinite" }}
-                          />
-                        </div>
-                        <div style={{ fontSize: "0.72rem", color: "#fde047", marginTop: "0.25rem" }}>
-                          {ollamaInstallStep}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                <button
+                  className="btn"
+                  onClick={() => oxideBridge.openNativeModelsFolder()}
+                  title="Open folder where .gguf models are stored on disk"
+                >
+                  Open Models Folder
+                </button>
+                {!nativeOnline && nativeModels.length > 0 && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      const chosen = providerConfig.oxide_native_model || nativeModels[0];
+                      await oxideBridge.startNativeEngine(chosen);
+                      await refreshWorkspaceState();
+                      setStatusBanner(`Started Native Engine with ${chosen}!`);
+                    }}
+                  >
+                    Start Native Engine
+                  </button>
                 )}
-                {ollamaModels.length > 0 && (
+                {(nativeModels.length > 0 || ollamaModels.length > 0) && (
                   <button
                     className="btn"
                     onClick={handleAutoAssignOptimalModels}
@@ -2713,13 +2749,20 @@ export const App: React.FC = () => {
                 })
                 .map((model) => {
                   const fit = evaluateModelHardwareFit(model, hwSpecs);
-                  const isInstalled = ollamaModels.some(
-                    (om) =>
-                      om.toLowerCase() === model.install_id.toLowerCase() ||
-                      om
-                        .toLowerCase()
-                        .startsWith(model.install_id.toLowerCase())
-                  );
+                  const isInstalled =
+                    nativeModels.some(
+                      (nm) =>
+                        model.install_id.toLowerCase().includes(nm.toLowerCase()) ||
+                        nm.toLowerCase().includes(model.params.toLowerCase()) ||
+                        nm.toLowerCase().includes(model.name.split(" ")[0].toLowerCase())
+                    ) ||
+                    ollamaModels.some(
+                      (om) =>
+                        om.toLowerCase() === model.install_id.toLowerCase() ||
+                        om
+                          .toLowerCase()
+                          .startsWith(model.install_id.toLowerCase())
+                    );
                   const isInstallingThis =
                     installingModelId === model.install_id;
                   const isLead =
@@ -2964,14 +3007,20 @@ export const App: React.FC = () => {
                               <button
                                 className="btn"
                                 title="Uninstall model"
-                                onClick={async () => {
-                                  await oxideBridge.deleteAiModel(
-                                    model.install_id
-                                  );
-                                  await refreshWorkspaceState(currentDir);
+                                onClick={() => {
+                                  setConfirmDelete({
+                                    type: "AI model",
+                                    name: model.name || model.install_id,
+                                    onConfirm: async () => {
+                                      await oxideBridge.deleteAiModel(
+                                        model.install_id
+                                      );
+                                      await refreshWorkspaceState(currentDir);
+                                    },
+                                  });
                                 }}
                               >
-                                [Delete]
+                                Delete
                               </button>
                             </>
                           )}
@@ -3320,14 +3369,29 @@ export const App: React.FC = () => {
                 <div className="hw-spec-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <strong>Active Workspace Sandbox Jail</strong>
+                      <strong style={{ fontSize: "0.88rem" }}>Active Workspace Sandbox Jail</strong>
                       <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
                         Restricts AI tools, file mutations, and terminal executions strictly to your active project folder
                       </div>
                     </div>
-                    <span className="hw-fit-badge gpu_fast">
-                      [OK] Sandbox Active
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: providerConfig.enforce_workspace_sandbox !== false ? "#4ade80" : "var(--text-muted)" }}>
+                        {providerConfig.enforce_workspace_sandbox !== false ? "Sandbox Active" : "Sandbox Disabled"}
+                      </span>
+                      <label className="ag-switch" title="Toggle Workspace Sandbox">
+                        <input
+                          type="checkbox"
+                          checked={providerConfig.enforce_workspace_sandbox !== false}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              enforce_workspace_sandbox: e.target.checked,
+                            })
+                          }
+                        />
+                        <span className="ag-switch-slider" />
+                      </label>
+                    </div>
                   </div>
                   <div style={{ marginTop: "0.5rem", fontSize: "0.76rem", color: "var(--text-secondary)" }}>
                     Jailed Root: <code>{activeProject?.path}</code>
@@ -3341,23 +3405,29 @@ export const App: React.FC = () => {
                 <div className="hw-spec-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <strong>Model Internet Access &amp; Web Search</strong>
+                      <strong style={{ fontSize: "0.88rem" }}>Model Internet Access &amp; Web Search</strong>
                       <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
                         Allows the AI model to search the web and fetch documentation from online URLs
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className={`btn ${providerConfig.allow_internet_access ? "btn-primary" : ""}`}
-                      onClick={() =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          allow_internet_access: !providerConfig.allow_internet_access,
-                        })
-                      }
-                    >
-                      {providerConfig.allow_internet_access ? "[OK] Internet Enabled" : "[Offline] Offline Mode"}
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: providerConfig.allow_internet_access ? "#4ade80" : "var(--text-muted)" }}>
+                        {providerConfig.allow_internet_access ? "Internet Allowed" : "Offline / Air-Gapped"}
+                      </span>
+                      <label className="ag-switch" title="Toggle Model Internet Access">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(providerConfig.allow_internet_access)}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              allow_internet_access: e.target.checked,
+                            })
+                          }
+                        />
+                        <span className="ag-switch-slider" />
+                      </label>
+                    </div>
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem", lineHeight: 1.4 }}>
                     {providerConfig.allow_internet_access
@@ -3411,13 +3481,28 @@ export const App: React.FC = () => {
                     Permitted Developer CLI Binaries
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                    The sandbox limits terminal command execution strictly to allowlisted developer tools:
+                    Check or uncheck which CLI tools the AI sandbox is authorized to execute:
                   </div>
-                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.45rem" }}>
-                    {["cargo", "rustc", "npm", "npx", "node", "git", "python", "pytest", "ollama", "tsc", "vite"].map((b) => (
-                      <span key={b} className="oxide-slash-badge" style={{ color: "#86efac", borderColor: "rgba(34, 197, 94, 0.3)" }}>
-                        [OK] {b}
-                      </span>
+                  <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", marginTop: "0.6rem" }}>
+                    {[
+                      "cargo",
+                      "rustc",
+                      "npm",
+                      "npx",
+                      "node",
+                      "git",
+                      "python",
+                      "pytest",
+                      "tsc",
+                      "vite",
+                    ].map((b) => (
+                      <label key={b} className="cli-checkbox-pill active">
+                        <input
+                          type="checkbox"
+                          defaultChecked={true}
+                        />
+                        <span>{b}</span>
+                      </label>
                     ))}
                   </div>
                 </div>
@@ -3452,45 +3537,28 @@ export const App: React.FC = () => {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "0.5rem",
                     }}
                   >
                     <div>
-                      <strong>Local Ollama Runtime</strong>:{" "}
+                      <strong>Engine Status</strong>:{" "}
                       <span
                         style={{
-                          color: ollamaOnline ? "#4ade80" : "#fbbf24",
+                          color: nativeOnline ? "#4ade80" : "#60a5fa",
                         }}
                       >
-                        {ollamaOnline
-                          ? `Online (${ollamaModels.length} models installed)`
-                          : "Offline / Not Installed"}
+                        {nativeOnline
+                          ? `Native Engine Running (Port ${providerConfig.oxide_native_port || 11435})`
+                          : `Native Engine Ready (${nativeModels.length} GGUF models)`}
                       </span>
+                      {ollamaOnline && (
+                        <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginLeft: "0.5rem" }}>
+                          | Ollama Online ({ollamaModels.length} models)
+                        </span>
+                      )}
                     </div>
                     <div style={{ display: "flex", gap: "0.4rem" }}>
-                      {!ollamaOnline && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                          <button
-                            className="btn btn-primary"
-                            disabled={isInstallingOllama}
-                            onClick={handleInstallOllama}
-                          >
-                            {isInstallingOllama ? "Installing Ollama..." : "Start / Install Ollama"}
-                          </button>
-                          {isInstallingOllama && (
-                            <div style={{ width: "240px" }}>
-                              <div className="oxide-progress-track">
-                                <div
-                                  className="oxide-progress-fill"
-                                  style={{ width: "70%", animation: "pulse 1.5s infinite" }}
-                                />
-                              </div>
-                              <div style={{ fontSize: "0.72rem", color: "#fde047", marginTop: "0.25rem" }}>
-                                {ollamaInstallStep}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
                       <button
                         className="btn"
                         onClick={() => {
@@ -3498,15 +3566,15 @@ export const App: React.FC = () => {
                           setShowModelHubModal(true);
                         }}
                       >
-                        Open Model Store
+                        Open AI Model Hub
                       </button>
                     </div>
                   </div>
                 </div>
 
                 <div className="routing-grid">
-                  <div className="form-group">
-                    <label>Primary AI Provider / Engine</label>
+                  <div className="form-group" style={{ gridColumn: "1 / -1" }}>
+                    <label>Active AI Provider / Inference Engine</label>
                     <select
                       className="select-control"
                       value={providerConfig.active_provider}
@@ -3518,17 +3586,389 @@ export const App: React.FC = () => {
                       }
                     >
                       <option value="oxide_native">
-                        Oxide Native Engine (Standalone llama.cpp &amp; Direct GGUF)
+                        Oxide Native Engine (Local GGUF - Direct AMD Radeon &amp; CPU)
                       </option>
-                      <option value="ollama">Ollama Local Engine (http://localhost:11434)</option>
+                      <option value="anthropic">Anthropic Claude (Cloud API - Sonnet 3.5, 3.7, Opus)</option>
+                      <option value="openai">OpenAI GPT (Cloud API - GPT-4o, o1, o3-mini)</option>
+                      <option value="gemini">Google Gemini (Cloud API - Gemini 2.0 Flash, 1.5 Pro)</option>
+                      <option value="deepseek">DeepSeek API (Cloud API - DeepSeek-V3, DeepSeek-R1)</option>
                       <option value="custom_openai">
                         Custom OpenAI-Compatible (LM Studio / vLLM / llama-server)
                       </option>
-                      <option value="anthropic">Anthropic Claude (Cloud)</option>
-                      <option value="openai">OpenAI GPT (Cloud)</option>
+                      <option value="ollama">Ollama Local Engine (http://localhost:11434)</option>
                     </select>
                   </div>
 
+                  {/* ANTHROPIC CLAUDE */}
+                  {providerConfig.active_provider === "anthropic" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "rgba(242, 108, 58, 0.05)",
+                        border: "1px solid rgba(242, 108, 58, 0.3)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <strong style={{ color: "var(--oxide-ember)" }}>Anthropic Claude Configuration</strong>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                            Enter your Anthropic API Key (from console.anthropic.com) to use Claude models
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={testConnStatus.testing || !providerConfig.anthropic_api_key}
+                          onClick={async () => {
+                            setTestConnStatus({ testing: true });
+                            const res = await oxideBridge.testProviderConnection(providerConfig);
+                            setTestConnStatus({ testing: false, success: res.success, message: res.message });
+                          }}
+                        >
+                          {testConnStatus.testing ? "Testing..." : "Test Connection"}
+                        </button>
+                      </div>
+
+                      {testConnStatus.message && (
+                        <div style={{ fontSize: "0.74rem", color: testConnStatus.success ? "#4ade80" : "#f87171" }}>
+                          {testConnStatus.message}
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label>Anthropic API Key</label>
+                        <div className="api-key-input-row">
+                          <input
+                            type={showApiKeys.anthropic ? "text" : "password"}
+                            className="workspace-input"
+                            style={{ flex: 1 }}
+                            placeholder="sk-ant-api03-..."
+                            value={providerConfig.anthropic_api_key || ""}
+                            onChange={(e) =>
+                              setProviderConfig({
+                                ...providerConfig,
+                                anthropic_api_key: e.target.value.trim(),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() =>
+                              setShowApiKeys((prev) => ({
+                                ...prev,
+                                anthropic: !prev.anthropic,
+                              }))
+                            }
+                          >
+                            {showApiKeys.anthropic ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Claude Model Selection</label>
+                        <select
+                          className="select-control"
+                          value={providerConfig.anthropic_model || "claude-3-5-sonnet-20241022"}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              anthropic_model: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Recommended)</option>
+                          <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
+                          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast Subagent)</option>
+                          <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* OPENAI GPT */}
+                  {providerConfig.active_provider === "openai" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "rgba(16, 185, 129, 0.05)",
+                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <strong style={{ color: "#34d399" }}>OpenAI GPT Configuration</strong>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                            Enter your OpenAI API Key (from platform.openai.com) to use GPT-4o and reasoning models
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={testConnStatus.testing || !providerConfig.openai_api_key}
+                          onClick={async () => {
+                            setTestConnStatus({ testing: true });
+                            const res = await oxideBridge.testProviderConnection(providerConfig);
+                            setTestConnStatus({ testing: false, success: res.success, message: res.message });
+                          }}
+                        >
+                          {testConnStatus.testing ? "Testing..." : "Test Connection"}
+                        </button>
+                      </div>
+
+                      {testConnStatus.message && (
+                        <div style={{ fontSize: "0.74rem", color: testConnStatus.success ? "#4ade80" : "#f87171" }}>
+                          {testConnStatus.message}
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label>OpenAI API Key</label>
+                        <div className="api-key-input-row">
+                          <input
+                            type={showApiKeys.openai ? "text" : "password"}
+                            className="workspace-input"
+                            style={{ flex: 1 }}
+                            placeholder="sk-proj-..."
+                            value={providerConfig.openai_api_key || ""}
+                            onChange={(e) =>
+                              setProviderConfig({
+                                ...providerConfig,
+                                openai_api_key: e.target.value.trim(),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() =>
+                              setShowApiKeys((prev) => ({
+                                ...prev,
+                                openai: !prev.openai,
+                              }))
+                            }
+                          >
+                            {showApiKeys.openai ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label>OpenAI Model Selection</label>
+                        <select
+                          className="select-control"
+                          value={providerConfig.openai_model || "gpt-4o"}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              openai_model: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="gpt-4o">GPT-4o (Recommended)</option>
+                          <option value="gpt-4o-mini">GPT-4o-mini (Fast &amp; Cheap)</option>
+                          <option value="o1">o1 (Deep Reasoning)</option>
+                          <option value="o3-mini">o3-mini (High-Speed Reasoning)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* GOOGLE GEMINI */}
+                  {providerConfig.active_provider === "gemini" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "rgba(59, 130, 246, 0.05)",
+                        border: "1px solid rgba(59, 130, 246, 0.3)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <strong style={{ color: "#60a5fa" }}>Google Gemini Configuration</strong>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                            Enter your Google Gemini API Key (from aistudio.google.com)
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={testConnStatus.testing || !providerConfig.gemini_api_key}
+                          onClick={async () => {
+                            setTestConnStatus({ testing: true });
+                            const res = await oxideBridge.testProviderConnection(providerConfig);
+                            setTestConnStatus({ testing: false, success: res.success, message: res.message });
+                          }}
+                        >
+                          {testConnStatus.testing ? "Testing..." : "Test Connection"}
+                        </button>
+                      </div>
+
+                      {testConnStatus.message && (
+                        <div style={{ fontSize: "0.74rem", color: testConnStatus.success ? "#4ade80" : "#f87171" }}>
+                          {testConnStatus.message}
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label>Google Gemini API Key</label>
+                        <div className="api-key-input-row">
+                          <input
+                            type={showApiKeys.gemini ? "text" : "password"}
+                            className="workspace-input"
+                            style={{ flex: 1 }}
+                            placeholder="AIzaSy..."
+                            value={providerConfig.gemini_api_key || ""}
+                            onChange={(e) =>
+                              setProviderConfig({
+                                ...providerConfig,
+                                gemini_api_key: e.target.value.trim(),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() =>
+                              setShowApiKeys((prev) => ({
+                                ...prev,
+                                gemini: !prev.gemini,
+                              }))
+                            }
+                          >
+                            {showApiKeys.gemini ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Gemini Model Selection</label>
+                        <select
+                          className="select-control"
+                          value={providerConfig.gemini_model || "gemini-2.0-flash"}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              gemini_model: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next-Gen, High Speed)</option>
+                          <option value="gemini-1.5-pro">Gemini 1.5 Pro (2M Context Window)</option>
+                          <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DEEPSEEK API */}
+                  {providerConfig.active_provider === "deepseek" && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        background: "rgba(167, 139, 250, 0.05)",
+                        border: "1px solid rgba(167, 139, 250, 0.3)",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <strong style={{ color: "#a78bfa" }}>DeepSeek Cloud API Configuration</strong>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                            Enter your DeepSeek API Key (from platform.deepseek.com)
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={testConnStatus.testing || !providerConfig.deepseek_api_key}
+                          onClick={async () => {
+                            setTestConnStatus({ testing: true });
+                            const res = await oxideBridge.testProviderConnection(providerConfig);
+                            setTestConnStatus({ testing: false, success: res.success, message: res.message });
+                          }}
+                        >
+                          {testConnStatus.testing ? "Testing..." : "Test Connection"}
+                        </button>
+                      </div>
+
+                      {testConnStatus.message && (
+                        <div style={{ fontSize: "0.74rem", color: testConnStatus.success ? "#4ade80" : "#f87171" }}>
+                          {testConnStatus.message}
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label>DeepSeek API Key</label>
+                        <div className="api-key-input-row">
+                          <input
+                            type={showApiKeys.deepseek ? "text" : "password"}
+                            className="workspace-input"
+                            style={{ flex: 1 }}
+                            placeholder="sk-..."
+                            value={providerConfig.deepseek_api_key || ""}
+                            onChange={(e) =>
+                              setProviderConfig({
+                                ...providerConfig,
+                                deepseek_api_key: e.target.value.trim(),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() =>
+                              setShowApiKeys((prev) => ({
+                                ...prev,
+                                deepseek: !prev.deepseek,
+                              }))
+                            }
+                          >
+                            {showApiKeys.deepseek ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label>DeepSeek Model Selection</label>
+                        <select
+                          className="select-control"
+                          value={providerConfig.deepseek_model || "deepseek-chat"}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              deepseek_model: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="deepseek-chat">DeepSeek-V3 (deepseek-chat)</option>
+                          <option value="deepseek-reasoner">DeepSeek-R1 (deepseek-reasoner)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* OXIDE NATIVE ENGINE */}
                   {providerConfig.active_provider === "oxide_native" && (
                     <div
                       style={{
@@ -3558,7 +3998,7 @@ export const App: React.FC = () => {
                               marginTop: "0.2rem",
                             }}
                           >
-                            Zero external dependencies. Runs direct .gguf models with Vulkan/DirectML/CPU acceleration. ({nativeInstalled ? "llama-server.exe ready" : "llama-server.exe not found"})
+                            Zero external dependencies. Runs direct .gguf models with AMD Radeon (Vulkan) &amp; CPU acceleration.
                           </div>
                         </div>
                         <span
@@ -3567,8 +4007,8 @@ export const App: React.FC = () => {
                           }`}
                         >
                           {nativeOnline
-                            ? "[Active] Running on :11435"
-                            : "[Stopped] Ready"}
+                            ? `Running on :${providerConfig.oxide_native_port || 11435}`
+                            : "Ready (Stopped)"}
                         </span>
                       </div>
 
@@ -3594,7 +4034,7 @@ export const App: React.FC = () => {
                             </option>
                           ))}
                           {nativeModels.length === 0 && (
-                            <option value="">(No .gguf models found in models directory)</option>
+                            <option value="">(No .gguf models found in models folder - click Models to install)</option>
                           )}
                         </select>
                       </div>
@@ -3621,7 +4061,7 @@ export const App: React.FC = () => {
                                 providerConfig.gpu_offload_layers ?? 99
                               );
                               setStatusBanner(
-                                `[Native Engine] Started llama-server with ${chosen} on port 11435!`
+                                `Started Native Engine with ${chosen} on port 11435!`
                               );
                               await refreshWorkspaceState();
                             } catch (e: any) {
@@ -3644,7 +4084,7 @@ export const App: React.FC = () => {
                             onClick={async () => {
                               try {
                                 await oxideBridge.stopNativeEngine();
-                                setStatusBanner("[Native Engine] Stopped.");
+                                setStatusBanner("Native Engine stopped.");
                                 await refreshWorkspaceState();
                               } catch (e: any) {
                                 setStatusBanner(`Stop error: ${e.message}`);
@@ -3660,13 +4100,6 @@ export const App: React.FC = () => {
                           onClick={() => oxideBridge.openNativeModelsFolder()}
                         >
                           Open Models Folder
-                        </button>
-
-                        <button
-                          className="oxide-btn-secondary"
-                          onClick={() => oxideBridge.openNativeRuntimeFolder()}
-                        >
-                          Open Runtime Folder
                         </button>
                       </div>
                     </div>
@@ -3723,9 +4156,9 @@ export const App: React.FC = () => {
                   )}
 
                   {providerConfig.active_provider === "ollama" && (
-                    <div className="form-group">
+                    <div className="form-group" style={{ gridColumn: "1 / -1" }}>
                       <label>
-                        Ollama Server URL ({ollamaOnline ? "[Online]" : "[Offline]"})
+                        Ollama Server URL ({ollamaOnline ? "Online" : "Offline"})
                       </label>
                       <input
                         className="workspace-input"
@@ -3739,34 +4172,6 @@ export const App: React.FC = () => {
                       />
                     </div>
                   )}
-
-                  <div className="form-group">
-                    <label>Anthropic Model (if using Claude)</label>
-                    <input
-                      className="workspace-input"
-                      value={providerConfig.anthropic_model}
-                      onChange={(e) =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          anthropic_model: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>OpenAI Model (if using OpenAI)</label>
-                    <input
-                      className="workspace-input"
-                      value={providerConfig.openai_model}
-                      onChange={(e) =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          openai_model: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
 
                   <div className="form-group">
                     <label>
@@ -3787,27 +4192,25 @@ export const App: React.FC = () => {
                     />
                   </div>
 
-                  <div className="form-group" style={{ justifyContent: "end" }}>
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.4rem",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={providerConfig.enable_cloud_fallback}
-                        onChange={(e) =>
-                          setProviderConfig({
-                            ...providerConfig,
-                            enable_cloud_fallback: e.target.checked,
-                          })
-                        }
-                      />
-                      Enable Cloud Fallback if Local Model Fails
-                    </label>
+                  <div className="form-group" style={{ justifyContent: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "0.5rem 0" }}>
+                      <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                        Cloud Fallback on Local Failure
+                      </span>
+                      <label className="ag-switch" title="Toggle Cloud Fallback">
+                        <input
+                          type="checkbox"
+                          checked={providerConfig.enable_cloud_fallback}
+                          onChange={(e) =>
+                            setProviderConfig({
+                              ...providerConfig,
+                              enable_cloud_fallback: e.target.checked,
+                            })
+                          }
+                        />
+                        <span className="ag-switch-slider" />
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -4206,6 +4609,45 @@ export const App: React.FC = () => {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== DELETE CONFIRMATION MODAL ==================== */}
+      {confirmDelete && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setConfirmDelete(null)}
+        >
+          <div
+            className="confirm-modal-box"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+              <span style={{ color: "#f87171", fontWeight: 700, fontSize: "1.05rem" }}>Confirm Deletion</span>
+            </div>
+            <div style={{ fontSize: "0.84rem", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: "1.25rem" }}>
+              Are you sure you want to delete {confirmDelete.type} <strong style={{ color: "var(--text-primary)" }}>"{confirmDelete.name}"</strong>? This action cannot be undone.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+              <button
+                className="btn"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                style={{ background: "#dc2626", color: "#ffffff", borderColor: "#dc2626", fontWeight: 600 }}
+                onClick={async () => {
+                  const fn = confirmDelete.onConfirm;
+                  setConfirmDelete(null);
+                  await fn();
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

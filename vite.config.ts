@@ -1222,66 +1222,226 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "install_ai_model") {
+            ensureOxideDirectories();
             const modelId = String(body.modelId || body.model_id || "").trim();
             if (!modelId) throw new Error("Missing modelId");
-            const baseUrl = state.providerConfig.ollama_base_url.replace(
-              /\/$/,
-              ""
-            );
-            try {
-              const pullResp = await fetch(`${baseUrl}/api/pull`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: modelId, stream: false }),
-              });
-              if (pullResp.ok) {
-                res.end(
-                  JSON.stringify({
-                    model_id: modelId,
-                    success: true,
-                    message: `Installed ${modelId} successfully!`,
-                  })
-                );
-                return;
-              }
-            } catch {}
 
-            const cliRes = await runCommandBounded(`ollama pull ${modelId}`);
-            if (cliRes.succeeded) {
-              res.end(
-                JSON.stringify({
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              "Connection": "keep-alive",
+            });
+
+            const sendEvent = (obj: any) => {
+              res.write(`data: ${JSON.stringify(obj)}\n\n`);
+            };
+
+            try {
+              let downloadUrl = "";
+              let localFilename = "";
+
+              if (modelId.startsWith("http://") || modelId.startsWith("https://")) {
+                downloadUrl = modelId;
+                localFilename = path.basename(new URL(modelId).pathname);
+              } else {
+                let repo = modelId
+                  .replace(/^hf\.co\//i, "")
+                  .replace(/^huggingface\.co\//i, "");
+
+                // Map common Ollama shortcuts to high-quality GGUF repos
+                const rLower = repo.toLowerCase();
+                if (
+                  rLower === "qwen2.5-coder:7b" ||
+                  rLower === "qwen2.5-coder" ||
+                  rLower === "qwen2.5-coder:latest"
+                ) {
+                  repo = "bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF";
+                } else if (rLower === "qwen2.5-coder:14b") {
+                  repo = "bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF";
+                } else if (rLower === "deepseek-r1:7b" || rLower === "deepseek-r1") {
+                  repo = "huihui-ai/DeepSeek-R1-Distill-Qwen-7B-abliterated-GGUF";
+                } else if (rLower === "deepseek-r1:14b") {
+                  repo = "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-GGUF";
+                } else if (rLower === "dolphin-mistral:7b") {
+                  repo = "TheBloke/dolphin-2.8-mistral-7B-GGUF";
+                } else if (rLower === "dolphin-llama3:8b") {
+                  repo = "bartowski/dolphin-2.9-llama3-8b-GGUF";
+                }
+
+                sendEvent({
+                  type: "progress",
                   model_id: modelId,
-                  success: true,
-                  message: `Installed ${modelId} successfully!`,
-                })
+                  status: `Querying HuggingFace repository ${repo}...`,
+                  completed: 0,
+                  total: 100,
+                  percent: 5,
+                });
+
+                const treeResp = await fetch(
+                  `https://huggingface.co/api/models/${repo}/tree/main`,
+                  { headers: { "User-Agent": "OxideStudio/0.1" } }
+                );
+
+                if (!treeResp.ok) {
+                  throw new Error(
+                    `HuggingFace repository '${repo}' not found (HTTP ${treeResp.status})`
+                  );
+                }
+
+                const fileList: any[] = await treeResp.json();
+                const ggufFiles = fileList
+                  .map((f) => f.path || f.rfilename || "")
+                  .filter((p) => p.toLowerCase().endsWith(".gguf"));
+
+                if (ggufFiles.length === 0) {
+                  throw new Error(
+                    `No .gguf model files found in repository '${repo}'`
+                  );
+                }
+
+                const chosen =
+                  ggufFiles.find((f) => f.includes("Q4_K_M")) ||
+                  ggufFiles.find((f) => f.includes("Q4_0")) ||
+                  ggufFiles.find((f) => f.includes("Q5_K_M")) ||
+                  ggufFiles.find((f) => f.includes("Q4_K_S")) ||
+                  ggufFiles[0];
+
+                localFilename = chosen;
+                downloadUrl = `https://huggingface.co/${repo}/resolve/main/${chosen}`;
+              }
+
+              const targetPath = path.join(oxideModelsRoot, localFilename);
+              const tempPath = targetPath + ".part";
+
+              sendEvent({
+                type: "progress",
+                model_id: modelId,
+                status: `Connecting to stream ${localFilename}...`,
+                completed: 0,
+                total: 100,
+                percent: 8,
+              });
+
+              const dlResp = await fetch(downloadUrl, {
+                headers: { "User-Agent": "OxideStudio/0.1" },
+              });
+
+              if (!dlResp.ok || !dlResp.body) {
+                throw new Error(
+                  `Download failed: Server returned HTTP ${dlResp.status}`
+                );
+              }
+
+              const totalBytes = Number(
+                dlResp.headers.get("content-length") || 0
               );
-              return;
+              let receivedBytes = 0;
+              const fileStream = fs.createWriteStream(tempPath);
+              const reader = dlResp.body.getReader();
+              let lastEmitTime = Date.now();
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                fileStream.write(Buffer.from(value));
+                receivedBytes += value.length;
+
+                const now = Date.now();
+                if (now - lastEmitTime > 300) {
+                  lastEmitTime = now;
+                  const percent =
+                    totalBytes > 0 ? (receivedBytes / totalBytes) * 100 : 0;
+                  const recMb = (receivedBytes / (1024 * 1024)).toFixed(0);
+                  const totMb =
+                    totalBytes > 0
+                      ? (totalBytes / (1024 * 1024)).toFixed(0)
+                      : "?";
+                  sendEvent({
+                    type: "progress",
+                    model_id: modelId,
+                    status: `Downloading ${localFilename} (${recMb} MB / ${totMb} MB)`,
+                    completed: receivedBytes,
+                    total: totalBytes,
+                    percent,
+                  });
+                }
+              }
+
+              await new Promise<void>((resolve, reject) => {
+                fileStream.end((err?: any) => {
+                  if (err) reject(err);
+                  else resolve();
+                });
+              });
+
+              if (fs.existsSync(targetPath)) {
+                fs.unlinkSync(targetPath);
+              }
+              fs.renameSync(tempPath, targetPath);
+
+              // Update active native model
+              state.providerConfig.oxide_native_model = localFilename;
+              if (state.providerConfig.active_provider === "ollama") {
+                state.providerConfig.active_provider = "oxide_native";
+              }
+
+              sendEvent({
+                type: "done",
+                model_id: modelId,
+                success: true,
+                message: `Successfully installed ${localFilename} to Oxide Models!`,
+              });
+            } catch (err: any) {
+              sendEvent({
+                type: "error",
+                model_id: modelId,
+                error: err?.message || String(err),
+              });
+            } finally {
+              res.end();
             }
-            throw new Error(
-              cliRes.stderr ||
-                `Failed to pull ${modelId}. Make sure Ollama is running.`
-            );
+            return;
           }
 
           if (action === "delete_ai_model") {
             const modelId = String(body.modelId || body.model_id || "").trim();
-            const baseUrl = state.providerConfig.ollama_base_url.replace(
-              /\/$/,
-              ""
-            );
+            let deleted = false;
             try {
-              const delResp = await fetch(`${baseUrl}/api/delete`, {
+              if (fs.existsSync(oxideModelsRoot)) {
+                const targetFile = path.join(oxideModelsRoot, modelId);
+                if (fs.existsSync(targetFile)) {
+                  fs.unlinkSync(targetFile);
+                  deleted = true;
+                } else {
+                  // Fuzzy match files containing modelId
+                  const files = fs.readdirSync(oxideModelsRoot);
+                  for (const f of files) {
+                    if (
+                      f.toLowerCase().includes(modelId.toLowerCase()) ||
+                      modelId.toLowerCase().includes(f.toLowerCase())
+                    ) {
+                      fs.unlinkSync(path.join(oxideModelsRoot, f));
+                      deleted = true;
+                    }
+                  }
+                }
+              }
+            } catch {}
+
+            // Also remove from Ollama if running
+            try {
+              const baseUrl = state.providerConfig.ollama_base_url.replace(
+                /\/$/,
+                ""
+              );
+              await fetch(`${baseUrl}/api/delete`, {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: modelId }),
               });
-              if (delResp.ok) {
-                res.end(JSON.stringify(true));
-                return;
-              }
             } catch {}
-            const cliRes = await runCommandBounded(`ollama rm ${modelId}`);
-            res.end(JSON.stringify(cliRes.succeeded));
+
+            res.end(JSON.stringify(true));
             return;
           }
 

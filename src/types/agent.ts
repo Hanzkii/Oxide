@@ -1,9 +1,11 @@
 export type ProviderKind =
-  | "ollama"
   | "oxide_native"
-  | "custom_openai"
   | "anthropic"
-  | "openai";
+  | "openai"
+  | "gemini"
+  | "deepseek"
+  | "custom_openai"
+  | "ollama";
 
 export type HardwareAccelerationMode =
   | "auto"
@@ -77,7 +79,13 @@ export interface ProviderConfig {
   ollama_base_url: string;
   ollama_model: string;
   anthropic_model: string;
+  anthropic_api_key?: string;
   openai_model: string;
+  openai_api_key?: string;
+  gemini_model?: string;
+  gemini_api_key?: string;
+  deepseek_model?: string;
+  deepseek_api_key?: string;
   enable_cloud_fallback: boolean;
   temperature: number;
   task_routing: TaskModelRouting;

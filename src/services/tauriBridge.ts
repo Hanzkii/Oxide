@@ -216,6 +216,256 @@ async function streamChatFromProvider(
     return { text: fullReply, effectiveModel: customModel };
   }
 
+  if (provider === "anthropic") {
+    const key = health.config.anthropic_api_key || "";
+    if (!key) {
+      throw new Error(
+        "Anthropic API key is missing. Please set your Anthropic API Key in Settings -> AI Providers."
+      );
+    }
+    const model = health.config.anthropic_model || "claude-3-5-sonnet-20241022";
+    const systemMsg = messages.find((m) => m.role === "system")?.content || "";
+    const chatMsgs = messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+      }));
+
+    if (chatMsgs.length === 0) {
+      chatMsgs.push({ role: "user", content: "Hello" });
+    }
+
+    const payload: any = {
+      model,
+      max_tokens: 4096,
+      messages: chatMsgs,
+      stream: true,
+      temperature: health.config.temperature ?? 0.1,
+    };
+    if (systemMsg) payload.system = systemMsg;
+
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok || !resp.body) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(
+        `Anthropic Claude returned HTTP ${resp.status}: ${errText}`
+      );
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+            const token = parsed.delta.text;
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: model };
+  }
+
+  if (provider === "openai") {
+    const key = health.config.openai_api_key || "";
+    if (!key) {
+      throw new Error(
+        "OpenAI API key is missing. Please set your OpenAI API Key in Settings -> AI Providers."
+      );
+    }
+    const model = health.config.openai_model || "gpt-4o";
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: health.config.temperature ?? 0.1,
+      }),
+    });
+
+    if (!resp.ok || !resp.body) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`OpenAI returned HTTP ${resp.status}: ${errText}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
+          if (token) {
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: model };
+  }
+
+  if (provider === "gemini") {
+    const key = health.config.gemini_api_key || "";
+    if (!key) {
+      throw new Error(
+        "Google Gemini API key is missing. Please set your Gemini API Key in Settings -> AI Providers."
+      );
+    }
+    const model = health.config.gemini_model || "gemini-2.0-flash";
+    const resp = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          temperature: health.config.temperature ?? 0.1,
+        }),
+      }
+    );
+
+    if (!resp.ok || !resp.body) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`Google Gemini returned HTTP ${resp.status}: ${errText}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
+          if (token) {
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: model };
+  }
+
+  if (provider === "deepseek") {
+    const key = health.config.deepseek_api_key || "";
+    if (!key) {
+      throw new Error(
+        "DeepSeek API key is missing. Please set your DeepSeek API Key in Settings -> AI Providers."
+      );
+    }
+    const model = health.config.deepseek_model || "deepseek-chat";
+    const resp = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: health.config.temperature ?? 0.1,
+      }),
+    });
+
+    if (!resp.ok || !resp.body) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`DeepSeek returned HTTP ${resp.status}: ${errText}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let fullReply = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
+          if (token) {
+            fullReply += token;
+            onToken(token);
+          }
+        } catch {}
+      }
+    }
+    return { text: fullReply, effectiveModel: model };
+  }
+
   // Default: Ollama
   const baseUrl = health.config.ollama_base_url.replace(/\/$/, "");
   const installedModels = health.ollama_models || [];
@@ -459,55 +709,69 @@ export const oxideBridge = {
       });
     }
 
-    const health = await this.getProviderHealth();
-    const baseUrl = health.config.ollama_base_url.replace(/\/$/, "");
-    try {
-      const resp = await fetch(`${baseUrl}/api/pull`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: modelId.trim(), stream: true }),
-      });
-      if (resp.ok && resp.body) {
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = buffer.indexOf("\n")) !== -1) {
-            const line = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + 1);
-            if (!line) continue;
-            try {
-              const data = JSON.parse(line);
-              if (data.error) throw new Error(data.error);
-              const completed = data.completed || 0;
-              const total = data.total || 0;
-              const percent = total > 0 ? (completed / total) * 100 : 0;
-              emitModelProgress({
-                model_id: modelId,
-                status: data.status || "downloading",
-                completed,
-                total,
-                percent,
-              });
-            } catch {}
+    const resp = await fetch("/__oxide_api/install_ai_model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelId, model_id: modelId }),
+    });
+
+    if (!resp.ok || !resp.body) {
+      const err = await resp
+        .json()
+        .catch(() => ({ message: `HTTP ${resp.status}` }));
+      throw new Error(err.message || "Failed to start model download");
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuf = "";
+    let finalResult: ModelInstallResult = {
+      model_id: modelId,
+      success: true,
+      message: `Installed ${modelId} successfully!`,
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = lineBuf.indexOf("\n")) !== -1) {
+        const line = lineBuf.slice(0, idx).trim();
+        lineBuf = lineBuf.slice(idx + 1);
+        if (!line || !line.startsWith("data: ")) continue;
+        const dataStr = line.slice(6).trim();
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.error) throw new Error(data.error);
+          if (data.type === "progress") {
+            emitModelProgress({
+              model_id: data.model_id || modelId,
+              status: data.status || "Downloading...",
+              completed: data.completed || 0,
+              total: data.total || 0,
+              percent: data.percent || 0,
+            });
+          } else if (data.type === "done") {
+            finalResult = {
+              model_id: data.model_id || modelId,
+              success: Boolean(data.success),
+              message: data.message || `Installed ${modelId} successfully!`,
+            };
+          }
+        } catch (e: any) {
+          if (
+            e.message &&
+            !e.message.includes("Unexpected token") &&
+            !e.message.includes("is not valid JSON")
+          ) {
+            throw e;
           }
         }
-        return {
-          model_id: modelId,
-          success: true,
-          message: `Installed ${modelId} successfully!`,
-        };
       }
-    } catch {}
+    }
 
-    return callBackend<ModelInstallResult>("install_ai_model", {
-      modelId,
-      model_id: modelId,
-    });
+    return finalResult;
   },
 
   async deleteAiModel(modelId: string): Promise<boolean> {
@@ -521,6 +785,162 @@ export const oxideBridge = {
     return callBackend<HuggingFaceModelEntry[]>("search_huggingface_gguf", {
       query,
     });
+  },
+
+  async testProviderConnection(
+    config: ProviderConfig
+  ): Promise<{ success: boolean; message: string }> {
+    const provider = config.active_provider;
+    try {
+      if (provider === "anthropic") {
+        if (!config.anthropic_api_key)
+          throw new Error("Anthropic API key is empty");
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": config.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: config.anthropic_model || "claude-3-5-sonnet-20241022",
+            max_tokens: 16,
+            messages: [{ role: "user", content: "Hi" }],
+          }),
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
+        }
+        return {
+          success: true,
+          message: `Connected to Anthropic (${
+            config.anthropic_model || "Claude 3.5 Sonnet"
+          }) successfully!`,
+        };
+      }
+
+      if (provider === "openai") {
+        if (!config.openai_api_key) throw new Error("OpenAI API key is empty");
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.openai_api_key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: config.openai_model || "gpt-4o",
+            max_tokens: 16,
+            messages: [{ role: "user", content: "Hi" }],
+          }),
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
+        }
+        return {
+          success: true,
+          message: `Connected to OpenAI (${
+            config.openai_model || "gpt-4o"
+          }) successfully!`,
+        };
+      }
+
+      if (provider === "gemini") {
+        if (!config.gemini_api_key) throw new Error("Gemini API key is empty");
+        const resp = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.gemini_api_key}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: config.gemini_model || "gemini-2.0-flash",
+              max_tokens: 16,
+              messages: [{ role: "user", content: "Hi" }],
+            }),
+          }
+        );
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
+        }
+        return {
+          success: true,
+          message: `Connected to Google Gemini (${
+            config.gemini_model || "gemini-2.0-flash"
+          }) successfully!`,
+        };
+      }
+
+      if (provider === "deepseek") {
+        if (!config.deepseek_api_key)
+          throw new Error("DeepSeek API key is empty");
+        const resp = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.deepseek_api_key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: config.deepseek_model || "deepseek-chat",
+            max_tokens: 16,
+            messages: [{ role: "user", content: "Hi" }],
+          }),
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
+        }
+        return {
+          success: true,
+          message: `Connected to DeepSeek (${
+            config.deepseek_model || "deepseek-chat"
+          }) successfully!`,
+        };
+      }
+
+      if (provider === "oxide_native") {
+        const port = config.oxide_native_port || 11435;
+        const ping = await fetch(`http://127.0.0.1:${port}/health`, {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (!ping.ok) throw new Error(`HTTP ${ping.status}`);
+        return {
+          success: true,
+          message: `Oxide Native Engine running on port ${port}!`,
+        };
+      }
+
+      if (provider === "custom_openai") {
+        const url = (
+          config.custom_openai_url || "http://127.0.0.1:1234/v1"
+        ).replace(/\/$/, "");
+        const resp = await fetch(`${url}/models`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return {
+          success: true,
+          message: `Connected to custom OpenAI endpoint at ${url}!`,
+        };
+      }
+
+      const baseUrl = config.ollama_base_url.replace(/\/$/, "");
+      const resp = await fetch(`${baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return { success: true, message: "Connected to Ollama engine!" };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Connection failed: ${err?.message || String(err)}`,
+      };
+    }
   },
 
 
