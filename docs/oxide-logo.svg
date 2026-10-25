@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <!-- Cast Iron Base Gradient -->
+    <linearGradient id="cast-iron" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2e2623" />
+      <stop offset="50%" stop-color="#1d1816" />
+      <stop offset="100%" stop-color="#120e0d" />
+    </linearGradient>
+
+    <!-- Heavy Ferric Rust (Fe2O3) Patina Gradient -->
+    <linearGradient id="rust-heavy" x1="0%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#d45b2c" />
+      <stop offset="38%" stop-color="#a83b16" />
+      <stop offset="75%" stop-color="#6e220c" />
+      <stop offset="100%" stop-color="#3d1307" />
+    </linearGradient>
+
+    <!-- Corroded Pipe Cylinder Shading -->
+    <linearGradient id="pipe-barrel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#473832" />
+      <stop offset="22%" stop-color="#9e3d1a" />
+      <stop offset="50%" stop-color="#c95227" />
+      <stop offset="80%" stop-color="#61210d" />
+      <stop offset="100%" stop-color="#241916" />
+    </linearGradient>
+
+    <!-- Oxidized Verdigris / Weathering Streak -->
+    <linearGradient id="oxide-crust" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#b8461d" stop-opacity="0.9" />
+      <stop offset="60%" stop-color="#7a280e" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#2b1d19" stop-opacity="0.95" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Weathered Industrial Octagonal Plate -->
+  <polygon
+    points="72,14 168,14 226,72 226,168 168,226 72,226 14,168 14,72"
+    fill="url(#cast-iron)"
+    stroke="#5e2512"
+    stroke-width="4"
+  />
+
+  <!-- Irregular Rust Corrosion Patches on Backplate -->
+  <path
+    d="M74,18 L155,18 C140,36 110,28 85,44 C60,55 34,80 18,95 L18,74 Z"
+    fill="url(#rust-heavy)"
+    opacity="0.75"
+  />
+  <path
+    d="M222,130 L222,166 L166,222 L115,222 C135,198 165,195 182,172 C198,150 205,135 222,130 Z"
+    fill="url(#rust-heavy)"
+    opacity="0.82"
+  />
+
+  <!-- Horizontal Rusted Pipe Segment -->
+  <rect
+    x="26"
+    y="86"
+    width="188"
+    height="68"
+    rx="6"
+    fill="url(#pipe-barrel)"
+    stroke="#2b1711"
+    stroke-width="3"
+  />
+
+  <!-- Left & Right Pipe Coupling Collars (Ribbed Iron Flanges) -->
+  <rect
+    x="20"
+    y="74"
+    width="22"
+    height="92"
+    rx="4"
+    fill="url(#rust-heavy)"
+    stroke="#1c110d"
+    stroke-width="3"
+  />
+  <rect
+    x="198"
+    y="74"
+    width="22"
+    height="92"
+    rx="4"
+    fill="url(#rust-heavy)"
+    stroke="#1c110d"
+    stroke-width="3"
+  />
+
+  <!-- Vertical Rusted Pipe T-Joint Stem -->
+  <rect
+    x="86"
+    y="24"
+    width="68"
+    height="192"
+    rx="6"
+    fill="url(#oxide-crust)"
+    stroke="#2b1711"
+    stroke-width="3"
+  />
+  <!-- Top & Bottom Pipe Collars -->
+  <rect
+    x="74"
+    y="18"
+    width="92"
+    height="20"
+    rx="4"
+    fill="url(#rust-heavy)"
+    stroke="#1c110d"
+    stroke-width="3"
+  />
+  <rect
+    x="74"
+    y="202"
+    width="92"
+    height="20"
+    rx="4"
+    fill="url(#rust-heavy)"
+    stroke="#1c110d"
+    stroke-width="3"
+  />
+
+  <!-- Central Bolted Rusted Iron Valve Flange -->
+  <circle
+    cx="120"
+    cy="120"
+    r="66"
+    fill="url(#cast-iron)"
+    stroke="#a83b16"
+    stroke-width="4"
+  />
+  <circle
+    cx="120"
+    cy="120"
+    r="56"
+    fill="none"
+    stroke="#d45b2c"
+    stroke-width="2"
+    stroke-dasharray="18 8 6 8"
+  />
+
+  <!-- Asymmetric Rust Crust & Pitting on Central Flange -->
+  <path
+    d="M72,82 A60,60 0 0,1 168,84 L152,102 A36,36 0 0,0 88,100 Z"
+    fill="url(#rust-heavy)"
+    opacity="0.88"
+  />
+  <path
+    d="M162,158 A60,60 0 0,1 74,156 L92,138 A36,36 0 0,0 148,140 Z"
+    fill="#8a2c0f"
+    opacity="0.75"
+  />
+
+  <!-- Inner Pipe Bore (Hollow Oxidized Interior) -->
+  <circle
+    cx="120"
+    cy="120"
+    r="34"
+    fill="#0f0b0a"
+    stroke="#c95227"
+    stroke-width="4"
+  />
+  <circle
+    cx="120"
+    cy="120"
+    r="22"
+    fill="none"
+    stroke="#7a280e"
+    stroke-width="2.5"
+    stroke-dasharray="10 5"
+  />
+
+  <!-- 8 Industrial Rusted Hex Rivet Bolts Around Flange -->
+  <circle cx="120" cy="65" r="5.5" fill="#d45b2c" stroke="#1a110e" stroke-width="2" />
+  <circle cx="120" cy="175" r="5.5" fill="#9e3d1a" stroke="#1a110e" stroke-width="2" />
+  <circle cx="65" cy="120" r="5.5" fill="#b8461d" stroke="#1a110e" stroke-width="2" />
+  <circle cx="175" cy="120" r="5.5" fill="#8a2c0f" stroke="#1a110e" stroke-width="2" />
+  <circle cx="81" cy="81" r="5.5" fill="#d45b2c" stroke="#1a110e" stroke-width="2" />
+  <circle cx="159" cy="81" r="5.5" fill="#a83b16" stroke="#1a110e" stroke-width="2" />
+  <circle cx="81" cy="159" r="5.5" fill="#8a2c0f" stroke="#1a110e" stroke-width="2" />
+  <circle cx="159" cy="159" r="5.5" fill="#c95227" stroke="#1a110e" stroke-width="2" />
+
+  <!-- Rust Drips & Pitting Marks -->
+  <path d="M42,166 L42,186 C42,190 36,190 36,186 L36,166 Z" fill="#a83b16" />
+  <path d="M196,166 L196,192 C196,196 190,196 190,192 L190,166 Z" fill="#8a2c0f" />
+  <circle cx="52" cy="105" r="3" fill="#3d1307" />
+  <circle cx="60" cy="112" r="2" fill="#3d1307" />
+  <circle cx="184" cy="132" r="3.5" fill="#3d1307" />
+  <circle cx="176" cy="124" r="2" fill="#3d1307" />
+</svg>

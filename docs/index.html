@@ -3,23 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Rusted Pipe Flange Favicon -->
     <link
       rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23f59e0b'/><text x='50%' y='68%' dominant-baseline='middle' text-anchor='middle' font-size='60' font-family='sans-serif' font-weight='bold' fill='%23070a12'>Ox</text></svg>"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><polygon points='18,4 46,4 60,18 60,46 46,60 18,60 4,46 4,18' fill='%231d1512' stroke='%23b8461d' stroke-width='3'/><rect x='6' y='22' width='52' height='20' fill='%239e3d1a'/><rect x='22' y='6' width='20' height='52' fill='%237a280e'/><circle cx='32' cy='32' r='18' fill='%231c1310' stroke='%23d45b2c' stroke-width='3.5'/><circle cx='32' cy='32' r='9' fill='%230c0807' stroke='%238a2c0f' stroke-width='2'/><circle cx='32' cy='18' r='2' fill='%23d45b2c'/><circle cx='32' cy='46' r='2' fill='%23d45b2c'/><circle cx='18' cy='32' r='2' fill='%23d45b2c'/><circle cx='46' cy='32' r='2' fill='%23d45b2c'/></svg>"
     />
-    <title>Oxide Studio — Local-First Autonomous AI Coding Agent GUI</title>
+    <title>OXIDE // Fe₂O₃ — Autonomous Local AI Agent</title>
     <style>
       :root {
-        --bg: #070a12;
-        --panel: #0e1422;
-        --card: #151e32;
-        --border: #22304c;
-        --text: #f1f5f9;
-        --muted: #94a3b8;
-        --amber: #f59e0b;
-        --blue: #38bdf8;
-        --purple: #a855f7;
-        --green: #10b981;
+        --iron-bg: #100c0a;
+        --iron-surface: #17120f;
+        --rust-bright: #d45b2c;
+        --rust-mid: #a83b16;
+        --rust-dark: #4f1c0b;
+        --line: #2e201b;
+        --bone: #e8ded5;
+        --ash: #948277;
       }
       * {
         box-sizing: border-box;
@@ -27,367 +27,583 @@
         padding: 0;
       }
       body {
-        background: var(--bg);
-        color: var(--text);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
-          sans-serif;
-        line-height: 1.65;
+        background-color: var(--iron-bg);
+        background-image: radial-gradient(
+            circle at 82% 14%,
+            rgba(168, 59, 22, 0.12),
+            transparent 42%
+          ),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 39px,
+            rgba(46, 32, 27, 0.25) 40px
+          );
+        color: var(--bone);
+        font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+        line-height: 1.6;
+        padding: 2rem 1.25rem 4rem;
       }
-      header {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        background: rgba(14, 20, 34, 0.94);
-        backdrop-filter: blur(10px);
-        border-bottom: 1px solid var(--border);
-        padding: 1rem 2rem;
+      .sheet {
+        max-width: 880px;
+        margin: 0 auto;
+        border: 1px solid var(--line);
+        background: rgba(16, 12, 10, 0.92);
+      }
+      /* Top Stencil Bar */
+      .topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        padding: 0.85rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ash);
+      }
+      .topbar a {
+        color: var(--bone);
+        text-decoration: none;
+        margin-left: 1.25rem;
+      }
+      .topbar a:hover {
+        color: var(--rust-bright);
+      }
+      /* Hero Section with Rusted Pipe Emblem */
+      .hero {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 2rem;
+        padding: 2.5rem 2rem;
+        border-bottom: 1px solid var(--line);
+        align-items: center;
+      }
+      @media (max-width: 640px) {
+        .hero {
+          grid-template-columns: 1fr;
+          text-align: center;
+          justify-items: center;
+        }
+      }
+      .emblem-wrap {
+        width: 164px;
+        height: 164px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .title-tag {
+        display: inline-block;
+        font-size: 0.72rem;
+        color: var(--rust-bright);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+      }
+      h1 {
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--bone);
+        line-height: 1.15;
+        margin-bottom: 0.75rem;
+      }
+      .subtitle {
+        color: var(--ash);
+        font-size: 0.88rem;
+        max-width: 560px;
+        margin-bottom: 1.4rem;
+      }
+      .actions {
+        display: flex;
         flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .btn-rust {
+        background: var(--rust-mid);
+        color: var(--bone);
+        border: 1px solid var(--rust-bright);
+        padding: 0.55rem 1.1rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-decoration: none;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        transition: background 0.15s;
+      }
+      .btn-rust:hover {
+        background: var(--rust-bright);
+        color: #100c0a;
+      }
+      .btn-iron {
+        background: var(--iron-surface);
+        color: var(--bone);
+        border: 1px solid var(--line);
+        padding: 0.55rem 1.1rem;
+        font-size: 0.8rem;
+        text-decoration: none;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .btn-iron:hover {
+        border-color: var(--rust-bright);
+        color: var(--rust-bright);
+      }
+      /* Minimal Numbered Spec Blocks */
+      .block {
+        padding: 1.75rem 2rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .block-label {
+        font-size: 0.72rem;
+        color: var(--rust-bright);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: 0.9rem;
+      }
+      .cmd-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 1rem;
       }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-weight: 700;
-        font-size: 1.1rem;
+      @media (max-width: 640px) {
+        .cmd-grid {
+          grid-template-columns: 1fr;
+        }
       }
-      .badge {
-        background: linear-gradient(135deg, #f59e0b, #ea580c);
-        color: #070a12;
-        font-weight: 800;
-        font-size: 0.78rem;
-        padding: 0.25rem 0.6rem;
-        border-radius: 6px;
-        letter-spacing: 0.05em;
-      }
-      nav {
-        display: flex;
-        gap: 1.25rem;
-        font-size: 0.9rem;
-        flex-wrap: wrap;
-      }
-      nav a {
-        color: var(--muted);
-        text-decoration: none;
-      }
-      nav a:hover {
-        color: var(--amber);
-      }
-      .container {
-        max-width: 1060px;
-        margin: 0 auto;
-        padding: 2.5rem 1.5rem 5rem;
-      }
-      .hero {
-        background: linear-gradient(
-          180deg,
-          rgba(21, 30, 50, 0.9),
-          rgba(14, 20, 34, 0.95)
-        );
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 2.25rem;
-        margin-bottom: 2.5rem;
-      }
-      .hero h1 {
-        font-size: 2rem;
-        margin-bottom: 0.6rem;
-      }
-      .hero p {
-        color: var(--muted);
-        font-size: 1.02rem;
-        max-width: 840px;
-      }
-      .cta-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        margin-top: 1.35rem;
-      }
-      .btn-cta {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: linear-gradient(135deg, #f59e0b, #ea580c);
-        color: #070a12;
-        font-weight: 700;
-        padding: 0.6rem 1.15rem;
-        border-radius: 8px;
-        text-decoration: none;
-        font-size: 0.9rem;
-      }
-      .btn-secondary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: var(--card);
-        color: var(--text);
-        border: 1px solid var(--border);
-        font-weight: 600;
-        padding: 0.6rem 1.15rem;
-        border-radius: 8px;
-        text-decoration: none;
-        font-size: 0.9rem;
-      }
-      section {
-        margin-bottom: 3rem;
-      }
-      h2 {
-        font-size: 1.45rem;
-        margin-bottom: 1rem;
-        padding-bottom: 0.45rem;
-        border-bottom: 1px solid var(--border);
-        color: var(--amber);
-      }
-      .grid-2 {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
-        gap: 1.15rem;
-      }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1.25rem;
-      }
-      .card h3 {
-        margin-bottom: 0.5rem;
-        color: var(--blue);
-      }
-      pre {
-        background: #04060b;
-        border: 1px solid var(--border);
-        border-radius: 8px;
+      .cmd-box {
+        background: var(--iron-surface);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--rust-mid);
         padding: 0.95rem 1.1rem;
-        overflow-x: auto;
-        font-family: "JetBrains Mono", Consolas, monospace;
-        font-size: 0.84rem;
-        color: #e2e8f0;
-        margin: 0.65rem 0 1rem;
+      }
+      .cmd-box strong {
+        display: block;
+        font-size: 0.82rem;
+        color: var(--bone);
+        margin-bottom: 0.35rem;
+      }
+      .cmd-box p {
+        font-size: 0.78rem;
+        color: var(--ash);
       }
       code {
-        font-family: "JetBrains Mono", Consolas, monospace;
-        background: rgba(56, 189, 248, 0.1);
-        color: var(--blue);
-        padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        font-size: 0.85em;
+        color: var(--rust-bright);
       }
-      pre code {
-        background: transparent;
-        color: inherit;
-        padding: 0;
+      /* Spec Rows */
+      .spec-row {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 1rem;
+        padding: 0.7rem 0;
+        border-top: 1px solid var(--line);
+        font-size: 0.82rem;
       }
-      ul,
-      ol {
-        padding-left: 1.35rem;
-        color: #cbd5e1;
+      .spec-row:first-of-type {
+        border-top: none;
       }
-      li {
-        margin-bottom: 0.45rem;
+      @media (max-width: 640px) {
+        .spec-row {
+          grid-template-columns: 1fr;
+          gap: 0.2rem;
+        }
       }
-      footer {
-        text-align: center;
-        color: var(--muted);
-        font-size: 0.85rem;
-        padding: 2rem;
-        border-top: 1px solid var(--border);
+      .spec-key {
+        color: var(--bone);
+        font-weight: 700;
+      }
+      .spec-val {
+        color: var(--ash);
+      }
+      .foot {
+        padding: 1rem 1.5rem;
+        font-size: 0.74rem;
+        color: var(--ash);
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
       }
     </style>
   </head>
   <body>
-    <header>
-      <div class="brand">
-        <span class="badge">OXIDE STUDIO</span>
-        <span>Autonomous AI Coding Agent GUI</span>
-      </div>
-      <nav>
-        <a href="#install">How to Open &amp; Install</a>
-        <a href="#subagents">Subagents &amp; PC Governor</a>
-        <a href="#gui-features">Live AI Thinking &amp; GUI</a>
-        <a href="#updater">One-Click GitHub Updater</a>
-        <a
-          href="https://github.com/Hanzkii/Oxide/releases"
-          target="_blank"
-          rel="noreferrer"
-          >Releases ↗</a
-        >
-      </nav>
-    </header>
-
-    <main class="container">
-      <div class="hero">
-        <h1>Oxide Studio — Antigravity-Style Autonomous AI Agent GUI</h1>
-        <p>
-          A lightning-fast desktop command center built with
-          <strong>Tauri v2</strong>, <strong>Rust</strong>, and
-          <strong>React 18 / TypeScript</strong>. Run one large
-          <strong>Lead Architect AI</strong> for complex reasoning while
-          delegating subtasks to fast, specialized
-          <strong>Subagents</strong>—automatically governed by your PC's live
-          RAM, CPU, and VRAM specs.
-        </p>
-        <div class="cta-row">
+    <div class="sheet">
+      <div class="topbar">
+        <span>OXIDE // FERRIC AGENT STUDIO [Fe₂O₃]</span>
+        <div>
+          <a href="#start">01.Start</a>
+          <a href="#specs">02.Specs</a>
           <a
-            class="btn-cta"
-            href="https://github.com/Hanzkii/Oxide/releases/latest"
-            target="_blank"
-            rel="noreferrer"
-          >
-            ⬇ Download Windows Installer (.exe / .msi)
-          </a>
-          <a
-            class="btn-secondary"
             href="https://github.com/Hanzkii/Oxide"
             target="_blank"
             rel="noreferrer"
+            >GitHub ↗</a
           >
-            View GitHub Repository ↗
-          </a>
         </div>
       </div>
 
-      <section id="install">
-        <h2>1. How to Open &amp; Start Oxide</h2>
-        <div class="grid-2">
-          <div class="card">
-            <h3>Option A: Standalone Windows Installer / .exe (Easiest)</h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              GitHub Actions automatically compiles and publishes the Windows
-              installer and portable executable on every push to
-              <code>main</code>:
-            </p>
-            <ol style="margin-top: 0.6rem">
-              <li>
-                Open
-                <a
-                  href="https://github.com/Hanzkii/Oxide/releases/latest"
-                  style="color: var(--blue)"
-                  >GitHub Releases</a
-                >.
-              </li>
-              <li>
-                Download <strong><code>Oxide_0.1.0_x64-setup.exe</code></strong>
-                (Windows Installer) or
-                <strong><code>Oxide-Portable.exe</code></strong> (Single-File
-                Portable Executable).
-              </li>
-              <li>Double-click to launch Oxide Studio!</li>
-            </ol>
-          </div>
+      <section class="hero">
+        <!-- Rusted Iron Pipe & Corroded Valve Flange SVG Emblem -->
+        <div class="emblem-wrap">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 240 240"
+            width="160"
+            height="160"
+          >
+            <defs>
+              <linearGradient
+                id="cast-iron"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop offset="0%" stop-color="#2e2623" />
+                <stop offset="50%" stop-color="#1d1816" />
+                <stop offset="100%" stop-color="#120e0d" />
+              </linearGradient>
+              <linearGradient
+                id="rust-heavy"
+                x1="0%"
+                y1="0%"
+                x2="85%"
+                y2="100%"
+              >
+                <stop offset="0%" stop-color="#d45b2c" />
+                <stop offset="38%" stop-color="#a83b16" />
+                <stop offset="75%" stop-color="#6e220c" />
+                <stop offset="100%" stop-color="#3d1307" />
+              </linearGradient>
+              <linearGradient
+                id="pipe-barrel"
+                x1="0%"
+                y1="0%"
+                x2="0%"
+                y2="100%"
+              >
+                <stop offset="0%" stop-color="#473832" />
+                <stop offset="22%" stop-color="#9e3d1a" />
+                <stop offset="50%" stop-color="#c95227" />
+                <stop offset="80%" stop-color="#61210d" />
+                <stop offset="100%" stop-color="#241916" />
+              </linearGradient>
+              <linearGradient
+                id="oxide-crust"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="0%"
+              >
+                <stop offset="0%" stop-color="#b8461d" stop-opacity="0.9" />
+                <stop offset="60%" stop-color="#7a280e" stop-opacity="0.7" />
+                <stop offset="100%" stop-color="#2b1d19" stop-opacity="0.95" />
+              </linearGradient>
+            </defs>
+            <polygon
+              points="72,14 168,14 226,72 226,168 168,226 72,226 14,168 14,72"
+              fill="url(#cast-iron)"
+              stroke="#5e2512"
+              stroke-width="4"
+            />
+            <path
+              d="M74,18 L155,18 C140,36 110,28 85,44 C60,55 34,80 18,95 L18,74 Z"
+              fill="url(#rust-heavy)"
+              opacity="0.75"
+            />
+            <path
+              d="M222,130 L222,166 L166,222 L115,222 C135,198 165,195 182,172 C198,150 205,135 222,130 Z"
+              fill="url(#rust-heavy)"
+              opacity="0.82"
+            />
+            <rect
+              x="26"
+              y="86"
+              width="188"
+              height="68"
+              rx="6"
+              fill="url(#pipe-barrel)"
+              stroke="#2b1711"
+              stroke-width="3"
+            />
+            <rect
+              x="20"
+              y="74"
+              width="22"
+              height="92"
+              rx="4"
+              fill="url(#rust-heavy)"
+              stroke="#1c110d"
+              stroke-width="3"
+            />
+            <rect
+              x="198"
+              y="74"
+              width="22"
+              height="92"
+              rx="4"
+              fill="url(#rust-heavy)"
+              stroke="#1c110d"
+              stroke-width="3"
+            />
+            <rect
+              x="86"
+              y="24"
+              width="68"
+              height="192"
+              rx="6"
+              fill="url(#oxide-crust)"
+              stroke="#2b1711"
+              stroke-width="3"
+            />
+            <rect
+              x="74"
+              y="18"
+              width="92"
+              height="20"
+              rx="4"
+              fill="url(#rust-heavy)"
+              stroke="#1c110d"
+              stroke-width="3"
+            />
+            <rect
+              x="74"
+              y="202"
+              width="92"
+              height="20"
+              rx="4"
+              fill="url(#rust-heavy)"
+              stroke="#1c110d"
+              stroke-width="3"
+            />
+            <circle
+              cx="120"
+              cy="120"
+              r="66"
+              fill="url(#cast-iron)"
+              stroke="#a83b16"
+              stroke-width="4"
+            />
+            <circle
+              cx="120"
+              cy="120"
+              r="56"
+              fill="none"
+              stroke="#d45b2c"
+              stroke-width="2"
+              stroke-dasharray="18 8 6 8"
+            />
+            <path
+              d="M72,82 A60,60 0 0,1 168,84 L152,102 A36,36 0 0,0 88,100 Z"
+              fill="url(#rust-heavy)"
+              opacity="0.88"
+            />
+            <path
+              d="M162,158 A60,60 0 0,1 74,156 L92,138 A36,36 0 0,0 148,140 Z"
+              fill="#8a2c0f"
+              opacity="0.75"
+            />
+            <circle
+              cx="120"
+              cy="120"
+              r="34"
+              fill="#0f0b0a"
+              stroke="#c95227"
+              stroke-width="4"
+            />
+            <circle
+              cx="120"
+              cy="120"
+              r="22"
+              fill="none"
+              stroke="#7a280e"
+              stroke-width="2.5"
+              stroke-dasharray="10 5"
+            />
+            <circle
+              cx="120"
+              cy="65"
+              r="5.5"
+              fill="#d45b2c"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="120"
+              cy="175"
+              r="5.5"
+              fill="#9e3d1a"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="65"
+              cy="120"
+              r="5.5"
+              fill="#b8461d"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="175"
+              cy="120"
+              r="5.5"
+              fill="#8a2c0f"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="81"
+              cy="81"
+              r="5.5"
+              fill="#d45b2c"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="159"
+              cy="81"
+              r="5.5"
+              fill="#a83b16"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="81"
+              cy="159"
+              r="5.5"
+              fill="#8a2c0f"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <circle
+              cx="159"
+              cy="159"
+              r="5.5"
+              fill="#c95227"
+              stroke="#1a110e"
+              stroke-width="2"
+            />
+            <path
+              d="M42,166 L42,186 C42,190 36,190 36,186 L36,166 Z"
+              fill="#a83b16"
+            />
+            <path
+              d="M196,166 L196,192 C196,196 190,196 190,192 L190,166 Z"
+              fill="#8a2c0f"
+            />
+          </svg>
+        </div>
 
-          <div class="card">
-            <h3>Option B: Double-Click <code>start-oxide.bat</code></h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              From a local clone of the repository, double-click
-              <strong><code>start-oxide.bat</code></strong> in File Explorer:
+        <div>
+          <span class="title-tag">LOCAL-FIRST RUST + TAURI V2 AGENT GUI</span>
+          <h1>OXIDE STUDIO</h1>
+          <p class="subtitle">
+            Autonomous desktop command center for offline software engineering.
+            Pairs a large Lead Architect model with hardware-governed Subagents,
+            live <code>&lt;think&gt;</code> telemetry, MCP tool servers, and
+            one-click GitHub self-updating.
+          </p>
+          <div class="actions">
+            <a
+              class="btn-rust"
+              href="https://github.com/Hanzkii/Oxide/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+            >
+              [ Download Windows .exe / .msi ]
+            </a>
+            <a
+              class="btn-iron"
+              href="https://github.com/Hanzkii/Oxide"
+              target="_blank"
+              rel="noreferrer"
+            >
+              [ Source Repository ]
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section id="start" class="block">
+        <div class="block-label">01 // HOW TO OPEN OXIDE</div>
+        <div class="cmd-grid">
+          <div class="cmd-box">
+            <strong>A. Standalone Release Installer</strong>
+            <p>
+              Download <code>Oxide_0.1.0_x64-setup.exe</code> or
+              <code>Oxide-Portable.exe</code> from
+              <a
+                href="https://github.com/Hanzkii/Oxide/releases/latest"
+                style="color: var(--rust-bright)"
+                >GitHub Releases</a
+              >
+              and launch directly. Use the top-right
+              <code>↻ Update</code> button inside the GUI to pull future updates
+              from GitHub.
             </p>
-            <pre><code>.\start-oxide.bat</code></pre>
-            <p style="color: var(--muted); font-size: 0.85rem">
-              Runs <code>Oxide-Portable.exe</code> if present, or opens a
-              standalone desktop GUI window
-              (<code>--app=http://localhost:1420</code>) with full local system
-              capabilities!
+          </div>
+          <div class="cmd-box">
+            <strong>B. Local Clone Launcher</strong>
+            <p>
+              Ensure <code>ollama serve</code> is running locally, then
+              double-click <code>start-oxide.bat</code> in the repo root to pop
+              open the native desktop Studio window immediately.
             </p>
           </div>
         </div>
       </section>
 
-      <section id="subagents">
-        <h2>2. Lead Architect + Subagents &amp; PC Hardware Governor</h2>
-        <div class="grid-2">
-          <div class="card">
-            <h3>🧠 Hierarchical Subagent Delegation</h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              Run one large model (e.g. <code>deepseek-r1</code> or
-              <code>qwen2.5-coder:14b</code>) as the
-              <strong>Lead Architect AI</strong> for complex planning, and
-              delegate subtasks to faster, lighter
-              <strong>Subagents</strong> (<code>coder_subagent</code>,
-              <code>research_subagent</code>, <code>tester_subagent</code>).
-            </p>
+      <section id="specs" class="block">
+        <div class="block-label">02 // SYSTEM ARCHITECTURE</div>
+        <div class="spec-row">
+          <div class="spec-key">Lead Architect + Subagents</div>
+          <div class="spec-val">
+            Route complex planning to a large model
+            (<code>deepseek-r1</code> / <code>qwen2.5-coder:14b</code>) and
+            delegate coding, search, and test subtasks to fast lightweight
+            Subagents.
           </div>
-
-          <div class="card">
-            <h3>⚙ Task-to-Model Routing Matrix</h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              Click <strong>⚙ Subagents &amp; Models</strong> in the top bar to
-              choose which AI model runs each specific task role—or click
-              <strong>✨ Auto-Configure for My PC</strong> to automatically pick
-              the best models for your hardware.
-            </p>
+        </div>
+        <div class="spec-row">
+          <div class="spec-key">PC Hardware Governor</div>
+          <div class="spec-val">
+            Monitors live CPU load, free System RAM, and GPU VRAM to cap
+            concurrent Subagent workers and prevent machine overload.
           </div>
-
-          <div class="card">
-            <h3>🖥 PC Hardware Concurrency Limiter</h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              Oxide continuously checks your PC's
-              <strong>Free RAM / Total RAM (GB)</strong>,
-              <strong>CPU Cores &amp; Load %</strong>, and
-              <strong>GPU VRAM</strong>. It enforces a hard semaphore limit so
-              too many subagents can never overload your PC, and auto-throttles
-              to <code>1</code> sequential worker if RAM exceeds 85%.
-            </p>
+        </div>
+        <div class="spec-row">
+          <div class="spec-key">Live Reasoning Stream</div>
+          <div class="spec-val">
+            Real-time <code>&lt;think&gt;...&lt;/think&gt;</code> inspection
+            panel and step-by-step task checklist visible directly in the center
+            GUI.
           </div>
-
-          <div class="card">
-            <h3>🤖 Live Subagent Worker Pool</h3>
-            <p style="color: var(--muted); font-size: 0.9rem">
-              Watch every active or queued Subagent in the right-hand panel with
-              its assigned role, model tag, status
-              (<code>QUEUED</code>, <code>RUNNING</code>,
-              <code>COMPLETED</code>), live thought (<code>💭</code>), and
-              result preview.
-            </p>
+        </div>
+        <div class="spec-row">
+          <div class="spec-key">MCP Protocol Hub</div>
+          <div class="spec-val">
+            JSON-RPC 2.0 client for Builtin, Stdio (<code>npx</code> /
+            <code>uvx</code>), and HTTP Model Context Protocol servers with live
+            <code>tools/list</code> discovery.
+          </div>
+        </div>
+        <div class="spec-row">
+          <div class="spec-key">Workspace &amp; Git Engine</div>
+          <div class="spec-val">
+            Built-in file explorer/editor (create, edit, move, delete),
+            sandboxed terminal with automatic <code>stderr</code>
+            self-correction, Git pull/commit/push, and one-click Open in VS
+            Code.
           </div>
         </div>
       </section>
 
-      <section id="gui-features">
-        <h2>3. Live AI Thinking &amp; Full Autonomous Tool Suite</h2>
-        <ul>
-          <li>
-            <strong>🧠 Live AI Thinking Panel</strong>: Streams real-time
-            <code>&lt;think&gt;...&lt;/think&gt;</code> reasoning and numbered
-            task checklists at the top of the center workspace.
-          </li>
-          <li>
-            <strong>📁 Built-in File Explorer &amp; Code Editor</strong>:
-            Browse folders, view/edit/save files, create new files, move/rename
-            files, or delete files directly in the GUI.
-          </li>
-          <li>
-            <strong>🛠 Terminal &amp; Self-Correction Loop</strong>: Runs
-            bounded commands and automatically feeds non-zero exit codes
-            (<code>stderr</code>) back to the agent for autonomous repair.
-          </li>
-          <li>
-            <strong>🌿 One-Click Git &amp; VS Code Controls</strong>: Pull,
-            Commit, Push, and pop open Visual Studio Code directly from the top
-            bar.
-          </li>
-        </ul>
-      </section>
-
-      <section id="updater">
-        <h2>4. Updating Oxide from GitHub with One Click</h2>
-        <p style="color: var(--muted)">
-          Click the <strong><code>↻ Update</code></strong> button in the
-          top-right header of the GUI to check
-          <code>https://github.com/Hanzkii/Oxide</code> for new releases or
-          commits and install updates with a single click.
-        </p>
-      </section>
-    </main>
-
-    <footer>
-      Oxide Studio • Local-First Autonomous AI Coding Agent •
-      <a href="https://github.com/Hanzkii/Oxide" style="color: var(--blue)"
-        >github.com/Hanzkii/Oxide</a
-      >
-    </footer>
+      <div class="foot">
+        <span>OXIDE STUDIO // MIT LICENSE</span>
+        <span>GITHUB.COM/HANZKII/OXIDE</span>
+      </div>
+    </div>
   </body>
 </html>
