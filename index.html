@@ -1270,7 +1270,7 @@
             </p>
           </div>
 
-          <div class="feature-card" id="mcp">
+          <div class="feature-card">
             <span class="feature-icon">🔌</span>
             <h3>Model Context Protocol (MCP) Hub</h3>
             <p>
@@ -1314,10 +1314,111 @@
         </div>
       </section>
 
+      <!-- ==================== DEDICATED MCP PROTOCOL HUB SECTION ==================== -->
+      <section id="mcp" class="section">
+        <div class="section-header">
+          <span class="section-tag"
+            >04 // MODEL CONTEXT PROTOCOL (MCP) JSON-RPC 2.0 HUB</span
+          >
+          <h2 class="section-title">
+            Connect Any External MCP Tool Server to Your Local AI
+          </h2>
+          <p class="section-desc">
+            Oxide Studio includes a native Rust JSON-RPC 2.0 MCP client
+            (<code>src-tauri/src/mcp.rs</code>) that lets your local Ollama and
+            HuggingFace models discover and execute tools from any Model Context
+            Protocol server in one click.
+          </p>
+        </div>
+
+        <div class="feature-grid" style="margin-bottom: 1.25rem">
+          <div class="feature-card">
+            <div class="badge-row" style="margin-bottom: 0.5rem">
+              <span class="badge gpu">BUILTIN TRANSPORT</span>
+            </div>
+            <h3>🧠 Built-in Knowledge Graph (<code>oxide-memory</code>)</h3>
+            <p>
+              Ships ready out of the box with zero external dependencies.
+              Provides <code>store_memory</code> and
+              <code>recall_memories</code> tools so your Lead Architect AI can
+              persist architectural notes and project context across tasks.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="badge-row" style="margin-bottom: 0.5rem">
+              <span class="badge coding">STDIO TRANSPORT</span>
+            </div>
+            <h3>⚡ Local Stdio Servers (<code>npx</code> / <code>uvx</code> / <code>python</code>)</h3>
+            <p>
+              Spawns local command-line MCP servers silently in the background
+              (using Win32 <code>CREATE_NO_WINDOW</code>) and communicates over
+              JSON-RPC 2.0 <code>stdin/stdout</code> pipes with automatic
+              <code>initialize</code> and <code>tools/list</code> discovery.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="badge-row" style="margin-bottom: 0.5rem">
+              <span class="badge reasoning">HTTP JSON-RPC 2.0</span>
+            </div>
+            <h3>🌐 Remote &amp; Localhost HTTP Endpoints</h3>
+            <p>
+              Connects to any HTTP JSON-RPC 2.0 MCP endpoint (such as local
+              reverse-engineering bridges, database inspectors, or custom
+              internal APIs) and exposes their schemas to the autonomous agent
+              loop.
+            </p>
+          </div>
+        </div>
+
+        <div class="install-grid">
+          <div class="install-card">
+            <h4>How to Add &amp; Use MCP Servers in Oxide Studio</h4>
+            <p>
+              1. Click <strong>🔌 Customizations (MCP)</strong> in the left
+              sidebar.<br />
+              2. Enter a Server ID (e.g. <code>filesystem</code> or
+              <code>memory</code>) and command (e.g.
+              <code>npx -y @modelcontextprotocol/server-memory</code>).<br />
+              3. Click <strong>Discover Tools</strong> to run the JSON-RPC 2.0
+              <code>initialize → tools/list</code> handshake.<br />
+              4. Toggle the server to <strong>Enabled</strong> — the Lead
+              Architect AI and Subagents can now invoke its tools automatically
+              via <code>call_mcp_tool</code>.
+            </p>
+          </div>
+
+          <div class="install-card">
+            <h4>JSON-RPC 2.0 Handshake &amp; Tool Invocation</h4>
+            <pre
+              style="
+                background: #0d0b0a;
+                border: 1px solid var(--border-iron);
+                padding: 0.75rem;
+                border-radius: 7px;
+                font-size: 0.74rem;
+                color: #f4cbb8;
+                overflow-x: auto;
+                margin-top: 0.35rem;
+              "
+            >{
+  "action": "call_mcp_tool",
+  "server_id": "oxide-memory",
+  "tool_name": "store_memory",
+  "mcp_args": {
+    "key": "architecture_notes",
+    "value": "Lead Architect uses Qwen 14B; Subagents use 7B"
+  }
+}</pre>
+          </div>
+        </div>
+      </section>
+
       <!-- ==================== HOW TO INSTALL & OPEN ==================== -->
       <section id="install" class="section">
         <div class="section-header">
-          <span class="section-tag">04 // QUICK START GUIDE</span>
+          <span class="section-tag">05 // QUICK START GUIDE</span>
           <h2 class="section-title">How to Install &amp; Open Oxide Studio</h2>
         </div>
 
