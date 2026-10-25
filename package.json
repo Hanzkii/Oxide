@@ -5,10 +5,13 @@
   "description": "Local-first autonomous AI coding agent built with Tauri v2 and Rust",
   "type": "module",
   "scripts": {
+    "start": "tauri dev",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

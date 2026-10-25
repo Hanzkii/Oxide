@@ -2,6 +2,56 @@
 
 Oxide is a fast, offline-first desktop command center built with **Tauri v2**, **Rust**, and **React 18 / TypeScript** for running autonomous software engineering workflows on local hardware.
 
+- **Documentation Portal (GitHub Pages)**: [https://hanzkii.github.io/Oxide/](https://hanzkii.github.io/Oxide/)
+- **Getting Started & Launch Guide**: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
+- **Workspace & Security Blueprint**: [docs/WORKSPACE_BLUEPRINT.md](docs/WORKSPACE_BLUEPRINT.md)
+
+---
+
+## How to Open & Run Oxide
+
+### 1. Prerequisites (First-Time Setup)
+1. **Node.js (v18+)**: [https://nodejs.org](https://nodejs.org)
+2. **Rust Toolchain (`rustup` / `cargo`)**: [https://rustup.rs](https://rustup.rs) (plus MSVC C++ build tools on Windows)
+3. **Ollama (Local LLM Daemon)**: [https://ollama.com](https://ollama.com)
+   ```bash
+   ollama pull qwen2.5-coder:latest
+   ollama serve
+   ```
+
+### 2. Choose How to Launch
+
+#### Option A: One-Click Windows Launcher (`start-oxide.bat`)
+Double-click **`start-oxide.bat`** in the project folder (or run it in PowerShell/CMD):
+```powershell
+.\start-oxide.bat
+```
+- Automatically installs `node_modules` if missing.
+- Launches the native **Oxide Desktop Window** via Tauri v2 (or automatically falls back to the browser UI preview at `http://localhost:1420` if Rust/Cargo is not yet installed).
+
+#### Option B: Launch Native Desktop App via Terminal (Development Mode)
+```bash
+npm install
+npm start
+# (alias for: npm run tauri dev)
+```
+
+#### Option C: Build Standalone Native Desktop Executable (`.exe` / `.msi` / `.dmg`)
+```bash
+npm run desktop:build
+# (alias for: npm run tauri build)
+```
+- **Portable Executable**: `src-tauri/target/release/oxide-agent.exe`
+- **Windows Installers**: `src-tauri/target/release/bundle/msi/` and `src-tauri/target/release/bundle/nsis/`
+
+#### Option D: Browser UI Preview Only (No Rust Compiler Required)
+```bash
+npm run dev
+```
+Then open **`http://localhost:1420`** in your browser.
+
+---
+
 ## Core Architecture
 
 1. **Tauri v2 + Rust Core**:
@@ -21,26 +71,3 @@ Oxide is a fast, offline-first desktop command center built with **Tauri v2**, *
 
 4. **External Editor Integration ("Open in VS Code")**:
    - Hardened `open_in_vscode` Tauri command (`code -- <canonical_path>`) paired with a prominent sticky **Open in VS Code** button in the top command header.
-
-## Development Setup
-
-### Prerequisites
-- **Rust** (stable toolchain)
-- **Node.js** (v18+)
-- **Ollama** running locally on `http://localhost:11434` (`ollama pull qwen2.5-coder:latest` or `ollama pull gemma2:latest`)
-
-### Commands
-
-```bash
-# Install frontend dependencies
-npm install
-
-# Run frontend typecheck & production bundle build
-npm run build
-
-# Run Rust backend unit tests (including sandbox security tests)
-cd src-tauri && cargo test
-
-# Launch the Tauri desktop app in development mode
-npm run tauri dev
-```

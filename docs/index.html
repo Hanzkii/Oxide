@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oxide Documentation — Local-First Autonomous AI Coding Agent</title>
+    <style>
+      :root {
+        --bg: #090d16;
+        --panel: #111726;
+        --card: #161f33;
+        --border: #23304d;
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --amber: #f59e0b;
+        --blue: #38bdf8;
+        --green: #10b981;
+        --vscode: #007acc;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+        line-height: 1.65;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgba(17, 23, 38, 0.92);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.1rem;
+      }
+      .badge {
+        background: linear-gradient(135deg, #f59e0b, #ea580c);
+        color: #090d16;
+        font-weight: 800;
+        font-size: 0.78rem;
+        padding: 0.25rem 0.6rem;
+        border-radius: 6px;
+        letter-spacing: 0.05em;
+      }
+      nav {
+        display: flex;
+        gap: 1.25rem;
+        font-size: 0.9rem;
+      }
+      nav a {
+        color: var(--muted);
+        text-decoration: none;
+        transition: color 0.15s;
+      }
+      nav a:hover {
+        color: var(--amber);
+      }
+      .container {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 5rem;
+      }
+      .hero {
+        background: linear-gradient(180deg, rgba(22, 31, 51, 0.9), rgba(17, 23, 38, 0.95));
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2.25rem;
+        margin-bottom: 2.5rem;
+      }
+      .hero h1 {
+        font-size: 2rem;
+        margin-bottom: 0.6rem;
+      }
+      .hero p {
+        color: var(--muted);
+        font-size: 1.05rem;
+        max-width: 780px;
+      }
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-top: 1.25rem;
+      }
+      .pill {
+        font-size: 0.78rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        padding: 0.3rem 0.75rem;
+        border-radius: 999px;
+        color: var(--blue);
+      }
+      section {
+        margin-bottom: 3rem;
+      }
+      h2 {
+        font-size: 1.45rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.45rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--amber);
+      }
+      h3 {
+        font-size: 1.1rem;
+        margin: 1.25rem 0 0.5rem;
+        color: var(--text);
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.15rem;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+      .card h3 {
+        margin-top: 0;
+        color: var(--blue);
+      }
+      pre {
+        background: #05080f;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.95rem 1.1rem;
+        overflow-x: auto;
+        font-family: "JetBrains Mono", Consolas, monospace;
+        font-size: 0.84rem;
+        color: #e2e8f0;
+        margin: 0.65rem 0 1rem;
+      }
+      code {
+        font-family: "JetBrains Mono", Consolas, monospace;
+        background: rgba(56, 189, 248, 0.1);
+        color: var(--blue);
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+      pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 0.75rem;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th, td {
+        text-align: left;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9rem;
+      }
+      th {
+        background: var(--card);
+        color: var(--amber);
+        font-weight: 600;
+      }
+      ul, ol {
+        padding-left: 1.35rem;
+        color: #cbd5e1;
+      }
+      li {
+        margin-bottom: 0.4rem;
+      }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.85rem;
+        padding: 2rem;
+        border-top: 1px solid var(--border);
+      }
+      a {
+        color: var(--blue);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="badge">OXIDE v0.1</span>
+        <span>Autonomous AI Command Center Docs</span>
+      </div>
+      <nav>
+        <a href="#how-to-open">How to Open</a>
+        <a href="#usage">Using Oxide</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#security">Security Sandbox</a>
+        <a href="https://github.com/Hanzkii/Oxide" target="_blank" rel="noreferrer">GitHub Repo ↗</a>
+      </nav>
+    </header>
+
+    <main class="container">
+      <div class="hero">
+        <h1>Oxide — Local-First Autonomous AI Coding Agent</h1>
+        <p>
+          A lightning-fast desktop command center built with <strong>Tauri v2</strong>, <strong>Rust</strong>, and <strong>React 18 / TypeScript</strong>. Designed to execute autonomous software engineering loops entirely offline with local Ollama models (<code>qwen2.5-coder</code> / <code>gemma2</code>), bounded terminal sandboxing, automatic <code>stderr</code> self-correction, and one-click VS Code integration.
+        </p>
+        <div class="pill-row">
+          <span class="pill">Tauri v2 + Rust Backend</span>
+          <span class="pill">Ollama Local Streaming (localhost:11434)</span>
+          <span class="pill">Cloud Hybrid Fallback (Claude / OpenAI)</span>
+          <span class="pill">Sandboxed Terminal &amp; Auto Git Commits</span>
+          <span class="pill">One-Click Open in VS Code</span>
+        </div>
+      </div>
+
+      <section id="how-to-open">
+        <h2>1. How to Open &amp; Run Oxide</h2>
+        <p style="color: var(--muted); margin-bottom: 1rem;">
+          Choose any of the launch modes below depending on whether you want a one-click launcher, a development desktop window, or a standalone native <code>.exe</code> installer.
+        </p>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Step 1: Prerequisites</h3>
+            <ul>
+              <li><strong>Node.js (v18+)</strong>: <a href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a></li>
+              <li><strong>Rust Toolchain</strong>: <a href="https://rustup.rs" target="_blank" rel="noreferrer">rustup.rs</a> (plus MSVC C++ build tools on Windows)</li>
+              <li><strong>Ollama</strong>: <a href="https://ollama.com" target="_blank" rel="noreferrer">ollama.com</a> running on <code>localhost:11434</code></li>
+            </ul>
+            <pre><code>ollama pull qwen2.5-coder:latest
+ollama serve</code></pre>
+          </div>
+
+          <div class="card">
+            <h3>Option A: One-Click Windows Launcher</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Double-click <code>start-oxide.bat</code> in the repository root or run it from PowerShell:
+            </p>
+            <pre><code>.\start-oxide.bat</code></pre>
+            <p style="color: var(--muted); font-size: 0.85rem;">
+              Automatically installs missing npm packages and launches the native Tauri desktop window (or falls back to the browser preview at <code>http://localhost:1420</code> if Rust is not yet installed).
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Option B: Launch Desktop App (Dev Mode)</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Run from the repository root to compile the Rust core and open the native desktop window with hot-reload:
+            </p>
+            <pre><code>npm install
+npm start
+# (or: npm run tauri dev)</code></pre>
+          </div>
+
+          <div class="card">
+            <h3>Option C: Build Standalone Native Installer</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Compile a tiny, self-contained native binary (<code>.exe</code> / <code>.msi</code> / <code>.dmg</code>):
+            </p>
+            <pre><code>npm run desktop:build</code></pre>
+            <p style="color: var(--muted); font-size: 0.85rem;">
+              Output binary: <code>src-tauri/target/release/oxide-agent.exe</code>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="usage">
+        <h2>2. Using the Command Center</h2>
+        <ol>
+          <li>
+            <strong>Bind Target Workspace Sandbox</strong>: Enter your local project path in the top bar (e.g., <code>C:\projects\my-app</code>) and click <strong>Bind Sandbox</strong>. Oxide canonicalizes the path and jails all file/process operations to that folder.
+          </li>
+          <li>
+            <strong>Select Inference Provider</strong>: Pick <code>Local: Ollama / qwen2.5-coder</code> or <code>Local: Ollama / gemma2</code> in the header selector, or switch to Anthropic Claude / OpenAI GPT-4o when API keys are set in your environment.
+          </li>
+          <li>
+            <strong>Open in VS Code</strong>: Click the sticky blue <strong>Open in VS Code</strong> button in the top-right header at any time to launch Visual Studio Code directly in the active workspace (<code>code -- &lt;canonical_path&gt;</code>).
+          </li>
+          <li>
+            <strong>Dispatch Autonomous Tasks</strong>: Enter a coding goal in the prompt composer and click <strong>Dispatch Agent</strong>. Watch live streaming tokens on the left and step-by-step workflow status cards, <code>stderr</code> self-correction loops, and automated Git milestone commits on the right.
+          </li>
+        </ol>
+      </section>
+
+      <section id="architecture">
+        <h2>3. Project Directory Blueprint</h2>
+        <pre><code>Oxide/
+├── start-oxide.bat                   # One-click Windows launcher script
+├── index.html                        # Entry HTML shell
+├── package.json                      # Scripts: npm start, npm run dev, npm run desktop:build
+├── docs/                             # GitHub Pages Documentation Portal
+│   ├── index.html                    # Interactive documentation site
+│   ├── GETTING_STARTED.md            # Step-by-step guide to open &amp; run Oxide
+│   └── WORKSPACE_BLUEPRINT.md        # Architecture &amp; security reference
+├── src/                              # FRONTEND (React 18 + TypeScript)
+│   ├── App.tsx                       # Command Center UI + sticky "Open in VS Code" button
+│   ├── services/tauriBridge.ts       # Typed Tauri v2 invoke() &amp; event listeners
+│   └── types/agent.ts                # Shared TypeScript IPC contracts
+└── src-tauri/                        # BACKEND (Tauri v2 + Rust)
+    ├── tauri.conf.json               # Locked-down CSP &amp; window configuration
+    ├── capabilities/default.json     # Minimal WebView permissions (no raw shell exposure)
+    └── src/
+        ├── security/sandbox.rs       # WorkspaceSandbox, path canonicalization &amp; binary allowlist
+        ├── llm/                      # LlmProvider trait, Ollama streaming &amp; Cloud fallback
+        ├── orchestrator/             # Autonomous ReAct loop, BoundedTerminalExecutor &amp; GitManager
+        └── commands/                 # Tauri IPC handlers (workspace, agent, open_in_vscode)</code></pre>
+      </section>
+
+      <section id="security">
+        <h2>4. Defense-in-Depth Terminal Security Boundaries</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Security Layer</th>
+              <th>Threat Mitigated</th>
+              <th>Rust Implementation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Direct OS Argv Spawning</strong></td>
+              <td>Shell injection via <code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>, <code>`</code>, <code>$()</code></td>
+              <td><code>WorkspaceSandbox::sanitize_command</code> rejects shell chaining tokens and spawns binaries directly via <code>tokio::process::Command</code> without <code>sh -c</code> or <code>cmd /C</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Canonical Workspace Jail</strong></td>
+              <td><code>../</code> path traversal &amp; symlink escapes</td>
+              <td><code>dunce::canonicalize</code> resolves real paths and enforces <code>target.starts_with(&amp;canonical_root)</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>3. System Root Refusal</strong></td>
+              <td>Binding <code>/</code>, <code>C:\</code>, <code>C:\Windows</code>, <code>/etc</code></td>
+              <td><code>reject_system_root</code> refuses shallow root directories and OS system trees.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Binary Allowlist Policy</strong></td>
+              <td>Privilege escalation (<code>sudo</code>, <code>rm</code>, <code>powershell</code>, <code>curl</code>)</td>
+              <td><code>CommandPolicy</code> permits only approved developer toolchains (<code>cargo</code>, <code>npm</code>, <code>git</code>, <code>pytest</code>, <code>tsc</code>, etc.).</td>
+            </tr>
+            <tr>
+              <td><strong>5. Credential Scrubbing</strong></td>
+              <td>Prompt-injected scripts leaking API keys</td>
+              <td><code>BoundedTerminalExecutor</code> removes <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GITHUB_TOKEN</code>, and <code>SSH_AUTH_SOCK</code> from child processes.</td>
+            </tr>
+            <tr>
+              <td><strong>6. Timeouts &amp; Output Caps</strong></td>
+              <td>Hung interactive prompts &amp; memory exhaustion</td>
+              <td>Enforces 60s execution timeout, <code>kill_on_drop(true)</code>, <code>CI=true</code>, and 128 KiB output stream truncation.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      Oxide — Local-First Autonomous AI Coding Agent • Built with Tauri v2, Rust &amp; React/TypeScript
+    </footer>
+  </body>
+</html>
