@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Strict minimal capability set for the Oxide main window. All shell, filesystem, git, and LLM operations are strictly brokered through sandboxed Rust commands rather than exposing raw shell plugins to the frontend.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default"
+  ]
+}

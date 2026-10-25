@@ -1,0 +1,23 @@
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example

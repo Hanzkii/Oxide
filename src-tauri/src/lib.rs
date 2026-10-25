@@ -1,0 +1,46 @@
+pub mod commands;
+pub mod error;
+pub mod llm;
+pub mod orchestrator;
+pub mod security;
+
+use crate::llm::ProviderConfig;
+use crate::security::{CommandPolicy, WorkspaceSandbox};
+use std::env;
+use tokio::sync::RwLock;
+
+pub struct AppState {
+    pub sandbox: RwLock<Option<WorkspaceSandbox>>,
+    pub provider_config: RwLock<ProviderConfig>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        let initial_sandbox = env::current_dir()
+            .ok()
+            .and_then(|cwd| WorkspaceSandbox::new(cwd, CommandPolicy::default()).ok());
+
+        Self {
+            sandbox: RwLock::new(initial_sandbox),
+            provider_config: RwLock::new(ProviderConfig::default()),
+        }
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(AppState::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::workspace::set_workspace,
+            commands::workspace::open_in_vscode,
+            commands::agent::get_provider_health,
+            commands::agent::update_provider_config,
+            commands::agent::run_agent_task,
+            commands::agent::execute_bounded_command,
+            commands::agent::get_git_status,
+            commands::agent::trigger_git_milestone,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Oxide Tauri application");
+}
