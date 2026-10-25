@@ -3,6 +3,7 @@ pub mod error;
 pub mod llm;
 pub mod orchestrator;
 pub mod security;
+pub mod updater;
 
 use crate::llm::ProviderConfig;
 use crate::security::{CommandPolicy, WorkspaceSandbox};
@@ -33,6 +34,11 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::workspace::set_workspace,
+            commands::workspace::list_workspace_files,
+            commands::workspace::read_workspace_file,
+            commands::workspace::save_workspace_file,
+            commands::workspace::move_workspace_file,
+            commands::workspace::delete_workspace_file,
             commands::workspace::open_in_vscode,
             commands::agent::get_provider_health,
             commands::agent::update_provider_config,
@@ -40,6 +46,9 @@ pub fn run() {
             commands::agent::execute_bounded_command,
             commands::agent::get_git_status,
             commands::agent::trigger_git_milestone,
+            commands::agent::git_sync_action,
+            commands::agent::check_github_update,
+            commands::agent::perform_github_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Tauri application");

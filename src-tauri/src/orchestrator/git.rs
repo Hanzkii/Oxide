@@ -1,7 +1,7 @@
 use crate::error::{OxideError, OxideResult};
 use crate::llm::router::HybridProviderRouter;
 use crate::llm::ChatMessage;
-use crate::orchestrator::terminal::BoundedTerminalExecutor;
+use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
 use crate::security::WorkspaceSandbox;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use std::sync::Arc;
 pub struct GitStatusSummary {
     pub initialized: bool,
     pub branch: String,
+    pub remote_url: Option<String>,
     pub is_clean: bool,
     pub changed_files: Vec<String>,
     pub last_commit: Option<String>,
@@ -47,7 +48,6 @@ impl GitManager {
             }
         }
 
-        // Ensure local repository has fallback user.name and user.email if not configured globally
         let name_check = self.executor.execute("git config user.name", None).await?;
         if !name_check.succeeded || name_check.stdout.trim().is_empty() {
             let _ = self
@@ -67,13 +67,14 @@ impl GitManager {
         Ok(())
     }
 
-    /// Inspects current repository status, active branch, changed files, and latest commit.
+    /// Inspects current repository status, active branch, remote URL, changed files, and latest commit.
     pub async fn status(&self) -> OxideResult<GitStatusSummary> {
         let git_dir = self.executor.sandbox().canonical_root().join(".git");
         if !git_dir.exists() {
             return Ok(GitStatusSummary {
                 initialized: false,
                 branch: "uninitialized".to_string(),
+                remote_url: None,
                 is_clean: true,
                 changed_files: Vec::new(),
                 last_commit: None,
@@ -88,6 +89,17 @@ impl GitManager {
             branch_res.stdout.trim().to_string()
         } else {
             "main".to_string()
+        };
+
+        let remote_res = self
+            .executor
+            .execute("git remote get-url origin", None)
+            .await;
+        let remote_url = match remote_res {
+            Ok(r) if r.succeeded && !r.stdout.trim().is_empty() => {
+                Some(r.stdout.trim().to_string())
+            }
+            _ => None,
         };
 
         let status_res = self
@@ -115,10 +127,26 @@ impl GitManager {
         Ok(GitStatusSummary {
             initialized: true,
             branch,
+            remote_url,
             is_clean: changed_files.is_empty(),
             changed_files,
             last_commit,
         })
+    }
+
+    pub async fn pull(&self) -> OxideResult<CommandExecutionResult> {
+        self.ensure_initialized().await?;
+        self.executor.execute("git pull --rebase", None).await
+    }
+
+    pub async fn push(&self) -> OxideResult<CommandExecutionResult> {
+        self.ensure_initialized().await?;
+        self.executor.execute("git push", None).await
+    }
+
+    pub async fn diff(&self) -> OxideResult<String> {
+        let res = self.executor.execute("git diff", None).await?;
+        Ok(res.stdout)
     }
 
     /// Stages all workspace modifications, synthesizes a clean Conventional Commit message
@@ -213,7 +241,6 @@ impl GitManager {
             }
         }
 
-        // Deterministic fallback if offline model is busy
         let sanitized_summary: String = milestone_context
             .chars()
             .take(50)

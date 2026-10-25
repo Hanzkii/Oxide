@@ -1,73 +1,49 @@
-# Oxide — Local-First Autonomous AI Coding Agent
+# Oxide Studio — Autonomous AI Coding Agent GUI
 
-Oxide is a fast, offline-first desktop command center built with **Tauri v2**, **Rust**, and **React 18 / TypeScript** for running autonomous software engineering workflows on local hardware.
+Oxide Studio is a local-first, Antigravity-style desktop GUI for running autonomous software engineering workflows offline with **Ollama** (`qwen2.5-coder`, `gemma2`, `deepseek-r1`) or hybrid cloud models (**Claude** / **OpenAI**).
 
 - **Documentation Portal (GitHub Pages)**: [https://hanzkii.github.io/Oxide/](https://hanzkii.github.io/Oxide/)
-- **Getting Started & Launch Guide**: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
-- **Workspace & Security Blueprint**: [docs/WORKSPACE_BLUEPRINT.md](docs/WORKSPACE_BLUEPRINT.md)
+- **Download Standalone Windows Installer (`.exe` / `.msi`)**: [https://github.com/Hanzkii/Oxide/releases/latest](https://github.com/Hanzkii/Oxide/releases/latest)
 
 ---
 
-## How to Open & Run Oxide
+## 1. Easy Ways to Start Oxide
 
-### 1. Prerequisites (First-Time Setup)
-1. **Node.js (v18+)**: [https://nodejs.org](https://nodejs.org)
-2. **Rust Toolchain (`rustup` / `cargo`)**: [https://rustup.rs](https://rustup.rs) (plus MSVC C++ build tools on Windows)
-3. **Ollama (Local LLM Daemon)**: [https://ollama.com](https://ollama.com)
-   ```bash
-   ollama pull qwen2.5-coder:latest
-   ollama serve
-   ```
+### Option A: Download the Standalone Installer / Executable (Zero Setup)
+Every push to `main` automatically builds the Windows installer and portable `.exe` via GitHub Actions:
+1. Open **[GitHub Releases](https://github.com/Hanzkii/Oxide/releases/latest)**.
+2. Download **`Oxide_0.1.0_x64-setup.exe`** (Windows Installer) or **`Oxide-Portable.exe`** (Portable Single-File Executable).
+3. Double-click to launch **Oxide Studio**.
 
-### 2. Choose How to Launch
-
-#### Option A: One-Click Windows Launcher (`start-oxide.bat`)
-Double-click **`start-oxide.bat`** in the project folder (or run it in PowerShell/CMD):
-```powershell
-.\start-oxide.bat
-```
-- Automatically installs `node_modules` if missing.
-- Launches the native **Oxide Desktop Window** via Tauri v2 (or automatically falls back to the browser UI preview at `http://localhost:1420` if Rust/Cargo is not yet installed).
-
-#### Option B: Launch Native Desktop App via Terminal (Development Mode)
-```bash
-npm install
-npm start
-# (alias for: npm run tauri dev)
-```
-
-#### Option C: Build Standalone Native Desktop Executable (`.exe` / `.msi` / `.dmg`)
-```bash
-npm run desktop:build
-# (alias for: npm run tauri build)
-```
-- **Portable Executable**: `src-tauri/target/release/oxide-agent.exe`
-- **Windows Installers**: `src-tauri/target/release/bundle/msi/` and `src-tauri/target/release/bundle/nsis/`
-
-#### Option D: Browser UI Preview Only (No Rust Compiler Required)
-```bash
-npm run dev
-```
-Then open **`http://localhost:1420`** in your browser.
+### Option B: Double-Click `start-oxide.bat`
+If you have the repository folder on your computer, simply double-click **`start-oxide.bat`**:
+- If `Oxide-Portable.exe` is present, it launches the native binary directly.
+- Otherwise, it launches a standalone desktop GUI window (`--app=http://localhost:1420`) backed by the local system bridge so all features work immediately without needing to install a Rust compiler first.
 
 ---
 
-## Core Architecture
+## 2. Key GUI Features
 
-1. **Tauri v2 + Rust Core**:
-   - Minimal memory footprint and instant startup without Electron overhead.
-   - Strict separation of concerns: the React/TypeScript frontend renders real-time token streams, terminal logs, and workflow status cards, while the Rust backend enforces filesystem/process sandboxing, LLM routing, and Git orchestration.
+1. **↻ One-Click "Update from GitHub" Button**:
+   - Located in the top-right header (`↻ Update`).
+   - Checks `https://github.com/Hanzkii/Oxide` for new releases or commits on `main`, displays the latest commit message and version, and updates your installation with one click.
 
-2. **Hybrid Local & Cloud LLM Provider Layer (`src-tauri/src/llm/`)**:
-   - Routes all inference by default to a local **Ollama** instance (`http://localhost:11434`) running `qwen2.5-coder` or `gemma2` with low-latency NDJSON streaming.
-   - Implements a unified `LlmProvider` async trait (`OllamaProvider`, `AnthropicProvider`, `OpenAiProvider`) orchestrated by `HybridProviderRouter`, allowing seamless switching or cloud fallback via `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`.
+2. **🧠 Live AI Thinking & Current Activity Panel**:
+   - Always visible at the top of the center pane.
+   - Streams the AI's internal `<think>...</think>` reasoning and numbered **Task Plan Checklist** in real time so you can see exactly what the agent is thinking and doing at every step.
 
-3. **Defense-in-Depth Terminal Sandbox & Self-Correction Loop (`src-tauri/src/security/` & `src-tauri/src/orchestrator/`)**:
-   - **No Shell Interpolation**: Commands are tokenized and spawned directly via `tokio::process::Command` without `sh -c` or `cmd /C`. Shell chaining tokens (`&&`, `||`, `;`, `|`, `` ` ``, `$()`) are rejected.
-   - **Canonical Workspace Jail**: Uses `dunce::canonicalize` to resolve symlinks and block `../` path traversal outside the bound workspace directory.
-   - **Credential Scrubbing**: Automatically strips cloud API keys and SSH agent variables from child processes.
-   - **Autonomous Self-Correction**: Non-zero exit codes and `stderr` streams are captured into structured `[TERMINAL_OBSERVATION]` blocks and fed back into the agent loop for automatic compiler/test error repair.
-   - **Automated Git Milestones**: Initializes repositories, stages changes, and generates Conventional Commit messages upon milestone completion.
+3. **⚙ Visual Models & Settings Modal**:
+   - Auto-detects all models installed in your local Ollama instance (`localhost:11434/api/tags`).
+   - Change models, set custom model tags, adjust temperature, or switch between Local Ollama, Anthropic Claude, and OpenAI directly in the GUI.
 
-4. **External Editor Integration ("Open in VS Code")**:
-   - Hardened `open_in_vscode` Tauri command (`code -- <canonical_path>`) paired with a prominent sticky **Open in VS Code** button in the top command header.
+4. **📁 Interactive File Explorer & Built-in Editor**:
+   - Browse workspace folders in the left sidebar, click any file to view/edit/save it, create new files (`+ File`), move/rename files, or delete files.
+
+5. **🤖 Full Antigravity-Grade Autonomous Tool Suite**:
+   - The AI agent can autonomously execute:
+     - `list_dir` & `search_files` (workspace exploration & code search)
+     - `read_file`, `write_file`, `edit_file` (create and surgically edit files)
+     - `move_file` & `delete_file` (reorganize and clean up files)
+     - `run_command` (execute terminal commands with automatic `stderr` self-correction)
+     - `git_action` (`pull`, `push`, `commit`, `diff`, `status`)
+     - `open_in_vscode` (open files or workspace in Visual Studio Code)

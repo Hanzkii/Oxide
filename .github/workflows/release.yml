@@ -1,0 +1,67 @@
+name: Build & Publish Oxide Windows Installer (.exe / .msi)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Tauri Desktop Installer & Executable
+        run: npm run desktop:build
+
+      - name: Copy Portable Executable to Release Artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
+          Copy-Item "src-tauri/target/release/oxide-agent.exe" "release-assets/Oxide-Portable.exe" -Force
+          Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Copy-Item -Destination "release-assets/" -Force
+          Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue | Copy-Item -Destination "release-assets/" -Force
+          Get-ChildItem "release-assets"
+
+      - name: Publish Installer & Portable .exe to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: "Oxide v0.1.0 — Standalone Windows Installer & Executable"
+          body: |
+            ## Oxide — Autonomous AI Agent Studio (Windows Release)
+            Download either:
+            - **`Oxide_0.1.0_x64-setup.exe`** (Recommended One-Click Windows Installer)
+            - **`Oxide-Portable.exe`** (Standalone Portable Executable — no installation required)
+            - **`Oxide_0.1.0_x64_en-US.msi`** (Windows MSI Package)
+
+            Includes built-in **Update from GitHub** button (`↻ Update`), live **AI Thinking & Reasoning** stream, interactive file explorer/editor, terminal runner, and Git push/pull controls.
+          draft: false
+          prerelease: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

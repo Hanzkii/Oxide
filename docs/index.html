@@ -3,19 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Oxide Documentation — Local-First Autonomous AI Coding Agent</title>
+    <title>Oxide Studio Documentation — Autonomous AI Agent GUI</title>
     <style>
       :root {
-        --bg: #090d16;
-        --panel: #111726;
-        --card: #161f33;
-        --border: #23304d;
+        --bg: #070a12;
+        --panel: #0e1422;
+        --card: #151e32;
+        --border: #22304c;
         --text: #f1f5f9;
         --muted: #94a3b8;
         --amber: #f59e0b;
         --blue: #38bdf8;
+        --purple: #a855f7;
         --green: #10b981;
-        --vscode: #007acc;
       }
       * {
         box-sizing: border-box;
@@ -32,7 +32,7 @@
         position: sticky;
         top: 0;
         z-index: 20;
-        background: rgba(17, 23, 38, 0.92);
+        background: rgba(14, 20, 34, 0.94);
         backdrop-filter: blur(10px);
         border-bottom: 1px solid var(--border);
         padding: 1rem 2rem;
@@ -51,7 +51,7 @@
       }
       .badge {
         background: linear-gradient(135deg, #f59e0b, #ea580c);
-        color: #090d16;
+        color: #070a12;
         font-weight: 800;
         font-size: 0.78rem;
         padding: 0.25rem 0.6rem;
@@ -66,18 +66,17 @@
       nav a {
         color: var(--muted);
         text-decoration: none;
-        transition: color 0.15s;
       }
       nav a:hover {
         color: var(--amber);
       }
       .container {
-        max-width: 1040px;
+        max-width: 1060px;
         margin: 0 auto;
         padding: 2.5rem 1.5rem 5rem;
       }
       .hero {
-        background: linear-gradient(180deg, rgba(22, 31, 51, 0.9), rgba(17, 23, 38, 0.95));
+        background: linear-gradient(180deg, rgba(21, 30, 50, 0.9), rgba(14, 20, 34, 0.95));
         border: 1px solid var(--border);
         border-radius: 12px;
         padding: 2.25rem;
@@ -89,22 +88,39 @@
       }
       .hero p {
         color: var(--muted);
-        font-size: 1.05rem;
-        max-width: 780px;
+        font-size: 1.02rem;
+        max-width: 820px;
       }
-      .pill-row {
+      .cta-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.6rem;
-        margin-top: 1.25rem;
+        gap: 0.75rem;
+        margin-top: 1.35rem;
       }
-      .pill {
-        font-size: 0.78rem;
+      .btn-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: linear-gradient(135deg, #f59e0b, #ea580c);
+        color: #070a12;
+        font-weight: 700;
+        padding: 0.6rem 1.15rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
         background: var(--card);
+        color: var(--text);
         border: 1px solid var(--border);
-        padding: 0.3rem 0.75rem;
-        border-radius: 999px;
-        color: var(--blue);
+        font-weight: 600;
+        padding: 0.6rem 1.15rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.9rem;
       }
       section {
         margin-bottom: 3rem;
@@ -116,14 +132,9 @@
         border-bottom: 1px solid var(--border);
         color: var(--amber);
       }
-      h3 {
-        font-size: 1.1rem;
-        margin: 1.25rem 0 0.5rem;
-        color: var(--text);
-      }
       .grid-2 {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
         gap: 1.15rem;
       }
       .card {
@@ -133,11 +144,11 @@
         padding: 1.25rem;
       }
       .card h3 {
-        margin-top: 0;
+        margin-bottom: 0.5rem;
         color: var(--blue);
       }
       pre {
-        background: #05080f;
+        background: #04060b;
         border: 1px solid var(--border);
         border-radius: 8px;
         padding: 0.95rem 1.1rem;
@@ -160,32 +171,12 @@
         color: inherit;
         padding: 0;
       }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 0.75rem;
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-      }
-      th, td {
-        text-align: left;
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid var(--border);
-        font-size: 0.9rem;
-      }
-      th {
-        background: var(--card);
-        color: var(--amber);
-        font-weight: 600;
-      }
       ul, ol {
         padding-left: 1.35rem;
         color: #cbd5e1;
       }
       li {
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.45rem;
       }
       footer {
         text-align: center;
@@ -194,183 +185,127 @@
         padding: 2rem;
         border-top: 1px solid var(--border);
       }
-      a {
-        color: var(--blue);
-      }
     </style>
   </head>
   <body>
     <header>
       <div class="brand">
-        <span class="badge">OXIDE v0.1</span>
-        <span>Autonomous AI Command Center Docs</span>
+        <span class="badge">OXIDE STUDIO</span>
+        <span>Autonomous AI Coding Agent GUI</span>
       </div>
       <nav>
-        <a href="#how-to-open">How to Open</a>
-        <a href="#usage">Using Oxide</a>
-        <a href="#architecture">Architecture</a>
-        <a href="#security">Security Sandbox</a>
-        <a href="https://github.com/Hanzkii/Oxide" target="_blank" rel="noreferrer">GitHub Repo ↗</a>
+        <a href="#install">Installer &amp; Quick Start</a>
+        <a href="#gui-features">GUI Features &amp; AI Thinking</a>
+        <a href="#capabilities">Autonomous Capabilities</a>
+        <a href="#updater">One-Click GitHub Updater</a>
+        <a href="https://github.com/Hanzkii/Oxide/releases" target="_blank" rel="noreferrer">Download Release ↗</a>
       </nav>
     </header>
 
     <main class="container">
       <div class="hero">
-        <h1>Oxide — Local-First Autonomous AI Coding Agent</h1>
+        <h1>Oxide Studio — Antigravity-Style Local AI Agent GUI</h1>
         <p>
-          A lightning-fast desktop command center built with <strong>Tauri v2</strong>, <strong>Rust</strong>, and <strong>React 18 / TypeScript</strong>. Designed to execute autonomous software engineering loops entirely offline with local Ollama models (<code>qwen2.5-coder</code> / <code>gemma2</code>), bounded terminal sandboxing, automatic <code>stderr</code> self-correction, and one-click VS Code integration.
+          A full-featured desktop GUI for autonomous software development. Watch what the AI is thinking in real time (<code>&lt;think&gt;...</code> &amp; live step plans), switch local Ollama models or settings visually, browse/edit/move files in the sidebar, execute terminal commands with automatic self-correction, push/pull with Git, and update the program directly from GitHub with one click.
         </p>
-        <div class="pill-row">
-          <span class="pill">Tauri v2 + Rust Backend</span>
-          <span class="pill">Ollama Local Streaming (localhost:11434)</span>
-          <span class="pill">Cloud Hybrid Fallback (Claude / OpenAI)</span>
-          <span class="pill">Sandboxed Terminal &amp; Auto Git Commits</span>
-          <span class="pill">One-Click Open in VS Code</span>
+        <div class="cta-row">
+          <a class="btn-cta" href="https://github.com/Hanzkii/Oxide/releases/latest" target="_blank" rel="noreferrer">
+            ⬇ Download Windows Installer (.exe / .msi)
+          </a>
+          <a class="btn-secondary" href="https://github.com/Hanzkii/Oxide" target="_blank" rel="noreferrer">
+            View GitHub Repository ↗
+          </a>
         </div>
       </div>
 
-      <section id="how-to-open">
-        <h2>1. How to Open &amp; Run Oxide</h2>
-        <p style="color: var(--muted); margin-bottom: 1rem;">
-          Choose any of the launch modes below depending on whether you want a one-click launcher, a development desktop window, or a standalone native <code>.exe</code> installer.
-        </p>
-
+      <section id="install">
+        <h2>1. How to Open &amp; Start Oxide (Zero-Setup Executable or One-Click Script)</h2>
         <div class="grid-2">
           <div class="card">
-            <h3>Step 1: Prerequisites</h3>
-            <ul>
-              <li><strong>Node.js (v18+)</strong>: <a href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a></li>
-              <li><strong>Rust Toolchain</strong>: <a href="https://rustup.rs" target="_blank" rel="noreferrer">rustup.rs</a> (plus MSVC C++ build tools on Windows)</li>
-              <li><strong>Ollama</strong>: <a href="https://ollama.com" target="_blank" rel="noreferrer">ollama.com</a> running on <code>localhost:11434</code></li>
-            </ul>
-            <pre><code>ollama pull qwen2.5-coder:latest
-ollama serve</code></pre>
+            <h3>Option A: Download Standalone Installer / .exe (Easiest)</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Every push to <code>main</code> automatically builds and publishes the ready-to-run Windows installer and portable executable on GitHub Releases:
+            </p>
+            <ol style="margin-top: 0.6rem;">
+              <li>Go to <a href="https://github.com/Hanzkii/Oxide/releases/latest" style="color: var(--blue);">GitHub Releases</a>.</li>
+              <li>Download <strong><code>Oxide_0.1.0_x64-setup.exe</code></strong> (installer) or <strong><code>Oxide-Portable.exe</code></strong> (no install needed).</li>
+              <li>Double-click to open Oxide Studio!</li>
+            </ol>
           </div>
 
           <div class="card">
-            <h3>Option A: One-Click Windows Launcher</h3>
+            <h3>Option B: Double-Click <code>start-oxide.bat</code></h3>
             <p style="color: var(--muted); font-size: 0.9rem;">
-              Double-click <code>start-oxide.bat</code> in the repository root or run it from PowerShell:
+              If you cloned the repository, simply double-click <strong><code>start-oxide.bat</code></strong> in File Explorer:
             </p>
             <pre><code>.\start-oxide.bat</code></pre>
             <p style="color: var(--muted); font-size: 0.85rem;">
-              Automatically installs missing npm packages and launches the native Tauri desktop window (or falls back to the browser preview at <code>http://localhost:1420</code> if Rust is not yet installed).
-            </p>
-          </div>
-
-          <div class="card">
-            <h3>Option B: Launch Desktop App (Dev Mode)</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              Run from the repository root to compile the Rust core and open the native desktop window with hot-reload:
-            </p>
-            <pre><code>npm install
-npm start
-# (or: npm run tauri dev)</code></pre>
-          </div>
-
-          <div class="card">
-            <h3>Option C: Build Standalone Native Installer</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              Compile a tiny, self-contained native binary (<code>.exe</code> / <code>.msi</code> / <code>.dmg</code>):
-            </p>
-            <pre><code>npm run desktop:build</code></pre>
-            <p style="color: var(--muted); font-size: 0.85rem;">
-              Output binary: <code>src-tauri/target/release/oxide-agent.exe</code>
+              If <code>Oxide-Portable.exe</code> is present, it runs it directly. Otherwise, it automatically opens a standalone desktop GUI window (<code>--app=http://localhost:1420</code>) with the full local system bridge enabled!
             </p>
           </div>
         </div>
       </section>
 
-      <section id="usage">
-        <h2>2. Using the Command Center</h2>
-        <ol>
-          <li>
-            <strong>Bind Target Workspace Sandbox</strong>: Enter your local project path in the top bar (e.g., <code>C:\projects\my-app</code>) and click <strong>Bind Sandbox</strong>. Oxide canonicalizes the path and jails all file/process operations to that folder.
-          </li>
-          <li>
-            <strong>Select Inference Provider</strong>: Pick <code>Local: Ollama / qwen2.5-coder</code> or <code>Local: Ollama / gemma2</code> in the header selector, or switch to Anthropic Claude / OpenAI GPT-4o when API keys are set in your environment.
-          </li>
-          <li>
-            <strong>Open in VS Code</strong>: Click the sticky blue <strong>Open in VS Code</strong> button in the top-right header at any time to launch Visual Studio Code directly in the active workspace (<code>code -- &lt;canonical_path&gt;</code>).
-          </li>
-          <li>
-            <strong>Dispatch Autonomous Tasks</strong>: Enter a coding goal in the prompt composer and click <strong>Dispatch Agent</strong>. Watch live streaming tokens on the left and step-by-step workflow status cards, <code>stderr</code> self-correction loops, and automated Git milestone commits on the right.
-          </li>
-        </ol>
+      <section id="gui-features">
+        <h2>2. GUI Overview &amp; Live AI Thinking Display</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>🧠 Live AI Thinking &amp; Step Checklist</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              At the top of the center pane, the purple <strong>AI Live Thinking &amp; Current Reasoning</strong> box streams the model's internal thought process (<code>&lt;think&gt;...&lt;/think&gt;</code>) and numbered task plan in real time so you always see what the AI is analyzing and doing right now.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>⚙ Visual Model &amp; Settings Manager</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Click <strong>⚙ Models &amp; Settings</strong> in the top bar to switch between locally installed Ollama models (auto-detected from <code>localhost:11434</code>), enter custom model tags, adjust sampling temperature, or select Anthropic Claude / OpenAI.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>📁 Built-In File Explorer &amp; Code Editor</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              The left sidebar lets you browse workspace directories, click any file to view/edit/save its code, create new files (<strong>+ File</strong>), rename/move files, or delete files—all visually inside the GUI.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>🌿 One-Click Git Pull, Commit &amp; Push</h3>
+            <p style="color: var(--muted); font-size: 0.9rem;">
+              Use the top bar buttons (<strong>⬇ Git Pull</strong>, <strong>✔ Commit</strong>, <strong>⬆ Git Push</strong>, and <strong>Open in VS Code</strong>) or ask the autonomous agent to handle Git operations for you.
+            </p>
+          </div>
+        </div>
       </section>
 
-      <section id="architecture">
-        <h2>3. Project Directory Blueprint</h2>
-        <pre><code>Oxide/
-├── start-oxide.bat                   # One-click Windows launcher script
-├── index.html                        # Entry HTML shell
-├── package.json                      # Scripts: npm start, npm run dev, npm run desktop:build
-├── docs/                             # GitHub Pages Documentation Portal
-│   ├── index.html                    # Interactive documentation site
-│   ├── GETTING_STARTED.md            # Step-by-step guide to open &amp; run Oxide
-│   └── WORKSPACE_BLUEPRINT.md        # Architecture &amp; security reference
-├── src/                              # FRONTEND (React 18 + TypeScript)
-│   ├── App.tsx                       # Command Center UI + sticky "Open in VS Code" button
-│   ├── services/tauriBridge.ts       # Typed Tauri v2 invoke() &amp; event listeners
-│   └── types/agent.ts                # Shared TypeScript IPC contracts
-└── src-tauri/                        # BACKEND (Tauri v2 + Rust)
-    ├── tauri.conf.json               # Locked-down CSP &amp; window configuration
-    ├── capabilities/default.json     # Minimal WebView permissions (no raw shell exposure)
-    └── src/
-        ├── security/sandbox.rs       # WorkspaceSandbox, path canonicalization &amp; binary allowlist
-        ├── llm/                      # LlmProvider trait, Ollama streaming &amp; Cloud fallback
-        ├── orchestrator/             # Autonomous ReAct loop, BoundedTerminalExecutor &amp; GitManager
-        └── commands/                 # Tauri IPC handlers (workspace, agent, open_in_vscode)</code></pre>
+      <section id="capabilities">
+        <h2>3. Autonomous Agent Tool Suite (Antigravity-Grade)</h2>
+        <ul>
+          <li><code>list_dir</code> &amp; <code>search_files</code> — Explores directories and searches code across the entire workspace.</li>
+          <li><code>read_file</code>, <code>write_file</code>, <code>edit_file</code> — Reads files, creates new files, and performs surgical target/replacement code edits.</li>
+          <li><code>move_file</code> &amp; <code>delete_file</code> — Moves, renames, and cleans up files or directories inside the workspace sandbox.</li>
+          <li><code>run_command</code> — Runs terminal commands (<code>cargo</code>, <code>npm</code>, <code>pytest</code>, <code>git</code>) and automatically self-corrects when <code>stderr</code> or a non-zero exit code occurs.</li>
+          <li><code>git_action</code> — Runs <code>pull</code>, <code>push</code>, <code>commit</code>, <code>diff</code>, and <code>status</code> autonomously.</li>
+          <li><code>open_in_vscode</code> — Pops open modified files or the workspace in Visual Studio Code.</li>
+        </ul>
       </section>
 
-      <section id="security">
-        <h2>4. Defense-in-Depth Terminal Security Boundaries</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Security Layer</th>
-              <th>Threat Mitigated</th>
-              <th>Rust Implementation</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>1. Direct OS Argv Spawning</strong></td>
-              <td>Shell injection via <code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>, <code>`</code>, <code>$()</code></td>
-              <td><code>WorkspaceSandbox::sanitize_command</code> rejects shell chaining tokens and spawns binaries directly via <code>tokio::process::Command</code> without <code>sh -c</code> or <code>cmd /C</code>.</td>
-            </tr>
-            <tr>
-              <td><strong>2. Canonical Workspace Jail</strong></td>
-              <td><code>../</code> path traversal &amp; symlink escapes</td>
-              <td><code>dunce::canonicalize</code> resolves real paths and enforces <code>target.starts_with(&amp;canonical_root)</code>.</td>
-            </tr>
-            <tr>
-              <td><strong>3. System Root Refusal</strong></td>
-              <td>Binding <code>/</code>, <code>C:\</code>, <code>C:\Windows</code>, <code>/etc</code></td>
-              <td><code>reject_system_root</code> refuses shallow root directories and OS system trees.</td>
-            </tr>
-            <tr>
-              <td><strong>4. Binary Allowlist Policy</strong></td>
-              <td>Privilege escalation (<code>sudo</code>, <code>rm</code>, <code>powershell</code>, <code>curl</code>)</td>
-              <td><code>CommandPolicy</code> permits only approved developer toolchains (<code>cargo</code>, <code>npm</code>, <code>git</code>, <code>pytest</code>, <code>tsc</code>, etc.).</td>
-            </tr>
-            <tr>
-              <td><strong>5. Credential Scrubbing</strong></td>
-              <td>Prompt-injected scripts leaking API keys</td>
-              <td><code>BoundedTerminalExecutor</code> removes <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GITHUB_TOKEN</code>, and <code>SSH_AUTH_SOCK</code> from child processes.</td>
-            </tr>
-            <tr>
-              <td><strong>6. Timeouts &amp; Output Caps</strong></td>
-              <td>Hung interactive prompts &amp; memory exhaustion</td>
-              <td>Enforces 60s execution timeout, <code>kill_on_drop(true)</code>, <code>CI=true</code>, and 128 KiB output stream truncation.</td>
-            </tr>
-          </tbody>
-        </table>
+      <section id="updater">
+        <h2>4. Updating Oxide from GitHub with One Click</h2>
+        <p style="color: var(--muted);">
+          Click the <strong><code>↻ Update</code></strong> button in the top-right corner of the GUI at any time:
+        </p>
+        <ul style="margin-top: 0.6rem;">
+          <li>Oxide checks <code>https://github.com/Hanzkii/Oxide</code> for the latest release and commit SHA on <code>main</code>.</li>
+          <li>If a new version is available, the button highlights green (<strong><code>↻ Update Available!</code></strong>).</li>
+          <li>Click <strong>Pull &amp; Install Latest Update</strong> inside the modal to automatically download &amp; launch the latest GitHub Release installer (or pull the latest commits from <code>origin/main</code>).</li>
+        </ul>
       </section>
     </main>
 
     <footer>
-      Oxide — Local-First Autonomous AI Coding Agent • Built with Tauri v2, Rust &amp; React/TypeScript
+      Oxide Studio • Autonomous AI Coding Agent • <a href="https://github.com/Hanzkii/Oxide" style="color: var(--blue);">github.com/Hanzkii/Oxide</a>
     </footer>
   </body>
 </html>
