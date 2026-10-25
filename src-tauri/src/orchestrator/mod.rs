@@ -2,8 +2,9 @@ pub mod git;
 pub mod terminal;
 
 use crate::error::{OxideError, OxideResult};
+use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
-use crate::llm::{ChatMessage, ProviderConfig};
+use crate::llm::{AgentRoleKind, ChatMessage, ProviderConfig};
 use crate::orchestrator::git::{GitCommitRecord, GitManager};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
 use crate::security::WorkspaceSandbox;
@@ -12,23 +13,44 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Semaphore;
 
-/// Default maximum autonomous steps per task (configurable in GUI settings).
 const DEFAULT_MAX_AGENT_STEPS: usize = 12;
 
-/// Antigravity-grade System Prompt instructing the model to emit live thinking,
-/// a task plan checklist, and structured JSON tool calls.
-const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide, an autonomous AI software engineering agent (modeled after Google Antigravity) running inside a desktop GUI command center.
-You have full autonomous capability within the workspace to inspect directories, search code, read/write/edit/move/delete files, execute terminal commands, self-correct compiler/test errors, and manage Git (status, diff, commit, pull, push).
+const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide Lead Architect, a large-model autonomous AI orchestrator (modeled after Google Antigravity) running inside a desktop GUI Studio.
+You handle high-level architectural thinking, task decomposition, and reviewing results. You can either execute workspace tools directly OR delegate focused subtasks to faster, lightweight Subagents (`coder_subagent`, `research_subagent`, `tester_subagent`) governed by the PC's hardware concurrency limiter!
 
 Always explain what you are thinking first inside `<think>...</think>` tags so the user can watch your live reasoning in the GUI!
-Then, to execute a tool, output a JSON block inside ```json ... ``` fences with an optional `"thought"` and `"plan"` array, plus one of these actions:
+Then, output a single JSON block inside ```json ... ``` fences with one of these actions:
+
+0. `delegate_subagents` — Delegate 1 or more focused subtasks to specialized fast subagents (Oxide's Hardware Governor will automatically run them in parallel or queue them safely based on the user's PC RAM/CPU/VRAM):
+```json
+{
+  "thought": "Breaking this task down: I will assign ResearchSubagent to inspect the config files and CoderSubagent to implement the helper module.",
+  "plan": ["Delegate research & coding subtasks to subagents", "Review subagent outputs & verify build"],
+  "action": "delegate_subagents",
+  "subtasks": [
+    {
+      "id": "sub-1",
+      "role": "research_subagent",
+      "title": "Inspect workspace config files",
+      "instructions": "Read package.json and summarize scripts and dependencies",
+      "target_path": "package.json"
+    },
+    {
+      "id": "sub-2",
+      "role": "coder_subagent",
+      "title": "Draft utility module",
+      "instructions": "Analyze how to structure the requested feature"
+    }
+  ]
+}
+```
 
 1. `list_dir` — List files and folders in a workspace directory:
 ```json
 {
-  "thought": "Inspecting the project structure to locate the entry point",
-  "plan": ["Inspect workspace files", "Edit target module", "Run tests and commit"],
+  "thought": "Inspecting project root",
   "action": "list_dir",
   "path": "."
 }
@@ -37,7 +59,7 @@ Then, to execute a tool, output a JSON block inside ```json ... ``` fences with 
 2. `search_files` — Search for text or symbols across workspace files:
 ```json
 {
-  "thought": "Searching for where the configuration struct is defined",
+  "thought": "Searching for ProviderConfig references",
   "action": "search_files",
   "query": "ProviderConfig"
 }
@@ -46,80 +68,77 @@ Then, to execute a tool, output a JSON block inside ```json ... ``` fences with 
 3. `read_file` — Read the contents of a file:
 ```json
 {
-  "thought": "Reading Cargo.toml to check installed crates",
+  "thought": "Reading Cargo.toml",
   "action": "read_file",
   "path": "Cargo.toml"
 }
 ```
 
-4. `write_file` — Create a new file or overwrite an existing file:
+4. `write_file` — Create or overwrite a file:
 ```json
 {
-  "thought": "Creating a new helper module",
+  "thought": "Writing helper file",
   "action": "write_file",
   "path": "src/helper.ts",
   "content": "export const VERSION = '1.0.0';\n",
-  "rationale": "Add version helper"
+  "rationale": "Add helper"
 }
 ```
 
 5. `edit_file` — Replace an exact target snippet inside an existing file:
 ```json
 {
-  "thought": "Updating the port number in vite.config.ts",
+  "thought": "Updating target block in file",
   "action": "edit_file",
   "path": "vite.config.ts",
   "target": "port: 1420",
   "replacement": "port: 1420,\n    open: false",
-  "rationale": "Configure server options"
+  "rationale": "Update server config"
 }
 ```
 
-6. `move_file` — Move or rename a file or folder inside the workspace:
+6. `move_file` — Move or rename a file or folder:
 ```json
 {
-  "thought": "Renaming legacy utility file",
+  "thought": "Renaming file",
   "action": "move_file",
-  "source": "src/old_util.ts",
-  "destination": "src/utils/index.ts",
-  "rationale": "Organize utils directory"
+  "source": "src/old.ts",
+  "destination": "src/new.ts"
 }
 ```
 
-7. `delete_file` — Delete an obsolete file inside the workspace:
+7. `delete_file` — Delete a file inside the workspace:
 ```json
 {
-  "thought": "Removing temporary scratch file",
+  "thought": "Removing temporary file",
   "action": "delete_file",
-  "path": "src/temp.txt",
-  "rationale": "Clean up temporary file"
+  "path": "src/temp.txt"
 }
 ```
 
-8. `run_command` — Run a terminal command (no shell chaining `&&` or `|`):
+8. `run_command` — Run a terminal command:
 ```json
 {
-  "thought": "Running the test suite to verify our changes compile and pass",
+  "thought": "Running build verification",
   "action": "run_command",
   "command": "npm run build",
-  "rationale": "Verify TypeScript compilation"
+  "rationale": "Verify TypeScript build"
 }
 ```
 
-9. `git_action` — Run Git operations (`status`, `diff`, `pull`, `push`, `commit`, `log`):
+9. `git_action` — Run Git operations (`status`, `diff`, `pull`, `push`, `commit`):
 ```json
 {
-  "thought": "Pulling latest changes from GitHub remote before pushing",
+  "thought": "Pulling latest changes from GitHub",
   "action": "git_action",
-  "operation": "pull",
-  "message": "Sync with origin/main"
+  "operation": "pull"
 }
 ```
 
 10. `open_in_vscode` — Open a file or workspace in Visual Studio Code:
 ```json
 {
-  "thought": "Opening the modified file in VS Code for the user",
+  "thought": "Opening file in VS Code",
   "action": "open_in_vscode",
   "path": "src/App.tsx"
 }
@@ -128,20 +147,41 @@ Then, to execute a tool, output a JSON block inside ```json ... ``` fences with 
 11. `complete_task` — Finish the task, auto-commit milestone, and optionally push to Git:
 ```json
 {
-  "thought": "All checks passed; completing task and committing milestone",
+  "thought": "All subtasks verified; completing task",
   "action": "complete_task",
-  "summary": "Implemented requested feature and verified build passes",
+  "summary": "Completed task and verified build passes",
   "auto_commit": true,
   "auto_push": false
 }
-```
+```"#;
 
-SELF-CORRECTION RULE:
-If `run_command` or any tool returns an error or non-zero ExitCode (`STDERR`), analyze the error inside `<think>...</think>`, fix the file or command, and re-verify before calling `complete_task`."#;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentTaskSpec {
+    pub id: String,
+    pub role: AgentRoleKind,
+    pub title: String,
+    pub instructions: String,
+    pub target_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentRunState {
+    Queued,
+    ThrottledWaitingForHardware,
+    Running,
+    Completed,
+    Failed,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum AgentToolAction {
+    DelegateSubagents {
+        subtasks: Vec<SubagentTaskSpec>,
+        thought: Option<String>,
+        plan: Option<Vec<String>>,
+    },
     ListDir {
         #[serde(default = "default_dot")]
         path: String,
@@ -226,7 +266,8 @@ fn default_dot() -> String {
 impl AgentToolAction {
     pub fn thought(&self) -> Option<&str> {
         match self {
-            Self::ListDir { thought, .. }
+            Self::DelegateSubagents { thought, .. }
+            | Self::ListDir { thought, .. }
             | Self::SearchFiles { thought, .. }
             | Self::ReadFile { thought, .. }
             | Self::WriteFile { thought, .. }
@@ -242,7 +283,8 @@ impl AgentToolAction {
 
     pub fn plan(&self) -> Option<&[String]> {
         match self {
-            Self::ListDir { plan, .. }
+            Self::DelegateSubagents { plan, .. }
+            | Self::ListDir { plan, .. }
             | Self::SearchFiles { plan, .. }
             | Self::ReadFile { plan, .. }
             | Self::WriteFile { plan, .. }
@@ -266,7 +308,6 @@ pub enum WorkflowStepStatus {
     Failed,
 }
 
-/// Real-time event payload streamed to the React GUI over Tauri IPC events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentStreamEvent {
@@ -282,6 +323,17 @@ pub enum AgentStreamEvent {
     PlanUpdate {
         step: usize,
         items: Vec<String>,
+    },
+    SubagentStatus {
+        id: String,
+        role: AgentRoleKind,
+        model: String,
+        title: String,
+        state: SubagentRunState,
+        thought: String,
+        output_preview: String,
+        active_workers: usize,
+        max_allowed_workers: usize,
     },
     WorkflowCard {
         step: usize,
@@ -330,15 +382,28 @@ impl AgentOrchestrator {
         app: AppHandle,
         user_prompt: String,
     ) -> OxideResult<String> {
-        let router = HybridProviderRouter::new(self.provider_config.clone());
+        let router = Arc::new(HybridProviderRouter::new(self.provider_config.clone()));
         let executor = BoundedTerminalExecutor::new(self.sandbox.clone());
         let git_manager = GitManager::new(self.sandbox.clone());
+
+        let hw = HardwareSpecs::inspect().await;
+        let effective_max_subagents = self
+            .provider_config
+            .max_concurrent_subagents
+            .clamp(1, hw.hard_limit_subagents.max(1));
 
         let mut conversation = vec![
             ChatMessage::system(AGENT_SYSTEM_PROMPT),
             ChatMessage::user(format!(
-                "Workspace Root: {}\nUser Request: {}",
+                "Workspace Root: {}\nPC Hardware Governor: {} ({:.1} GB Free RAM, Max Concurrent Subagents: {})\nTask Model Routing: Architect={}, CoderSubagent={}, ResearchSubagent={}, TesterSubagent={}\nUser Request: {}",
                 self.sandbox.canonical_root().display(),
+                hw.governor_tier,
+                hw.available_ram_gb,
+                effective_max_subagents,
+                self.provider_config.task_routing.architect_model,
+                self.provider_config.task_routing.coder_subagent_model,
+                self.provider_config.task_routing.research_subagent_model,
+                self.provider_config.task_routing.tester_subagent_model,
                 user_prompt
             )),
         ];
@@ -348,32 +413,38 @@ impl AgentOrchestrator {
                 &app,
                 AgentStreamEvent::WorkflowCard {
                     step,
-                    title: format!("Thinking & Planning (Step {}/{})", step, DEFAULT_MAX_AGENT_STEPS),
+                    title: format!(
+                        "Lead Architect Thinking (Step {}/{})",
+                        step, DEFAULT_MAX_AGENT_STEPS
+                    ),
                     detail: format!(
-                        "Model: {:?} ({})",
-                        self.provider_config.active_provider, self.provider_config.ollama_model
+                        "Architect Model: {}",
+                        self.provider_config.model_for_role(AgentRoleKind::Architect)
                     ),
                     status: WorkflowStepStatus::Running,
                 },
             );
 
             let app_for_stream = app.clone();
-            let provider_label = format!("{:?}", self.provider_config.active_provider);
+            let arch_model = self
+                .provider_config
+                .model_for_role(AgentRoleKind::Architect)
+                .to_string();
             let token_cb = Arc::new(move |token: &str| {
                 let _ = app_for_stream.emit(
                     "oxide://agent-event",
                     AgentStreamEvent::TokenDelta {
                         step,
-                        provider: provider_label.clone(),
+                        provider: arch_model.clone(),
                         token: token.to_string(),
                     },
                 );
             });
 
-            let (_used_provider, assistant_reply) =
-                router.stream_with_fallback(&conversation, token_cb).await?;
+            let (_used_provider, assistant_reply) = router
+                .stream_for_role(AgentRoleKind::Architect, &conversation, token_cb)
+                .await?;
 
-            // Extract `<think>...</think>` block if emitted by reasoning models
             if let Some(think_text) = Self::extract_think_tag(&assistant_reply) {
                 self.emit_event(
                     &app,
@@ -418,6 +489,16 @@ impl AgentOrchestrator {
             }
 
             match action {
+                AgentToolAction::DelegateSubagents { subtasks, .. } => {
+                    let results = self
+                        .execute_subagent_batch(&app, step, &router, subtasks)
+                        .await;
+                    conversation.push(ChatMessage::tool(format!(
+                        "[SUBAGENT_BATCH_RESULTS]\n{}\n[/SUBAGENT_BATCH_RESULTS]",
+                        results.join("\n\n")
+                    )));
+                }
+
                 AgentToolAction::ListDir { path, .. } => {
                     let target = self.sandbox.validate_path_in_workspace(Path::new(&path))?;
                     let mut entries = Vec::new();
@@ -515,8 +596,8 @@ impl AgentOrchestrator {
                     }
                     fs::write(&target, &content)?;
 
-                    let detail = rationale
-                        .unwrap_or_else(|| format!("Wrote {} bytes", content.len()));
+                    let detail =
+                        rationale.unwrap_or_else(|| format!("Wrote {} bytes", content.len()));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::FileChange {
@@ -556,8 +637,9 @@ impl AgentOrchestrator {
                             if existing.contains(&target) {
                                 let updated = existing.replace(&target, &replacement);
                                 fs::write(&resolved, &updated)?;
-                                let detail = rationale
-                                    .unwrap_or_else(|| "Applied target replacement edit".to_string());
+                                let detail = rationale.unwrap_or_else(|| {
+                                    "Applied target replacement edit".to_string()
+                                });
                                 self.emit_event(
                                     &app,
                                     AgentStreamEvent::FileChange {
@@ -586,12 +668,14 @@ impl AgentOrchestrator {
                                     AgentStreamEvent::WorkflowCard {
                                         step,
                                         title: format!("Edit Target Mismatch: `{}`", path),
-                                        detail: "Target snippet not found in file; re-reading required".to_string(),
+                                        detail:
+                                            "Target snippet not found in file; re-reading required"
+                                                .to_string(),
                                         status: WorkflowStepStatus::SelfCorrecting,
                                     },
                                 );
                                 conversation.push(ChatMessage::tool(format!(
-                                    "[FILE_EDIT_ERROR path=\"{}\"] Exact target string was not found. Use `read_file` to inspect exact contents before editing.",
+                                    "[FILE_EDIT_ERROR path=\"{}\"] Exact target string was not found.",
                                     path
                                 )));
                             }
@@ -620,9 +704,8 @@ impl AgentOrchestrator {
                     }
                     fs::rename(&src_path, &dst_path)?;
 
-                    let detail = rationale.unwrap_or_else(|| {
-                        format!("Moved {} -> {}", source, destination)
-                    });
+                    let detail =
+                        rationale.unwrap_or_else(|| format!("Moved {} -> {}", source, destination));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::FileChange {
@@ -714,10 +797,7 @@ impl AgentOrchestrator {
                                     AgentStreamEvent::WorkflowCard {
                                         step,
                                         title: format!("Command Succeeded: `{}`", command),
-                                        detail: format!(
-                                            "Exit 0 in {} ms",
-                                            exec_result.duration_ms
-                                        ),
+                                        detail: format!("Exit 0 in {} ms", exec_result.duration_ms),
                                         status: WorkflowStepStatus::Succeeded,
                                     },
                                 );
@@ -776,7 +856,10 @@ impl AgentOrchestrator {
                                     result: res.clone(),
                                 },
                             );
-                            format!("git pull exit={}: {}\n{}", res.exit_code, res.stdout, res.stderr)
+                            format!(
+                                "git pull exit={}: {}\n{}",
+                                res.exit_code, res.stdout, res.stderr
+                            )
                         }
                         "push" => {
                             let res = git_manager.push().await?;
@@ -787,11 +870,16 @@ impl AgentOrchestrator {
                                     result: res.clone(),
                                 },
                             );
-                            format!("git push exit={}: {}\n{}", res.exit_code, res.stdout, res.stderr)
+                            format!(
+                                "git push exit={}: {}\n{}",
+                                res.exit_code, res.stdout, res.stderr
+                            )
                         }
                         "commit" => {
-                            let summary = message.unwrap_or_else(|| "Agent milestone update".to_string());
-                            if let Some(rec) = git_manager.commit_milestone(&router, &summary).await? {
+                            let summary =
+                                message.unwrap_or_else(|| "Agent milestone update".to_string());
+                            if let Some(rec) = git_manager.commit_milestone(&router, &summary).await?
+                            {
                                 self.emit_event(
                                     &app,
                                     AgentStreamEvent::GitMilestone {
@@ -816,7 +904,11 @@ impl AgentOrchestrator {
                         AgentStreamEvent::WorkflowCard {
                             step,
                             title: format!("Git Operation: `{}`", op_lower),
-                            detail: result_summary.lines().next().unwrap_or("Completed").to_string(),
+                            detail: result_summary
+                                .lines()
+                                .next()
+                                .unwrap_or("Completed")
+                                .to_string(),
                             status: WorkflowStepStatus::Succeeded,
                         },
                     );
@@ -903,6 +995,191 @@ impl AgentOrchestrator {
             "Reached maximum autonomous step limit ({}) without final task completion",
             DEFAULT_MAX_AGENT_STEPS
         )))
+    }
+
+    /// Executes a batch of delegated Subagents governed by PC Hardware Specs (RAM, VRAM, CPU load).
+    /// Prevents system overload by bounding concurrency with a semaphore and live RAM checks.
+    async fn execute_subagent_batch(
+        &self,
+        app: &AppHandle,
+        step: usize,
+        router: &Arc<HybridProviderRouter>,
+        subtasks: Vec<SubagentTaskSpec>,
+    ) -> Vec<String> {
+        let hw = HardwareSpecs::inspect().await;
+        let max_allowed = if self.provider_config.auto_throttle_on_high_load && hw.throttled_by_load
+        {
+            1
+        } else {
+            self.provider_config
+                .max_concurrent_subagents
+                .clamp(1, hw.hard_limit_subagents.max(1))
+        };
+
+        self.emit_event(
+            app,
+            AgentStreamEvent::WorkflowCard {
+                step,
+                title: format!(
+                    "Delegating {} Subagent(s) [Hardware Limit: {} concurrent]",
+                    subtasks.len(),
+                    max_allowed
+                ),
+                detail: format!(
+                    "{} • Free RAM: {:.1} GB • CPU: {:.0}%",
+                    hw.governor_tier, hw.available_ram_gb, hw.cpu_usage_percent
+                ),
+                status: WorkflowStepStatus::Running,
+            },
+        );
+
+        let semaphore = Arc::new(Semaphore::new(max_allowed));
+        let mut handles = Vec::new();
+
+        for spec in &subtasks {
+            let model_name = self.provider_config.model_for_role(spec.role).to_string();
+            self.emit_event(
+                app,
+                AgentStreamEvent::SubagentStatus {
+                    id: spec.id.clone(),
+                    role: spec.role,
+                    model: model_name,
+                    title: spec.title.clone(),
+                    state: if hw.throttled_by_load {
+                        SubagentRunState::ThrottledWaitingForHardware
+                    } else {
+                        SubagentRunState::Queued
+                    },
+                    thought: "Queued by Hardware Governor — waiting for execution slot...".to_string(),
+                    output_preview: String::new(),
+                    active_workers: 0,
+                    max_allowed_workers: max_allowed,
+                },
+            );
+        }
+
+        for spec in subtasks {
+            let sem_clone = semaphore.clone();
+            let router_clone = router.clone();
+            let app_clone = app.clone();
+            let sandbox_clone = self.sandbox.clone();
+            let model_name = self.provider_config.model_for_role(spec.role).to_string();
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem_clone.acquire().await.unwrap();
+                let active_now = max_allowed.saturating_sub(sem_clone.available_permits());
+
+                let _ = app_clone.emit(
+                    "oxide://agent-event",
+                    AgentStreamEvent::SubagentStatus {
+                        id: spec.id.clone(),
+                        role: spec.role,
+                        model: model_name.clone(),
+                        title: spec.title.clone(),
+                        state: SubagentRunState::Running,
+                        thought: format!("Running subtask: {}", spec.instructions),
+                        output_preview: String::new(),
+                        active_workers: active_now,
+                        max_allowed_workers: max_allowed,
+                    },
+                );
+
+                // Optional context file pre-load for the subagent
+                let file_context = if let Some(ref rel_path) = spec.target_path {
+                    if let Ok(resolved) =
+                        sandbox_clone.validate_path_in_workspace(Path::new(rel_path))
+                    {
+                        fs::read_to_string(resolved)
+                            .ok()
+                            .map(|c| c.chars().take(8000).collect::<String>())
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
+                let sub_messages = vec![
+                    ChatMessage::system(
+                        "You are a fast, specialized Oxide Subagent executing a focused subtask for the Lead Architect AI. Begin with a brief `<think>...</think>` explanation of your approach, then provide a concise, actionable result.",
+                    ),
+                    ChatMessage::user(format!(
+                        "Subtask Role: {:?}\nSubtask Title: {}\nInstructions: {}\n{}",
+                        spec.role,
+                        spec.title,
+                        spec.instructions,
+                        if file_context.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\nTarget File Content:\n{}", file_context)
+                        }
+                    )),
+                ];
+
+                let noop_cb = Arc::new(|_t: &str| {});
+                match router_clone
+                    .stream_for_role(spec.role, &sub_messages, noop_cb)
+                    .await
+                {
+                    Ok((_prov, output)) => {
+                        let thought = Self::extract_think_tag(&output)
+                            .unwrap_or_else(|| "Completed subtask analysis.".to_string());
+                        let preview: String = output.chars().take(280).collect();
+
+                        let _ = app_clone.emit(
+                            "oxide://agent-event",
+                            AgentStreamEvent::SubagentStatus {
+                                id: spec.id.clone(),
+                                role: spec.role,
+                                model: model_name.clone(),
+                                title: spec.title.clone(),
+                                state: SubagentRunState::Completed,
+                                thought,
+                                output_preview: preview,
+                                active_workers: active_now.saturating_sub(1),
+                                max_allowed_workers: max_allowed,
+                            },
+                        );
+
+                        format!(
+                            "[SUBAGENT id=\"{}\" role=\"{:?}\" model=\"{}\" status=\"COMPLETED\"]\n{}\n[/SUBAGENT]",
+                            spec.id, spec.role, model_name, output
+                        )
+                    }
+                    Err(e) => {
+                        let _ = app_clone.emit(
+                            "oxide://agent-event",
+                            AgentStreamEvent::SubagentStatus {
+                                id: spec.id.clone(),
+                                role: spec.role,
+                                model: model_name.clone(),
+                                title: spec.title.clone(),
+                                state: SubagentRunState::Failed,
+                                thought: format!("Subagent error: {}", e),
+                                output_preview: e.to_string(),
+                                active_workers: active_now.saturating_sub(1),
+                                max_allowed_workers: max_allowed,
+                            },
+                        );
+                        format!(
+                            "[SUBAGENT id=\"{}\" status=\"FAILED\"] {}",
+                            spec.id, e
+                        )
+                    }
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        let mut outputs = Vec::new();
+        for h in handles {
+            if let Ok(res) = h.await {
+                outputs.push(res);
+            }
+        }
+        outputs
     }
 
     fn search_in_workspace(&self, query: &str) -> Vec<String> {

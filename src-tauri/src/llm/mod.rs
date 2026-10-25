@@ -15,6 +15,36 @@ pub enum ProviderKind {
     OpenAi,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRoleKind {
+    Architect,
+    CoderSubagent,
+    ResearchSubagent,
+    TesterSubagent,
+}
+
+/// Task-specific AI model routing matrix: allows choosing which AI model handles
+/// complex thinking/orchestration vs. fast specialized subagent tasks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskModelRouting {
+    pub architect_model: String,
+    pub coder_subagent_model: String,
+    pub research_subagent_model: String,
+    pub tester_subagent_model: String,
+}
+
+impl Default for TaskModelRouting {
+    fn default() -> Self {
+        Self {
+            architect_model: "qwen2.5-coder:latest".to_string(),
+            coder_subagent_model: "qwen2.5-coder:7b".to_string(),
+            research_subagent_model: "gemma2:latest".to_string(),
+            tester_subagent_model: "qwen2.5-coder:7b".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub active_provider: ProviderKind,
@@ -24,6 +54,22 @@ pub struct ProviderConfig {
     pub openai_model: String,
     pub enable_cloud_fallback: bool,
     pub temperature: f32,
+    #[serde(default)]
+    pub task_routing: TaskModelRouting,
+    #[serde(default = "default_true")]
+    pub enable_subagents: bool,
+    #[serde(default = "default_max_subagents")]
+    pub max_concurrent_subagents: usize,
+    #[serde(default = "default_true")]
+    pub auto_throttle_on_high_load: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_subagents() -> usize {
+    2
 }
 
 impl Default for ProviderConfig {
@@ -36,6 +82,22 @@ impl Default for ProviderConfig {
             openai_model: "gpt-4o".to_string(),
             enable_cloud_fallback: false,
             temperature: 0.1,
+            task_routing: TaskModelRouting::default(),
+            enable_subagents: true,
+            max_concurrent_subagents: 2,
+            auto_throttle_on_high_load: true,
+        }
+    }
+}
+
+impl ProviderConfig {
+    /// Resolves the specific model name configured for a given `AgentRoleKind`.
+    pub fn model_for_role(&self, role: AgentRoleKind) -> &str {
+        match role {
+            AgentRoleKind::Architect => &self.task_routing.architect_model,
+            AgentRoleKind::CoderSubagent => &self.task_routing.coder_subagent_model,
+            AgentRoleKind::ResearchSubagent => &self.task_routing.research_subagent_model,
+            AgentRoleKind::TesterSubagent => &self.task_routing.tester_subagent_model,
         }
     }
 }
@@ -91,14 +153,8 @@ pub type TokenStreamCallback = Arc<dyn Fn(&str) + Send + Sync>;
 /// Unified trait abstracting Local (Ollama) and Cloud (Anthropic, OpenAI) inference backends.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    /// Human-readable identifier for logging and UI telemetry (e.g., `"ollama:qwen2.5-coder"`).
     fn identifier(&self) -> String;
-
-    /// Checks whether the provider is reachable / has valid credentials configured.
     async fn health_check(&self) -> OxideResult<bool>;
-
-    /// Streams a completion for the given conversation history, invoking `on_token` as chunks arrive
-    /// and returning the complete aggregated assistant message upon completion.
     async fn stream_chat(
         &self,
         messages: &[ChatMessage],

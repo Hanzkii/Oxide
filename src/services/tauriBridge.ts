@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
+  AgentRoleKind,
   AgentStreamEvent,
   CommandExecutionResult,
   GitCommitRecord,
   GitStatusSummary,
+  HardwareSpecs,
   ProviderConfig,
   ProviderHealthReport,
   UpdateInstallResult,
@@ -52,9 +54,11 @@ async function callBackend<T>(
   return resp.json();
 }
 
-const LOCAL_SYSTEM_PROMPT = `You are Oxide, an autonomous AI software engineering agent (modeled after Google Antigravity).
+const LOCAL_SYSTEM_PROMPT = `You are Oxide Lead Architect, a large-model autonomous AI orchestrator (modeled after Google Antigravity).
+You handle complex reasoning and can delegate subtasks to faster, specialized Subagents governed by the PC's Hardware Governor!
 Always explain what you are thinking first inside <think>...</think> tags so the user can watch your live reasoning in the GUI!
-To perform an action in the workspace, output a single JSON object enclosed in \`\`\`json ... \`\`\` fences matching one of these actions:
+To perform an action or delegate subtasks, output a single JSON object enclosed in \`\`\`json ... \`\`\` fences matching one of these actions:
+- {"thought": "...", "plan": ["step 1", "step 2"], "action": "delegate_subagents", "subtasks": [{"id": "sub-1", "role": "research_subagent", "title": "Inspect config", "instructions": "...", "target_path": "package.json"}, {"id": "sub-2", "role": "coder_subagent", "title": "Draft code", "instructions": "..."}]}
 - {"thought": "...", "plan": ["step 1", "step 2"], "action": "list_dir", "path": "."}
 - {"thought": "...", "action": "read_file", "path": "package.json"}
 - {"thought": "...", "action": "write_file", "path": "src/newFile.ts", "content": "...", "rationale": "..."}
@@ -66,9 +70,28 @@ To perform an action in the workspace, output a single JSON object enclosed in \
 - {"thought": "...", "action": "open_in_vscode", "path": "."}
 - {"thought": "...", "action": "complete_task", "summary": "...", "auto_commit": true, "auto_push": false}`;
 
+function getModelForRole(config: ProviderConfig, role: AgentRoleKind): string {
+  const routing = config.task_routing;
+  if (!routing) return config.ollama_model;
+  switch (role) {
+    case "architect":
+      return routing.architect_model || config.ollama_model;
+    case "coder_subagent":
+      return routing.coder_subagent_model || config.ollama_model;
+    case "research_subagent":
+      return routing.research_subagent_model || config.ollama_model;
+    case "tester_subagent":
+      return routing.tester_subagent_model || config.ollama_model;
+  }
+}
+
 export const oxideBridge = {
   isNativeDesktop(): boolean {
     return isTauriNative();
+  },
+
+  async getHardwareSpecs(): Promise<HardwareSpecs> {
+    return callBackend<HardwareSpecs>("get_hardware_specs");
   },
 
   async setWorkspace(workspacePath: string): Promise<WorkspaceInfo> {
@@ -135,7 +158,9 @@ export const oxideBridge = {
     return callBackend<GitStatusSummary>("get_git_status");
   },
 
-  async gitSyncAction(operation: "pull" | "push"): Promise<CommandExecutionResult> {
+  async gitSyncAction(
+    operation: "pull" | "push"
+  ): Promise<CommandExecutionResult> {
     return callBackend<CommandExecutionResult>("git_sync_action", {
       operation,
     });
@@ -162,22 +187,37 @@ export const oxideBridge = {
       return invoke<string>("run_agent_task", { prompt });
     }
 
-    // Standalone local autonomous loop talking directly to Ollama + local system bridge
-    const health = await this.getProviderHealth();
+    const [health, hw] = await Promise.all([
+      this.getProviderHealth(),
+      this.getHardwareSpecs(),
+    ]);
     const baseUrl = health.config.ollama_base_url.replace(/\/$/, "");
-    const model = health.config.ollama_model;
+    const architectModel = getModelForRole(health.config, "architect");
+    const maxAllowedSubagents =
+      health.config.auto_throttle_on_high_load && hw.throttled_by_load
+        ? 1
+        : Math.max(
+            1,
+            Math.min(
+              health.config.max_concurrent_subagents || 1,
+              Math.max(1, hw.hard_limit_subagents)
+            )
+          );
 
     const messages: { role: string; content: string }[] = [
       { role: "system", content: LOCAL_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
+      {
+        role: "user",
+        content: `PC Hardware Governor: ${hw.governor_tier} (${hw.available_ram_gb} GB Free RAM, Max Concurrent Subagents: ${maxAllowedSubagents})\nSubagents Enabled: ${health.config.enable_subagents}\nUser Request: ${prompt}`,
+      },
     ];
 
     for (let step = 1; step <= 10; step++) {
       emitLocalEvent({
         type: "workflow_card",
         step,
-        title: `Thinking & Planning (Step ${step}/10)`,
-        detail: `Querying ${model} on ${baseUrl}`,
+        title: `Lead Architect Thinking (Step ${step}/10)`,
+        detail: `Architect Model: ${architectModel} (${baseUrl})`,
         status: "running",
       });
 
@@ -187,7 +227,7 @@ export const oxideBridge = {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model,
+            model: architectModel,
             messages,
             stream: true,
             options: { temperature: health.config.temperature },
@@ -196,7 +236,7 @@ export const oxideBridge = {
 
         if (!resp.ok || !resp.body) {
           throw new Error(
-            `Ollama returned HTTP ${resp.status}. Make sure 'ollama serve' is running and '${model}' is pulled.`
+            `Ollama returned HTTP ${resp.status}. Make sure 'ollama serve' is running and '${architectModel}' is pulled.`
           );
         }
 
@@ -221,7 +261,7 @@ export const oxideBridge = {
                 emitLocalEvent({
                   type: "token_delta",
                   step,
-                  provider: model,
+                  provider: architectModel,
                   token,
                 });
 
@@ -294,7 +334,152 @@ export const oxideBridge = {
         });
       }
 
-      if (tool.action === "list_dir") {
+      if (tool.action === "delegate_subagents" && Array.isArray(tool.subtasks)) {
+        const subtasks = tool.subtasks;
+        const liveHw = await this.getHardwareSpecs();
+        const limit =
+          health.config.auto_throttle_on_high_load && liveHw.throttled_by_load
+            ? 1
+            : Math.max(
+                1,
+                Math.min(
+                  health.config.max_concurrent_subagents || 1,
+                  Math.max(1, liveHw.hard_limit_subagents)
+                )
+              );
+
+        emitLocalEvent({
+          type: "workflow_card",
+          step,
+          title: `Delegating ${subtasks.length} Subagent(s) [PC Limit: ${limit} concurrent]`,
+          detail: `${liveHw.governor_tier} • Free RAM: ${liveHw.available_ram_gb} GB • CPU: ${liveHw.cpu_usage_percent}%`,
+          status: "running",
+        });
+
+        for (const sp of subtasks) {
+          const role: AgentRoleKind = sp.role || "research_subagent";
+          emitLocalEvent({
+            type: "subagent_status",
+            id: sp.id || `sub-${Math.random()}`,
+            role,
+            model: getModelForRole(health.config, role),
+            title: sp.title || "Subtask",
+            state: liveHw.throttled_by_load
+              ? "throttled_waiting_for_hardware"
+              : "queued",
+            thought:
+              "Queued by Hardware Governor — waiting for available RAM/CPU slot...",
+            output_preview: "",
+            active_workers: 0,
+            max_allowed_workers: limit,
+          });
+        }
+
+        // Execute subtasks in hardware-bounded chunks of size `limit`
+        const batchResults: string[] = [];
+        for (let i = 0; i < subtasks.length; i += limit) {
+          const chunk = subtasks.slice(i, i + limit);
+          const chunkPromises = chunk.map(async (sp: any) => {
+            const role: AgentRoleKind = sp.role || "research_subagent";
+            const subModel = getModelForRole(health.config, role);
+            const subId = sp.id || `sub-${i}`;
+
+            emitLocalEvent({
+              type: "subagent_status",
+              id: subId,
+              role,
+              model: subModel,
+              title: sp.title || "Subtask",
+              state: "running",
+              thought: `Executing instructions: ${sp.instructions}`,
+              output_preview: "",
+              active_workers: chunk.length,
+              max_allowed_workers: limit,
+            });
+
+            let fileCtx = "";
+            if (sp.target_path) {
+              try {
+                const raw = await this.readWorkspaceFile(sp.target_path);
+                fileCtx = `\nTarget File (${sp.target_path}):\n${raw.slice(
+                  0,
+                  6000
+                )}`;
+              } catch {}
+            }
+
+            try {
+              const subResp = await fetch(`${baseUrl}/api/chat`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: subModel,
+                  stream: false,
+                  messages: [
+                    {
+                      role: "system",
+                      content:
+                        "You are a fast, specialized Oxide Subagent executing a focused subtask for the Lead Architect AI. Begin with a brief <think>...</think> explanation, then provide a concise result.",
+                    },
+                    {
+                      role: "user",
+                      content: `Role: ${role}\nTitle: ${sp.title}\nInstructions: ${sp.instructions}${fileCtx}`,
+                    },
+                  ],
+                }),
+              });
+              const data = await subResp.json();
+              const outText: string =
+                data?.message?.content || "Subtask completed.";
+              const thinkStart = outText.indexOf("<think>");
+              const thinkEnd = outText.indexOf("</think>");
+              const subThought =
+                thinkStart !== -1 && thinkEnd !== -1
+                  ? outText.slice(thinkStart + 7, thinkEnd).trim()
+                  : "Finished analysis.";
+
+              emitLocalEvent({
+                type: "subagent_status",
+                id: subId,
+                role,
+                model: subModel,
+                title: sp.title || "Subtask",
+                state: "completed",
+                thought: subThought,
+                output_preview: outText.slice(0, 260),
+                active_workers: 0,
+                max_allowed_workers: limit,
+              });
+
+              return `[SUBAGENT id="${subId}" role="${role}" model="${subModel}" status="COMPLETED"]\n${outText}\n[/SUBAGENT]`;
+            } catch (e: any) {
+              emitLocalEvent({
+                type: "subagent_status",
+                id: subId,
+                role,
+                model: subModel,
+                title: sp.title || "Subtask",
+                state: "failed",
+                thought: `Error: ${e?.message}`,
+                output_preview: e?.message || "Failed",
+                active_workers: 0,
+                max_allowed_workers: limit,
+              });
+              return `[SUBAGENT id="${subId}" status="FAILED"] ${e?.message}`;
+            }
+          });
+
+          const settled = await Promise.all(chunkPromises);
+          batchResults.push(...settled);
+        }
+
+        messages.push({
+          role: "user",
+          content: `[SUBAGENT_BATCH_RESULTS]\n${batchResults.join(
+            "\n\n"
+          )}\n[/SUBAGENT_BATCH_RESULTS]`,
+        });
+      } else if (tool.action === "list_dir") {
         const entries = await this.listWorkspaceFiles(tool.path || ".");
         const summary = entries
           .map((e) => `${e.is_dir ? "[DIR] " : "[FILE]"} ${e.relative_path}`)

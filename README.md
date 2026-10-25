@@ -24,26 +24,24 @@ If you have the repository folder on your computer, simply double-click **`start
 
 ## 2. Key GUI Features
 
-1. **↻ One-Click "Update from GitHub" Button**:
+1. **🤖 Hierarchical Lead Architect + Specialized Subagents**:
+   - **Lead Architect AI (Large Model)**: Handles complex architectural reasoning, task decomposition, and giving instructions to faster Subagents via `delegate_subagents`.
+   - **Specialized Fast Subagents**:
+     - `coder_subagent`: Fast file creation & code editing (`qwen2.5-coder:7b` / `3b`).
+     - `research_subagent`: Fast file search & directory exploration (`gemma2:latest`).
+     - `tester_subagent`: Terminal execution & compiler/test error repair.
+
+2. **⚙ Task-to-Model Routing & ✨ Auto-Configure for My PC**:
+   - Open **⚙ Subagents & Models** in the top bar to choose which exact AI model runs each role (`Architect`, `Coder Subagent`, `Research Subagent`, `Tester Subagent`), or click **✨ Auto-Configure for My PC** to automatically assign models based on your PC's RAM & GPU VRAM.
+
+3. **🖥 PC Hardware Resource Governor & Subagent Concurrency Limiter**:
+   - Continuously inspects your PC's **CPU cores & live CPU %**, **Free RAM / Total RAM (GB)**, and **GPU VRAM (GB)** (`src-tauri/src/hardware.rs`).
+   - Enforces a strict hardware concurrency ceiling (`tokio::sync::Semaphore`) so you can never spawn more concurrent subagents than your PC can safely handle, and automatically throttles to `1` sequential subagent if RAM usage exceeds 85% or CPU exceeds 88%.
+
+4. **↻ One-Click "Update from GitHub" Button**:
    - Located in the top-right header (`↻ Update`).
    - Checks `https://github.com/Hanzkii/Oxide` for new releases or commits on `main`, displays the latest commit message and version, and updates your installation with one click.
 
-2. **🧠 Live AI Thinking & Current Activity Panel**:
+5. **🧠 Live AI Thinking & Current Activity Panel**:
    - Always visible at the top of the center pane.
-   - Streams the AI's internal `<think>...</think>` reasoning and numbered **Task Plan Checklist** in real time so you can see exactly what the agent is thinking and doing at every step.
-
-3. **⚙ Visual Models & Settings Modal**:
-   - Auto-detects all models installed in your local Ollama instance (`localhost:11434/api/tags`).
-   - Change models, set custom model tags, adjust temperature, or switch between Local Ollama, Anthropic Claude, and OpenAI directly in the GUI.
-
-4. **📁 Interactive File Explorer & Built-in Editor**:
-   - Browse workspace folders in the left sidebar, click any file to view/edit/save it, create new files (`+ File`), move/rename files, or delete files.
-
-5. **🤖 Full Antigravity-Grade Autonomous Tool Suite**:
-   - The AI agent can autonomously execute:
-     - `list_dir` & `search_files` (workspace exploration & code search)
-     - `read_file`, `write_file`, `edit_file` (create and surgically edit files)
-     - `move_file` & `delete_file` (reorganize and clean up files)
-     - `run_command` (execute terminal commands with automatic `stderr` self-correction)
-     - `git_action` (`pull`, `push`, `commit`, `diff`, `status`)
-     - `open_in_vscode` (open files or workspace in Visual Studio Code)
+   - Streams the AI's internal `<think>...</think>` reasoning and numbered **Task Plan Checklist** in real time alongside the **Subagent Worker Pool** on the right.

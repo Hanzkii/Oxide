@@ -1,10 +1,13 @@
 use crate::error::{OxideError, OxideResult};
+use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
 use crate::llm::ProviderConfig;
 use crate::orchestrator::git::{GitCommitRecord, GitManager, GitStatusSummary};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
 use crate::orchestrator::AgentOrchestrator;
-use crate::updater::{check_for_github_updates, install_github_update, UpdateInstallResult, UpdateStatus};
+use crate::updater::{
+    check_for_github_updates, install_github_update, UpdateInstallResult, UpdateStatus,
+};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -28,6 +31,11 @@ struct OllamaTagsResponse {
 #[derive(Deserialize)]
 struct OllamaTagItem {
     name: String,
+}
+
+#[tauri::command]
+pub async fn get_hardware_specs() -> OxideResult<HardwareSpecs> {
+    Ok(HardwareSpecs::inspect().await)
 }
 
 #[tauri::command]
@@ -70,8 +78,10 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
 
     if ollama_models.is_empty() {
         ollama_models = vec![
+            "qwen2.5-coder:14b".to_string(),
             "qwen2.5-coder:latest".to_string(),
             "qwen2.5-coder:7b".to_string(),
+            "qwen2.5-coder:3b".to_string(),
             "gemma2:latest".to_string(),
             "deepseek-r1:latest".to_string(),
         ];
@@ -92,12 +102,18 @@ pub async fn update_provider_config(
     config: ProviderConfig,
     state: State<'_, AppState>,
 ) -> OxideResult<ProviderConfig> {
+    let hw = HardwareSpecs::inspect().await;
+    let mut sanitized = config;
+    // Never allow max_concurrent_subagents to exceed the PC's safe hardware ceiling
+    sanitized.max_concurrent_subagents = sanitized
+        .max_concurrent_subagents
+        .clamp(1, hw.hard_limit_subagents.max(1));
+
     let mut guard = state.provider_config.write().await;
-    *guard = config.clone();
-    Ok(config)
+    *guard = sanitized.clone();
+    Ok(sanitized)
 }
 
-/// Runs an autonomous multi-step coding task with real-time thinking stream and stderr self-correction.
 #[tauri::command]
 pub async fn run_agent_task(
     prompt: String,
@@ -116,7 +132,6 @@ pub async fn run_agent_task(
     orchestrator.run_autonomous_loop(app, prompt).await
 }
 
-/// Executes a single bounded terminal command inside the active workspace sandbox.
 #[tauri::command]
 pub async fn execute_bounded_command(
     command_line: String,

@@ -1,13 +1,53 @@
 export type ProviderKind = "ollama" | "anthropic" | "openai";
 
+export type AgentRoleKind =
+  | "architect"
+  | "coder_subagent"
+  | "research_subagent"
+  | "tester_subagent";
+
+export type SubagentRunState =
+  | "queued"
+  | "throttled_waiting_for_hardware"
+  | "running"
+  | "completed"
+  | "failed";
+
+export interface TaskModelRouting {
+  architect_model: string;
+  coder_subagent_model: string;
+  research_subagent_model: string;
+  tester_subagent_model: string;
+}
+
 export interface ProviderConfig {
   active_provider: ProviderKind;
   ollama_base_url: string;
   ollama_model: string;
-  anthropic_model: string,
+  anthropic_model: string;
   openai_model: string;
   enable_cloud_fallback: boolean;
   temperature: number;
+  task_routing: TaskModelRouting;
+  enable_subagents: boolean;
+  max_concurrent_subagents: number;
+  auto_throttle_on_high_load: boolean;
+}
+
+export interface HardwareSpecs {
+  cpu_brand: string;
+  cpu_cores: number;
+  cpu_usage_percent: number;
+  total_ram_gb: number;
+  available_ram_gb: number;
+  used_ram_percent: number;
+  gpu_name: string;
+  gpu_vram_gb: number;
+  recommended_max_subagents: number;
+  hard_limit_subagents: number;
+  governor_tier: string;
+  governor_advice: string;
+  throttled_by_load: boolean;
 }
 
 export interface ProviderHealthReport {
@@ -100,6 +140,18 @@ export type AgentStreamEvent =
       type: "plan_update";
       step: number;
       items: string[];
+    }
+  | {
+      type: "subagent_status";
+      id: string;
+      role: AgentRoleKind;
+      model: string;
+      title: string;
+      state: SubagentRunState;
+      thought: string;
+      output_preview: string;
+      active_workers: number;
+      max_allowed_workers: number;
     }
   | {
       type: "workflow_card";

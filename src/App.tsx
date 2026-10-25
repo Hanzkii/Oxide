@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { oxideBridge } from "./services/tauriBridge";
 import {
+  AgentRoleKind,
   CommandExecutionResult,
   GitCommitRecord,
   GitStatusSummary,
+  HardwareSpecs,
   ProviderConfig,
   ProviderKind,
+  SubagentRunState,
   UpdateStatus,
   WorkflowStepStatus,
   WorkspaceFileEntry,
@@ -17,6 +20,18 @@ interface WorkflowCardItem {
   title: string;
   detail: string;
   status: WorkflowStepStatus;
+}
+
+interface SubagentItem {
+  id: string;
+  role: AgentRoleKind;
+  model: string;
+  title: string;
+  state: SubagentRunState;
+  thought: string;
+  output_preview: string;
+  active_workers: number;
+  max_allowed_workers: number;
 }
 
 interface ChatEntry {
@@ -33,6 +48,8 @@ export const App: React.FC = () => {
   const [centerTab, setCenterTab] = useState<"agent" | "editor">("agent");
 
   const [gitStatus, setGitStatus] = useState<GitStatusSummary | null>(null);
+  const [hwSpecs, setHwSpecs] = useState<HardwareSpecs | null>(null);
+
   const [providerConfig, setProviderConfig] = useState<ProviderConfig>({
     active_provider: "ollama",
     ollama_base_url: "http://localhost:11434",
@@ -41,19 +58,33 @@ export const App: React.FC = () => {
     openai_model: "gpt-4o",
     enable_cloud_fallback: false,
     temperature: 0.1,
+    task_routing: {
+      architect_model: "qwen2.5-coder:latest",
+      coder_subagent_model: "qwen2.5-coder:7b",
+      research_subagent_model: "gemma2:latest",
+      tester_subagent_model: "qwen2.5-coder:7b",
+    },
+    enable_subagents: true,
+    max_concurrent_subagents: 2,
+    auto_throttle_on_high_load: true,
   });
+
   const [ollamaModels, setOllamaModels] = useState<string[]>([
+    "qwen2.5-coder:14b",
     "qwen2.5-coder:latest",
+    "qwen2.5-coder:7b",
+    "qwen2.5-coder:3b",
     "gemma2:latest",
     "deepseek-r1:latest",
   ]);
   const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
 
-  // Live AI Thinking & Plan State
+  // Live AI Thinking, Plan & Subagents State
   const [liveThinking, setLiveThinking] = useState<string>(
-    "Waiting for task dispatch. When active, the AI's live internal reasoning (<think>...) and step-by-step plan appear here in real time."
+    "Lead Architect AI ready. Dispatch a task to watch real-time reasoning (<think>...) and hardware-governed Subagent delegation."
   );
   const [planChecklist, setPlanChecklist] = useState<string[]>([]);
+  const [subagents, setSubagents] = useState<SubagentItem[]>([]);
 
   // Modals
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -73,23 +104,29 @@ export const App: React.FC = () => {
   );
   const [commits, setCommits] = useState<GitCommitRecord[]>([]);
   const [statusBanner, setStatusBanner] = useState<string>(
-    "Oxide GUI Ready — Local Ollama + Autonomous File/Terminal/Git Engine Active"
+    "Oxide Studio Ready — Hardware-Governed Subagents & Task Model Routing Active"
   );
 
   const refreshWorkspaceState = async (dir: string = currentDir) => {
     try {
-      const [fileList, git, health] = await Promise.all([
+      const [fileList, git, health, hw] = await Promise.all([
         oxideBridge.listWorkspaceFiles(dir),
         oxideBridge.getGitStatus(),
         oxideBridge.getProviderHealth(),
+        oxideBridge.getHardwareSpecs(),
       ]);
       setFiles(fileList);
       setGitStatus(git);
+      setHwSpecs(hw);
       setOllamaOnline(health.ollama_reachable);
       if (health.ollama_models.length > 0) {
         setOllamaModels(health.ollama_models);
       }
-      setProviderConfig(health.config);
+      setProviderConfig((prev) => ({
+        ...prev,
+        ...health.config,
+        task_routing: health.config.task_routing || prev.task_routing,
+      }));
     } catch {}
   };
 
@@ -109,6 +146,13 @@ export const App: React.FC = () => {
       .then((st) => setUpdateStatus(st))
       .catch(() => {});
 
+    const hwTimer = setInterval(() => {
+      oxideBridge
+        .getHardwareSpecs()
+        .then(setHwSpecs)
+        .catch(() => {});
+    }, 6000);
+
     const unlistenPromise = oxideBridge.onAgentEvent((event) => {
       switch (event.type) {
         case "token_delta":
@@ -119,6 +163,28 @@ export const App: React.FC = () => {
           break;
         case "plan_update":
           setPlanChecklist(event.items);
+          break;
+        case "subagent_status":
+          setSubagents((prev) => {
+            const idx = prev.findIndex((s) => s.id === event.id);
+            const item: SubagentItem = {
+              id: event.id,
+              role: event.role,
+              model: event.model,
+              title: event.title,
+              state: event.state,
+              thought: event.thought,
+              output_preview: event.output_preview,
+              active_workers: event.active_workers,
+              max_allowed_workers: event.max_allowed_workers,
+            };
+            if (idx !== -1) {
+              const copy = [...prev];
+              copy[idx] = item;
+              return copy;
+            }
+            return [item, ...prev];
+          });
           break;
         case "workflow_card":
           setWorkflowCards((prev) => [
@@ -155,6 +221,7 @@ export const App: React.FC = () => {
     });
 
     return () => {
+      clearInterval(hwTimer);
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
@@ -297,13 +364,72 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleAutoAssignOptimalModels = async () => {
+    const hw = await oxideBridge.getHardwareSpecs();
+    setHwSpecs(hw);
+
+    // Choose optimal models based on PC RAM & VRAM
+    const isHighSpec = hw.total_ram_gb >= 28 || hw.gpu_vram_gb >= 12;
+    const isMidSpec = hw.total_ram_gb >= 14;
+
+    const firstAvailable = (candidates: string[], fallback: string) =>
+      candidates.find((c) => ollamaModels.includes(c)) ||
+      ollamaModels[0] ||
+      fallback;
+
+    const architect = isHighSpec
+      ? firstAvailable(
+          ["deepseek-r1:latest", "qwen2.5-coder:14b", "qwen2.5-coder:latest"],
+          "qwen2.5-coder:latest"
+        )
+      : firstAvailable(
+          ["qwen2.5-coder:latest", "qwen2.5-coder:7b"],
+          "qwen2.5-coder:latest"
+        );
+
+    const coder = isMidSpec
+      ? firstAvailable(
+          ["qwen2.5-coder:7b", "qwen2.5-coder:latest"],
+          "qwen2.5-coder:7b"
+        )
+      : firstAvailable(
+          ["qwen2.5-coder:3b", "gemma2:latest"],
+          "qwen2.5-coder:3b"
+        );
+
+    const research = firstAvailable(
+      ["gemma2:latest", "qwen2.5-coder:3b", "qwen2.5-coder:7b"],
+      "gemma2:latest"
+    );
+
+    const updated: ProviderConfig = {
+      ...providerConfig,
+      ollama_model: architect,
+      max_concurrent_subagents: hw.recommended_max_subagents,
+      auto_throttle_on_high_load: true,
+      task_routing: {
+        architect_model: architect,
+        coder_subagent_model: coder,
+        research_subagent_model: research,
+        tester_subagent_model: coder,
+      },
+    };
+
+    setProviderConfig(updated);
+    setStatusBanner(
+      `Auto-configured for ${hw.governor_tier}: Architect=${architect}, Subagents=${coder}/${research} (Max ${hw.recommended_max_subagents} concurrent)`
+    );
+  };
+
   const handleRunTask = async (customPrompt?: string) => {
     const taskPrompt = (customPrompt ?? prompt).trim();
     if (!taskPrompt || isRunning) return;
     if (!customPrompt) setPrompt("");
     setCenterTab("agent");
     setStreamingBuffer("");
-    setLiveThinking(`Analyzing task: "${taskPrompt}"...`);
+    setLiveThinking(
+      `Lead Architect (${providerConfig.task_routing.architect_model}) is analyzing "${taskPrompt}" and planning Subagent delegation...`
+    );
     setIsRunning(true);
     setChatHistory((prev) => [...prev, { role: "user", content: taskPrompt }]);
 
@@ -339,11 +465,11 @@ export const App: React.FC = () => {
   };
 
   const handleSaveSettings = async (updated: ProviderConfig) => {
-    setProviderConfig(updated);
-    await oxideBridge.updateProviderConfig(updated);
+    const saved = await oxideBridge.updateProviderConfig(updated);
+    setProviderConfig(saved);
     setShowSettingsModal(false);
     setStatusBanner(
-      `Saved settings: ${updated.active_provider} / ${updated.ollama_model}`
+      `Saved Task Routing: Architect=${saved.task_routing.architect_model} | Max Concurrent Subagents=${saved.max_concurrent_subagents}`
     );
   };
 
@@ -362,10 +488,26 @@ export const App: React.FC = () => {
                 backgroundColor: ollamaOnline ? "#10b981" : "#f59e0b",
               }}
             />
-            {ollamaOnline
-              ? `Ollama: ${providerConfig.ollama_model}`
-              : "Ollama Offline"}
+            Arch: {providerConfig.task_routing.architect_model}
           </span>
+
+          {hwSpecs && (
+            <span
+              className={`status-pill hw-pill ${
+                hwSpecs.throttled_by_load ? "throttled" : ""
+              }`}
+              onClick={() => setShowSettingsModal(true)}
+              title={`${hwSpecs.governor_tier}: ${hwSpecs.governor_advice}`}
+            >
+              🖥 RAM {hwSpecs.available_ram_gb}GB free / {hwSpecs.total_ram_gb}GB
+              • CPU {hwSpecs.cpu_usage_percent}% • Max{" "}
+              {Math.min(
+                providerConfig.max_concurrent_subagents,
+                hwSpecs.hard_limit_subagents
+              )}{" "}
+              Subagent(s)
+            </span>
+          )}
 
           {gitStatus && (
             <span className="status-pill">
@@ -416,9 +558,9 @@ export const App: React.FC = () => {
           <button
             className="btn"
             onClick={() => setShowSettingsModal(true)}
-            title="Configure AI Models, Ollama URL & Settings"
+            title="Configure Lead Architect AI, Subagent Task Models & PC Hardware Limits"
           >
-            ⚙ Models &amp; Settings
+            ⚙ Subagents &amp; Models
           </button>
 
           <button
@@ -503,7 +645,7 @@ export const App: React.FC = () => {
               className={`tab-btn ${centerTab === "agent" ? "active" : ""}`}
               onClick={() => setCenterTab("agent")}
             >
-              🤖 Autonomous Agent &amp; Live Thinking
+              🤖 Architect &amp; Subagents Studio
             </button>
             <button
               className={`tab-btn ${centerTab === "editor" ? "active" : ""}`}
@@ -517,12 +659,14 @@ export const App: React.FC = () => {
           <div className="thinking-box">
             <div className="thinking-header">
               <span>
-                🧠 AI Live Thinking &amp; Current Reasoning{" "}
+                🧠 Lead Architect Live Thinking{" "}
                 {isRunning ? "(ACTIVE...)" : "(IDLE)"}
               </span>
               <span style={{ fontSize: "0.7rem", opacity: 0.85 }}>
-                {providerConfig.active_provider.toUpperCase()} •{" "}
-                {providerConfig.ollama_model}
+                Architect: {providerConfig.task_routing.architect_model} • Coder
+                Sub: {providerConfig.task_routing.coder_subagent_model} •
+                Research Sub:{" "}
+                {providerConfig.task_routing.research_subagent_model}
               </span>
             </div>
             <div className="thinking-content">{liveThinking}</div>
@@ -542,13 +686,32 @@ export const App: React.FC = () => {
               <div className="stream-viewport">
                 {chatHistory.length === 0 && !streamingBuffer && (
                   <div className="message-card">
-                    <strong>Oxide Autonomous Agent Studio</strong>
-                    {"\n"}• Watch the purple <strong>AI Live Thinking</strong>{" "}
-                    box above to see what the model is thinking in real time.
-                    {"\n"}• The agent can autonomously list directories, search
-                    code, read/create/edit/move/delete files, run terminal
-                    commands, self-correct compiler errors, and commit/push/pull
-                    with Git.
+                    <strong>
+                      Oxide Hierarchical AI Orchestrator + Hardware-Governed
+                      Subagents
+                    </strong>
+                    {"\n"}• <strong>Lead Architect AI</strong> (
+                    <code>{providerConfig.task_routing.architect_model}</code>)
+                    handles complex thinking and instructs specialized{" "}
+                    <strong>Subagents</strong>.
+                    {"\n"}• <strong>Task-Specific Models</strong>: Coder
+                    Subagent (
+                    <code>
+                      {providerConfig.task_routing.coder_subagent_model}
+                    </code>
+                    ), Research Subagent (
+                    <code>
+                      {providerConfig.task_routing.research_subagent_model}
+                    </code>
+                    ), Tester Subagent (
+                    <code>
+                      {providerConfig.task_routing.tester_subagent_model}
+                    </code>
+                    ).
+                    {"\n"}• <strong>PC Hardware Governor</strong>:{" "}
+                    {hwSpecs
+                      ? `${hwSpecs.governor_tier} — Caps concurrent subagents to ${hwSpecs.hard_limit_subagents} based on your ${hwSpecs.total_ram_gb} GB RAM & ${hwSpecs.cpu_cores} CPU cores.`
+                      : "Inspecting PC specs..."}
                   </div>
                 )}
 
@@ -571,11 +734,11 @@ export const App: React.FC = () => {
                     className="preset-chip"
                     onClick={() =>
                       handleRunTask(
-                        "List the workspace files, inspect package.json, and summarize the project architecture."
+                        "Use delegate_subagents to have research_subagent inspect package.json and coder_subagent review src/App.tsx, then summarize findings."
                       )
                     }
                   >
-                    🔍 Inspect &amp; Summarize Project
+                    ⚡ Dispatch Subagent Team (Research + Coder)
                   </button>
                   <button
                     className="preset-chip"
@@ -602,7 +765,7 @@ export const App: React.FC = () => {
                 <div className="composer-row">
                   <textarea
                     className="prompt-textarea"
-                    placeholder="Ask Oxide to create/edit/move files, run terminal commands, or push/pull from Git..."
+                    placeholder="Ask the Lead Architect AI to plan a task, delegate to Subagents, edit/move files, run terminal commands, or push/pull Git..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={(e) => {
@@ -616,10 +779,10 @@ export const App: React.FC = () => {
                     onClick={() => handleRunTask()}
                     disabled={isRunning}
                   >
-                    {isRunning ? "Thinking..." : "Run Agent"}
+                    {isRunning ? "Running..." : "Run Agent"}
                   </button>
                 </div>
-                <div style={{ fontSize: "0.74rem", color: "#94a3b8" }}>
+                <div style={{ fontSize: "0.73rem", color: "#94a3b8" }}>
                   {statusBanner}
                 </div>
               </div>
@@ -673,10 +836,71 @@ export const App: React.FC = () => {
           )}
         </section>
 
-        {/* Right Pane: Workflow Status Cards & Interactive Terminal */}
+        {/* Right Pane: Subagent Pool, Workflow Status Cards & Interactive Terminal */}
         <aside className="right-pane">
           <div className="telemetry-section">
             <div className="section-title">
+              Subagent Worker Pool{" "}
+              {hwSpecs &&
+                `(PC Safe Limit: Max ${Math.min(
+                  providerConfig.max_concurrent_subagents,
+                  hwSpecs.hard_limit_subagents
+                )} Concurrent)`}
+            </div>
+            {subagents.length === 0 ? (
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: "#64748b",
+                  background: "var(--bg-panel)",
+                  padding: "0.55rem 0.75rem",
+                  borderRadius: 6,
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                No subagents active. When the Lead Architect delegates tasks,
+                specialized subagent workers and their live thoughts appear here.
+              </div>
+            ) : (
+              subagents.map((sub) => (
+                <div
+                  key={sub.id}
+                  className={`subagent-card ${sub.state}`}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span>
+                      🤖 {sub.title} ({sub.role})
+                    </span>
+                    <span style={{ color: "#38bdf8", fontSize: "0.7rem" }}>
+                      {sub.model} • {sub.state.toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "0.74rem", color: "#d8b4fe" }}>
+                    💭 {sub.thought}
+                  </div>
+                  {sub.output_preview && (
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        color: "#94a3b8",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {sub.output_preview}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+
+            <div className="section-title" style={{ marginTop: "0.35rem" }}>
               Interactive Terminal Runner
             </div>
             <div className="composer-row">
@@ -695,7 +919,7 @@ export const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="section-title" style={{ marginTop: "0.4rem" }}>
+            <div className="section-title" style={{ marginTop: "0.35rem" }}>
               Live Agent Activity &amp; Self-Correction Steps
             </div>
             {workflowCards.map((card) => (
@@ -704,16 +928,16 @@ export const App: React.FC = () => {
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    fontSize: "0.8rem",
+                    fontSize: "0.79rem",
                     fontWeight: 600,
                   }}
                 >
                   <span>{card.title}</span>
-                  <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>
+                  <span style={{ fontSize: "0.69rem", opacity: 0.8 }}>
                     #{card.step} • {card.status.toUpperCase()}
                   </span>
                 </div>
-                <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                <div style={{ fontSize: "0.74rem", color: "#94a3b8" }}>
                   {card.detail}
                 </div>
               </div>
@@ -721,7 +945,7 @@ export const App: React.FC = () => {
 
             {commits.length > 0 && (
               <>
-                <div className="section-title" style={{ marginTop: "0.4rem" }}>
+                <div className="section-title" style={{ marginTop: "0.35rem" }}>
                   Git Milestones
                 </div>
                 {commits.map((c, i) => (
@@ -734,7 +958,7 @@ export const App: React.FC = () => {
               </>
             )}
 
-            <div className="section-title" style={{ marginTop: "0.4rem" }}>
+            <div className="section-title" style={{ marginTop: "0.35rem" }}>
               Terminal Output Stream (stdout / stderr)
             </div>
             {terminalLogs.map((log, index) => (
@@ -743,7 +967,7 @@ export const App: React.FC = () => {
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    marginBottom: "0.3rem",
+                    marginBottom: "0.28rem",
                     color: log.succeeded ? "#10b981" : "#f59e0b",
                   }}
                 >
@@ -762,104 +986,236 @@ export const App: React.FC = () => {
         </aside>
       </div>
 
-      {/* Settings & Model Configuration Modal */}
+      {/* Subagents, Task-to-Model Routing & Hardware Governor Modal */}
       {showSettingsModal && (
         <div
           className="modal-backdrop"
           onClick={() => setShowSettingsModal(false)}
         >
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>⚙ AI Models &amp; Agent Settings</h3>
-
-            <div className="form-group">
-              <label>Active Inference Provider</label>
-              <select
-                className="select-control"
-                value={providerConfig.active_provider}
-                onChange={(e) =>
-                  setProviderConfig({
-                    ...providerConfig,
-                    active_provider: e.target.value as ProviderKind,
-                  })
-                }
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <h3>⚙ Subagents, Task Model Routing &amp; Hardware Governor</h3>
+              <button
+                className="btn btn-primary"
+                onClick={handleAutoAssignOptimalModels}
               >
-                <option value="ollama">
-                  Local Ollama (Offline-First Default)
-                </option>
-                <option value="anthropic">
-                  Anthropic Claude (ANTHROPIC_API_KEY)
-                </option>
-                <option value="openai">OpenAI (OPENAI_API_KEY)</option>
-              </select>
+                ✨ Auto-Configure for My PC
+              </button>
             </div>
 
-            <div className="form-group">
-              <label>Local Ollama Model (Detected on localhost:11434)</label>
-              <select
-                className="select-control"
-                value={providerConfig.ollama_model}
-                onChange={(e) =>
-                  setProviderConfig({
-                    ...providerConfig,
-                    ollama_model: e.target.value,
-                  })
-                }
-              >
-                {ollamaModels.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+            {hwSpecs && (
+              <div className="hw-spec-box">
+                <div style={{ fontWeight: 700, color: "#38bdf8" }}>
+                  🖥 Detected PC Specs &amp; Live Resource Governor:{" "}
+                  {hwSpecs.governor_tier}
+                </div>
+                <div>
+                  • <strong>CPU:</strong> {hwSpecs.cpu_brand} (
+                  {hwSpecs.cpu_cores} logical cores • Load:{" "}
+                  {hwSpecs.cpu_usage_percent}%)
+                </div>
+                <div>
+                  • <strong>System RAM:</strong> {hwSpecs.available_ram_gb} GB
+                  Free / {hwSpecs.total_ram_gb} GB Total (
+                  {hwSpecs.used_ram_percent}% used)
+                </div>
+                <div>
+                  • <strong>GPU:</strong> {hwSpecs.gpu_name}{" "}
+                  {hwSpecs.gpu_vram_gb > 0
+                    ? `(${hwSpecs.gpu_vram_gb} GB VRAM)`
+                    : ""}
+                </div>
+                <div style={{ color: "#fde68a", marginTop: "0.2rem" }}>
+                  💡 <strong>Governor Advice:</strong> {hwSpecs.governor_advice}
+                </div>
+              </div>
+            )}
+
+            <div className="section-title">
+              Choose Which AI Model Runs Each Task Role
+            </div>
+
+            <div className="routing-grid">
+              <div className="form-group">
+                <label>
+                  🧠 Lead Architect AI (Complex Thinking &amp; Planning)
+                </label>
+                <input
+                  className="workspace-input"
+                  list="ollama-models-list"
+                  value={providerConfig.task_routing.architect_model}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      ollama_model: e.target.value,
+                      task_routing: {
+                        ...providerConfig.task_routing,
+                        architect_model: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>💻 Coder Subagent (Fast Code Writing &amp; Edits)</label>
+                <input
+                  className="workspace-input"
+                  list="ollama-models-list"
+                  value={providerConfig.task_routing.coder_subagent_model}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      task_routing: {
+                        ...providerConfig.task_routing,
+                        coder_subagent_model: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  🔍 Research Subagent (Fast File Search &amp; Reading)
+                </label>
+                <input
+                  className="workspace-input"
+                  list="ollama-models-list"
+                  value={providerConfig.task_routing.research_subagent_model}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      task_routing: {
+                        ...providerConfig.task_routing,
+                        research_subagent_model: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  🧪 Tester Subagent (Terminal Verification &amp; Fixes)
+                </label>
+                <input
+                  className="workspace-input"
+                  list="ollama-models-list"
+                  value={providerConfig.task_routing.tester_subagent_model}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      task_routing: {
+                        ...providerConfig.task_routing,
+                        tester_subagent_model: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <datalist id="ollama-models-list">
+              {ollamaModels.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+
+            <div className="section-title">
+              Hardware Concurrency Limits (Prevents PC Overload)
+            </div>
+
+            <div className="routing-grid">
+              <div className="form-group">
+                <label>
+                  Max Concurrent Subagents (
+                  {providerConfig.max_concurrent_subagents} / Hard PC Limit:{" "}
+                  {hwSpecs?.hard_limit_subagents ?? 2})
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max={hwSpecs?.hard_limit_subagents ?? 4}
+                  step="1"
+                  value={Math.min(
+                    providerConfig.max_concurrent_subagents,
+                    hwSpecs?.hard_limit_subagents ?? 4
+                  )}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      max_concurrent_subagents: parseInt(e.target.value, 10),
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Auto-Throttle When RAM &gt; 85% or CPU &gt; 88%</label>
+                <select
+                  className="select-control"
+                  value={
+                    providerConfig.auto_throttle_on_high_load ? "true" : "false"
+                  }
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      auto_throttle_on_high_load: e.target.value === "true",
+                    })
+                  }
+                >
+                  <option value="true">
+                    Enabled (Queue subagents 1-by-1 under high load)
                   </option>
-                ))}
-              </select>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
             </div>
 
-            <div className="form-group">
-              <label>Or Enter Custom Ollama Model Tag</label>
-              <input
-                className="workspace-input"
-                type="text"
-                value={providerConfig.ollama_model}
-                onChange={(e) =>
-                  setProviderConfig({
-                    ...providerConfig,
-                    ollama_model: e.target.value,
-                  })
-                }
-              />
-            </div>
+            <div className="routing-grid">
+              <div className="form-group">
+                <label>Primary Backend Provider</label>
+                <select
+                  className="select-control"
+                  value={providerConfig.active_provider}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      active_provider: e.target.value as ProviderKind,
+                    })
+                  }
+                >
+                  <option value="ollama">
+                    Local Ollama (Offline-First Default)
+                  </option>
+                  <option value="anthropic">
+                    Anthropic Claude (ANTHROPIC_API_KEY)
+                  </option>
+                  <option value="openai">OpenAI (OPENAI_API_KEY)</option>
+                </select>
+              </div>
 
-            <div className="form-group">
-              <label>Ollama Endpoint URL</label>
-              <input
-                className="workspace-input"
-                type="text"
-                value={providerConfig.ollama_base_url}
-                onChange={(e) =>
-                  setProviderConfig({
-                    ...providerConfig,
-                    ollama_base_url: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div className="form-group">
-              <label>
-                Sampling Temperature ({providerConfig.temperature})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={providerConfig.temperature}
-                onChange={(e) =>
-                  setProviderConfig({
-                    ...providerConfig,
-                    temperature: parseFloat(e.target.value),
-                  })
-                }
-              />
+              <div className="form-group">
+                <label>Ollama Endpoint URL</label>
+                <input
+                  className="workspace-input"
+                  type="text"
+                  value={providerConfig.ollama_base_url}
+                  onChange={(e) =>
+                    setProviderConfig({
+                      ...providerConfig,
+                      ollama_base_url: e.target.value,
+                    })
+                  }
+                />
+              </div>
             </div>
 
             <div
@@ -867,7 +1223,7 @@ export const App: React.FC = () => {
                 display: "flex",
                 justifyContent: "flex-end",
                 gap: "0.5rem",
-                marginTop: "0.5rem",
+                marginTop: "0.3rem",
               }}
             >
               <button
@@ -880,7 +1236,7 @@ export const App: React.FC = () => {
                 className="btn btn-primary"
                 onClick={() => handleSaveSettings(providerConfig)}
               >
-                Save Settings
+                Save Subagent &amp; Model Settings
               </button>
             </div>
           </div>

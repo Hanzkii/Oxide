@@ -1,10 +1,18 @@
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const host = process.env.TAURI_DEV_HOST;
+
+interface TaskModelRouting {
+  architect_model: string;
+  coder_subagent_model: string;
+  research_subagent_model: string;
+  tester_subagent_model: string;
+}
 
 interface LocalBridgeState {
   workspaceRoot: string;
@@ -16,7 +24,12 @@ interface LocalBridgeState {
     openai_model: string;
     enable_cloud_fallback: boolean;
     temperature: number;
+    task_routing: TaskModelRouting;
+    enable_subagents: boolean;
+    max_concurrent_subagents: number;
+    auto_throttle_on_high_load: boolean;
   };
+  cachedGpu: { name: string; vramGb: number } | null;
 }
 
 function createLocalSystemBridgePlugin(): Plugin {
@@ -30,15 +43,23 @@ function createLocalSystemBridgePlugin(): Plugin {
       openai_model: "gpt-4o",
       enable_cloud_fallback: false,
       temperature: 0.1,
+      task_routing: {
+        architect_model: "qwen2.5-coder:latest",
+        coder_subagent_model: "qwen2.5-coder:7b",
+        research_subagent_model: "gemma2:latest",
+        tester_subagent_model: "qwen2.5-coder:7b",
+      },
+      enable_subagents: true,
+      max_concurrent_subagents: 2,
+      auto_throttle_on_high_load: true,
     },
+    cachedGpu: null,
   };
 
   function resolveInsideWorkspace(candidate: string): string {
     const resolved = path.resolve(state.workspaceRoot, candidate || ".");
     const rootResolved = path.resolve(state.workspaceRoot);
-    if (
-      !resolved.toLowerCase().startsWith(rootResolved.toLowerCase())
-    ) {
+    if (!resolved.toLowerCase().startsWith(rootResolved.toLowerCase())) {
       throw new Error(
         `Security violation: Path '${candidate}' escapes workspace '${rootResolved}'`
       );
@@ -122,6 +143,101 @@ function createLocalSystemBridgePlugin(): Plugin {
     });
   }
 
+  async function inspectHardwareSpecs() {
+    const cpus = os.cpus();
+    const cpuCores = Math.max(1, cpus.length);
+    const cpuBrand = cpus[0]?.model?.trim() || `${cpuCores}-Core Processor`;
+
+    let totalIdle = 0;
+    let totalTick = 0;
+    for (const cpu of cpus) {
+      for (const type of Object.keys(cpu.times) as (keyof typeof cpu.times)[]) {
+        totalTick += cpu.times[type];
+      }
+      totalIdle += cpu.times.idle;
+    }
+    const cpuUsagePercent =
+      Math.round(
+        Math.max(5, Math.min(99, (1 - totalIdle / Math.max(1, totalTick)) * 100)) *
+          10
+      ) / 10;
+
+    const totalRamGb =
+      Math.round((os.totalmem() / (1024 * 1024 * 1024)) * 10) / 10;
+    const availableRamGb =
+      Math.round((os.freemem() / (1024 * 1024 * 1024)) * 10) / 10;
+    const usedRamPercent =
+      Math.round(((totalRamGb - availableRamGb) / Math.max(0.1, totalRamGb)) * 1000) /
+      10;
+
+    if (!state.cachedGpu) {
+      const nv = await runCommandBounded(
+        "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits"
+      );
+      if (nv.succeeded && nv.stdout.trim()) {
+        const first = nv.stdout.trim().split(/\r?\n/)[0];
+        const [gName, gMem] = first.split(",");
+        state.cachedGpu = {
+          name: (gName || "NVIDIA GPU").trim(),
+          vramGb: Math.round(((parseFloat(gMem) || 0) / 1024) * 10) / 10,
+        };
+      } else {
+        state.cachedGpu = {
+          name: "System GPU / Unified Memory",
+          vramGb: 0,
+        };
+      }
+    }
+
+    const throttledByLoad =
+      usedRamPercent > 85 || availableRamGb < 3.0 || cpuUsagePercent > 88;
+
+    let hardLimitSubagents = 1;
+    let recommendedMaxSubagents = 1;
+    let governorTier = "Compact / Memory-Saver Tier";
+    let governorAdvice =
+      "Limited available RAM detected. Subagents will execute 1 at a time in a sequential queue using compact models (1.5B–3B).";
+
+    if (throttledByLoad) {
+      hardLimitSubagents = 1;
+      recommendedMaxSubagents = 1;
+      governorTier = "Throttled (High System Load / Low Free RAM)";
+      governorAdvice =
+        "System RAM or CPU usage is currently high. Subagents are restricted to 1 sequential worker at a time to prevent PC slowdown.";
+    } else if (
+      totalRamGb >= 30 &&
+      (state.cachedGpu.vramGb >= 12 || cpuCores >= 12)
+    ) {
+      hardLimitSubagents = 4;
+      recommendedMaxSubagents = 3;
+      governorTier = "Workstation Tier (High Spec)";
+      governorAdvice =
+        "Your PC can comfortably run 1 Large Architect model (14B–32B) + up to 3 fast Subagents (1.5B–7B) concurrently.";
+    } else if (totalRamGb >= 15 && availableRamGb >= 5.5) {
+      hardLimitSubagents = 2;
+      recommendedMaxSubagents = 2;
+      governorTier = "Balanced Desktop Tier (Mid Spec)";
+      governorAdvice =
+        "Recommended: 1 Architect model (7B–14B) + up to 2 fast Subagents (1.5B–3B) concurrently to stay well within RAM limits.";
+    }
+
+    return {
+      cpu_brand: cpuBrand,
+      cpu_cores: cpuCores,
+      cpu_usage_percent: cpuUsagePercent,
+      total_ram_gb: totalRamGb,
+      available_ram_gb: availableRamGb,
+      used_ram_percent: usedRamPercent,
+      gpu_name: state.cachedGpu.name,
+      gpu_vram_gb: state.cachedGpu.vramGb,
+      recommended_max_subagents: recommendedMaxSubagents,
+      hard_limit_subagents: hardLimitSubagents,
+      governor_tier: governorTier,
+      governor_advice: governorAdvice,
+      throttled_by_load: throttledByLoad,
+    };
+  }
+
   async function getGitStatusSummary(cwd: string) {
     const gitDir = path.join(cwd, ".git");
     if (!fs.existsSync(gitDir)) {
@@ -182,6 +298,12 @@ function createLocalSystemBridgePlugin(): Plugin {
 
         res.setHeader("Content-Type", "application/json");
         try {
+          if (action === "get_hardware_specs") {
+            const specs = await inspectHardwareSpecs();
+            res.end(JSON.stringify(specs));
+            return;
+          }
+
           if (action === "set_workspace") {
             const target = path.resolve(args.workspacePath || ".");
             if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
@@ -309,8 +431,10 @@ function createLocalSystemBridgePlugin(): Plugin {
             } catch {}
             if (ollamaModels.length === 0) {
               ollamaModels = [
+                "qwen2.5-coder:14b",
                 "qwen2.5-coder:latest",
                 "qwen2.5-coder:7b",
+                "qwen2.5-coder:3b",
                 "gemma2:latest",
                 "deepseek-r1:latest",
               ];
@@ -329,10 +453,19 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "update_provider_config") {
-            state.providerConfig = {
+            const hw = await inspectHardwareSpecs();
+            const merged = {
               ...state.providerConfig,
               ...(args.config || {}),
             };
+            merged.max_concurrent_subagents = Math.max(
+              1,
+              Math.min(
+                merged.max_concurrent_subagents || 1,
+                Math.max(1, hw.hard_limit_subagents)
+              )
+            );
+            state.providerConfig = merged;
             res.end(JSON.stringify(state.providerConfig));
             return;
           }

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod error;
+pub mod hardware;
 pub mod llm;
 pub mod orchestrator;
 pub mod security;
@@ -40,6 +41,7 @@ pub fn run() {
             commands::workspace::move_workspace_file,
             commands::workspace::delete_workspace_file,
             commands::workspace::open_in_vscode,
+            commands::agent::get_hardware_specs,
             commands::agent::get_provider_health,
             commands::agent::update_provider_config,
             commands::agent::run_agent_task,
