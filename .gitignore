@@ -17,6 +17,10 @@ Thumbs.db
 !.vscode/extensions.json
 .idea/
 
+# Executables and releases
+*.exe
+release-assets/
+
 # Environment variables & secrets
 .env
 .env.*

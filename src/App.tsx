@@ -730,13 +730,19 @@ export const App: React.FC = () => {
 
   const handleNewConversation = async (forProjectId?: string) => {
     const targetProjId = forProjectId || activeProjectId;
-    // Reuse an existing empty conversation in this project instead of creating duplicates
+    // If not already on an empty conversation, switch to it; otherwise create a fresh one
     const existingEmpty = conversations.find(
       (c) => c.projectId === targetProjId && c.turns.length === 0
     );
-    if (existingEmpty) {
+    if (existingEmpty && activeConvId !== existingEmpty.id) {
       setActiveProjectId(targetProjId);
       setActiveConvId(existingEmpty.id);
+      setLiveThinking("");
+      setPlanChecklist([]);
+      setLiveSteps([]);
+      setStreamingBuffer("");
+      setPrompt("");
+      setStatusBanner("Switched to new conversation.");
       return;
     }
 
@@ -755,6 +761,8 @@ export const App: React.FC = () => {
     setPlanChecklist([]);
     setLiveSteps([]);
     setStreamingBuffer("");
+    setPrompt("");
+    setStatusBanner("Created new conversation.");
     await persistStudioSessions(
       projects,
       nextConvs,

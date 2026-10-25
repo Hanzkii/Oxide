@@ -90,9 +90,9 @@ pub fn oxide_install_dir() -> PathBuf {
         }
     }
 
-    dirs::data_local_dir()
-        .map(|p| p.join("Programs").join("Oxide"))
-        .unwrap_or_else(|| PathBuf::from("."))
+    std::env::var("HOME")
+        .map(|h| PathBuf::from(h).join(".local").join("share").join("Programs").join("Oxide"))
+        .unwrap_or_else(|_| PathBuf::from("."))
 }
 
 fn studio_state_file_path() -> PathBuf {
