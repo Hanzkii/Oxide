@@ -49,15 +49,31 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --prefer-offline --no-audit
 
+      - name: Stamp Release Version & Force Frontend Asset Re-embed
+        shell: pwsh
+        run: |
+          $ver = "0.1.${{ github.run_number }}"
+          Write-Host "Stamping release version: $ver"
+          (Get-Content "package.json" -Raw) -replace '"version":\s*"[^"]+"', "`"version`": `"$ver`"" | Set-Content "package.json" -Encoding UTF8
+          (Get-Content "src-tauri/tauri.conf.json" -Raw) -replace '"version":\s*"[^"]+"', "`"version`": `"$ver`"" | Set-Content "src-tauri/tauri.conf.json" -Encoding UTF8
+          (Get-Content "src-tauri/Cargo.toml" -Raw) -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$ver`"" | Set-Content "src-tauri/Cargo.toml" -Encoding UTF8
+          # Remove cached oxide-agent binary so Cargo always embeds the newly built ../dist frontend
+          Remove-Item "src-tauri/target/release/oxide-agent.exe" -ErrorAction SilentlyContinue
+          Remove-Item "src-tauri/target/release/deps/oxide_agent*" -ErrorAction SilentlyContinue
+
       - name: Build Tauri Desktop Executable & Fast NSIS Installer
         run: npm run desktop:build
 
-      - name: Sign Binaries & Package SmartScreen-Free Bundle
+      - name: Sign Binaries & Package Release Bundle
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
           Copy-Item "src-tauri/target/release/oxide-agent.exe" "release-assets/Oxide-Portable.exe" -Force
-          Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Copy-Item -Destination "release-assets/" -Force
+          $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) {
+            Copy-Item $nsis.FullName "release-assets/Oxide-Setup.exe" -Force
+            Copy-Item $nsis.FullName "release-assets/$($nsis.Name)" -Force
+          }
 
           # Apply Authenticode Publisher Signature (Hanzkii Oxide Studio) to binaries
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Hanzkii Oxide Studio" -CertStoreLocation "Cert:\CurrentUser\My"
@@ -65,30 +81,22 @@ jobs:
             Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert | Out-Null
           }
 
-          # Create SmartScreen-bypassing Launcher inside ZIP archive
-          @"
-          @echo off
-          cd /d "%~dp0"
-          powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '.\Oxide-Portable.exe' -ErrorAction SilentlyContinue"
-          start "" "Oxide-Portable.exe"
-          "@ | Set-Content -Path "release-assets/Launch-Oxide.bat" -Encoding ASCII
-
-          Compress-Archive -Path "release-assets/Oxide-Portable.exe", "release-assets/Launch-Oxide.bat" -DestinationPath "release-assets/Oxide-Windows-x64.zip" -Force
-          Remove-Item "release-assets/Launch-Oxide.bat" -Force
+          Compress-Archive -Path "release-assets/Oxide-Portable.exe" -DestinationPath "release-assets/Oxide-Windows-x64.zip" -Force
           Get-ChildItem "release-assets"
 
-      - name: Publish Fast Release Artifacts to GitHub Releases
+      - name: Publish Fresh Release to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0
-          name: "Oxide v0.1.0 — Standalone Windows Executable & Installer"
+          tag_name: v0.1.${{ github.run_number }}
+          name: "Oxide v0.1.${{ github.run_number }} — Standalone Windows Installer & Portable .exe"
           body: |
-            ## Oxide Studio — Standalone Windows Release
-            - **`Oxide_0.1.0_x64-setup.exe`**: Fast NSIS Windows installer.
+            ## Oxide Studio v0.1.${{ github.run_number }} — Windows Release
+            - **`Oxide-Setup.exe`**: Fast NSIS Windows installer (includes Antigravity UI, Multi-Project Sidebar, Saved Conversations, and 1-Click AI Model Hub).
             - **`Oxide-Portable.exe`**: Standalone single-file executable.
             - **`Oxide-Windows-x64.zip`**: Portable ZIP archive.
           draft: false
           prerelease: false
+          make_latest: true
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

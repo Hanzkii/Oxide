@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:11434 https://api.github.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:11434 https://api.github.com https://huggingface.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "freezePrototype": true,
       "dangerousDisableAssetCspModification": false
     }
