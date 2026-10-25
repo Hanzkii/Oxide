@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Oxide Studio Documentation — Autonomous AI Agent GUI</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23f59e0b'/><text x='50%' y='68%' dominant-baseline='middle' text-anchor='middle' font-size='60' font-family='sans-serif' font-weight='bold' fill='%23070a12'>Ox</text></svg>"
+    />
+    <title>Oxide Studio — Local-First Autonomous AI Coding Agent GUI</title>
     <style>
       :root {
         --bg: #070a12;
@@ -25,7 +29,8 @@
       body {
         background: var(--bg);
         color: var(--text);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
+          sans-serif;
         line-height: 1.65;
       }
       header {
@@ -62,6 +67,7 @@
         display: flex;
         gap: 1.25rem;
         font-size: 0.9rem;
+        flex-wrap: wrap;
       }
       nav a {
         color: var(--muted);
@@ -76,7 +82,11 @@
         padding: 2.5rem 1.5rem 5rem;
       }
       .hero {
-        background: linear-gradient(180deg, rgba(21, 30, 50, 0.9), rgba(14, 20, 34, 0.95));
+        background: linear-gradient(
+          180deg,
+          rgba(21, 30, 50, 0.9),
+          rgba(14, 20, 34, 0.95)
+        );
         border: 1px solid var(--border);
         border-radius: 12px;
         padding: 2.25rem;
@@ -89,7 +99,7 @@
       .hero p {
         color: var(--muted);
         font-size: 1.02rem;
-        max-width: 820px;
+        max-width: 840px;
       }
       .cta-row {
         display: flex;
@@ -171,7 +181,8 @@
         color: inherit;
         padding: 0;
       }
-      ul, ol {
+      ul,
+      ol {
         padding-left: 1.35rem;
         color: #cbd5e1;
       }
@@ -194,118 +205,189 @@
         <span>Autonomous AI Coding Agent GUI</span>
       </div>
       <nav>
-        <a href="#install">Installer &amp; Quick Start</a>
-        <a href="#gui-features">GUI Features &amp; AI Thinking</a>
-        <a href="#capabilities">Autonomous Capabilities</a>
+        <a href="#install">How to Open &amp; Install</a>
+        <a href="#subagents">Subagents &amp; PC Governor</a>
+        <a href="#gui-features">Live AI Thinking &amp; GUI</a>
         <a href="#updater">One-Click GitHub Updater</a>
-        <a href="https://github.com/Hanzkii/Oxide/releases" target="_blank" rel="noreferrer">Download Release ↗</a>
+        <a
+          href="https://github.com/Hanzkii/Oxide/releases"
+          target="_blank"
+          rel="noreferrer"
+          >Releases ↗</a
+        >
       </nav>
     </header>
 
     <main class="container">
       <div class="hero">
-        <h1>Oxide Studio — Antigravity-Style Local AI Agent GUI</h1>
+        <h1>Oxide Studio — Antigravity-Style Autonomous AI Agent GUI</h1>
         <p>
-          A full-featured desktop GUI for autonomous software development. Watch what the AI is thinking in real time (<code>&lt;think&gt;...</code> &amp; live step plans), switch local Ollama models or settings visually, browse/edit/move files in the sidebar, execute terminal commands with automatic self-correction, push/pull with Git, and update the program directly from GitHub with one click.
+          A lightning-fast desktop command center built with
+          <strong>Tauri v2</strong>, <strong>Rust</strong>, and
+          <strong>React 18 / TypeScript</strong>. Run one large
+          <strong>Lead Architect AI</strong> for complex reasoning while
+          delegating subtasks to fast, specialized
+          <strong>Subagents</strong>—automatically governed by your PC's live
+          RAM, CPU, and VRAM specs.
         </p>
         <div class="cta-row">
-          <a class="btn-cta" href="https://github.com/Hanzkii/Oxide/releases/latest" target="_blank" rel="noreferrer">
+          <a
+            class="btn-cta"
+            href="https://github.com/Hanzkii/Oxide/releases/latest"
+            target="_blank"
+            rel="noreferrer"
+          >
             ⬇ Download Windows Installer (.exe / .msi)
           </a>
-          <a class="btn-secondary" href="https://github.com/Hanzkii/Oxide" target="_blank" rel="noreferrer">
+          <a
+            class="btn-secondary"
+            href="https://github.com/Hanzkii/Oxide"
+            target="_blank"
+            rel="noreferrer"
+          >
             View GitHub Repository ↗
           </a>
         </div>
       </div>
 
       <section id="install">
-        <h2>1. How to Open &amp; Start Oxide (Zero-Setup Executable or One-Click Script)</h2>
+        <h2>1. How to Open &amp; Start Oxide</h2>
         <div class="grid-2">
           <div class="card">
-            <h3>Option A: Download Standalone Installer / .exe (Easiest)</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              Every push to <code>main</code> automatically builds and publishes the ready-to-run Windows installer and portable executable on GitHub Releases:
+            <h3>Option A: Standalone Windows Installer / .exe (Easiest)</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              GitHub Actions automatically compiles and publishes the Windows
+              installer and portable executable on every push to
+              <code>main</code>:
             </p>
-            <ol style="margin-top: 0.6rem;">
-              <li>Go to <a href="https://github.com/Hanzkii/Oxide/releases/latest" style="color: var(--blue);">GitHub Releases</a>.</li>
-              <li>Download <strong><code>Oxide_0.1.0_x64-setup.exe</code></strong> (installer) or <strong><code>Oxide-Portable.exe</code></strong> (no install needed).</li>
-              <li>Double-click to open Oxide Studio!</li>
+            <ol style="margin-top: 0.6rem">
+              <li>
+                Open
+                <a
+                  href="https://github.com/Hanzkii/Oxide/releases/latest"
+                  style="color: var(--blue)"
+                  >GitHub Releases</a
+                >.
+              </li>
+              <li>
+                Download <strong><code>Oxide_0.1.0_x64-setup.exe</code></strong>
+                (Windows Installer) or
+                <strong><code>Oxide-Portable.exe</code></strong> (Single-File
+                Portable Executable).
+              </li>
+              <li>Double-click to launch Oxide Studio!</li>
             </ol>
           </div>
 
           <div class="card">
             <h3>Option B: Double-Click <code>start-oxide.bat</code></h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              If you cloned the repository, simply double-click <strong><code>start-oxide.bat</code></strong> in File Explorer:
+            <p style="color: var(--muted); font-size: 0.9rem">
+              From a local clone of the repository, double-click
+              <strong><code>start-oxide.bat</code></strong> in File Explorer:
             </p>
             <pre><code>.\start-oxide.bat</code></pre>
-            <p style="color: var(--muted); font-size: 0.85rem;">
-              If <code>Oxide-Portable.exe</code> is present, it runs it directly. Otherwise, it automatically opens a standalone desktop GUI window (<code>--app=http://localhost:1420</code>) with the full local system bridge enabled!
+            <p style="color: var(--muted); font-size: 0.85rem">
+              Runs <code>Oxide-Portable.exe</code> if present, or opens a
+              standalone desktop GUI window
+              (<code>--app=http://localhost:1420</code>) with full local system
+              capabilities!
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="subagents">
+        <h2>2. Lead Architect + Subagents &amp; PC Hardware Governor</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>🧠 Hierarchical Subagent Delegation</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Run one large model (e.g. <code>deepseek-r1</code> or
+              <code>qwen2.5-coder:14b</code>) as the
+              <strong>Lead Architect AI</strong> for complex planning, and
+              delegate subtasks to faster, lighter
+              <strong>Subagents</strong> (<code>coder_subagent</code>,
+              <code>research_subagent</code>, <code>tester_subagent</code>).
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>⚙ Task-to-Model Routing Matrix</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Click <strong>⚙ Subagents &amp; Models</strong> in the top bar to
+              choose which AI model runs each specific task role—or click
+              <strong>✨ Auto-Configure for My PC</strong> to automatically pick
+              the best models for your hardware.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>🖥 PC Hardware Concurrency Limiter</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Oxide continuously checks your PC's
+              <strong>Free RAM / Total RAM (GB)</strong>,
+              <strong>CPU Cores &amp; Load %</strong>, and
+              <strong>GPU VRAM</strong>. It enforces a hard semaphore limit so
+              too many subagents can never overload your PC, and auto-throttles
+              to <code>1</code> sequential worker if RAM exceeds 85%.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>🤖 Live Subagent Worker Pool</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Watch every active or queued Subagent in the right-hand panel with
+              its assigned role, model tag, status
+              (<code>QUEUED</code>, <code>RUNNING</code>,
+              <code>COMPLETED</code>), live thought (<code>💭</code>), and
+              result preview.
             </p>
           </div>
         </div>
       </section>
 
       <section id="gui-features">
-        <h2>2. GUI Overview &amp; Live AI Thinking Display</h2>
-        <div class="grid-2">
-          <div class="card">
-            <h3>🧠 Live AI Thinking &amp; Step Checklist</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              At the top of the center pane, the purple <strong>AI Live Thinking &amp; Current Reasoning</strong> box streams the model's internal thought process (<code>&lt;think&gt;...&lt;/think&gt;</code>) and numbered task plan in real time so you always see what the AI is analyzing and doing right now.
-            </p>
-          </div>
-
-          <div class="card">
-            <h3>⚙ Visual Model &amp; Settings Manager</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              Click <strong>⚙ Models &amp; Settings</strong> in the top bar to switch between locally installed Ollama models (auto-detected from <code>localhost:11434</code>), enter custom model tags, adjust sampling temperature, or select Anthropic Claude / OpenAI.
-            </p>
-          </div>
-
-          <div class="card">
-            <h3>📁 Built-In File Explorer &amp; Code Editor</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              The left sidebar lets you browse workspace directories, click any file to view/edit/save its code, create new files (<strong>+ File</strong>), rename/move files, or delete files—all visually inside the GUI.
-            </p>
-          </div>
-
-          <div class="card">
-            <h3>🌿 One-Click Git Pull, Commit &amp; Push</h3>
-            <p style="color: var(--muted); font-size: 0.9rem;">
-              Use the top bar buttons (<strong>⬇ Git Pull</strong>, <strong>✔ Commit</strong>, <strong>⬆ Git Push</strong>, and <strong>Open in VS Code</strong>) or ask the autonomous agent to handle Git operations for you.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section id="capabilities">
-        <h2>3. Autonomous Agent Tool Suite (Antigravity-Grade)</h2>
+        <h2>3. Live AI Thinking &amp; Full Autonomous Tool Suite</h2>
         <ul>
-          <li><code>list_dir</code> &amp; <code>search_files</code> — Explores directories and searches code across the entire workspace.</li>
-          <li><code>read_file</code>, <code>write_file</code>, <code>edit_file</code> — Reads files, creates new files, and performs surgical target/replacement code edits.</li>
-          <li><code>move_file</code> &amp; <code>delete_file</code> — Moves, renames, and cleans up files or directories inside the workspace sandbox.</li>
-          <li><code>run_command</code> — Runs terminal commands (<code>cargo</code>, <code>npm</code>, <code>pytest</code>, <code>git</code>) and automatically self-corrects when <code>stderr</code> or a non-zero exit code occurs.</li>
-          <li><code>git_action</code> — Runs <code>pull</code>, <code>push</code>, <code>commit</code>, <code>diff</code>, and <code>status</code> autonomously.</li>
-          <li><code>open_in_vscode</code> — Pops open modified files or the workspace in Visual Studio Code.</li>
+          <li>
+            <strong>🧠 Live AI Thinking Panel</strong>: Streams real-time
+            <code>&lt;think&gt;...&lt;/think&gt;</code> reasoning and numbered
+            task checklists at the top of the center workspace.
+          </li>
+          <li>
+            <strong>📁 Built-in File Explorer &amp; Code Editor</strong>:
+            Browse folders, view/edit/save files, create new files, move/rename
+            files, or delete files directly in the GUI.
+          </li>
+          <li>
+            <strong>🛠 Terminal &amp; Self-Correction Loop</strong>: Runs
+            bounded commands and automatically feeds non-zero exit codes
+            (<code>stderr</code>) back to the agent for autonomous repair.
+          </li>
+          <li>
+            <strong>🌿 One-Click Git &amp; VS Code Controls</strong>: Pull,
+            Commit, Push, and pop open Visual Studio Code directly from the top
+            bar.
+          </li>
         </ul>
       </section>
 
       <section id="updater">
         <h2>4. Updating Oxide from GitHub with One Click</h2>
-        <p style="color: var(--muted);">
-          Click the <strong><code>↻ Update</code></strong> button in the top-right corner of the GUI at any time:
+        <p style="color: var(--muted)">
+          Click the <strong><code>↻ Update</code></strong> button in the
+          top-right header of the GUI to check
+          <code>https://github.com/Hanzkii/Oxide</code> for new releases or
+          commits and install updates with a single click.
         </p>
-        <ul style="margin-top: 0.6rem;">
-          <li>Oxide checks <code>https://github.com/Hanzkii/Oxide</code> for the latest release and commit SHA on <code>main</code>.</li>
-          <li>If a new version is available, the button highlights green (<strong><code>↻ Update Available!</code></strong>).</li>
-          <li>Click <strong>Pull &amp; Install Latest Update</strong> inside the modal to automatically download &amp; launch the latest GitHub Release installer (or pull the latest commits from <code>origin/main</code>).</li>
-        </ul>
       </section>
     </main>
 
     <footer>
-      Oxide Studio • Autonomous AI Coding Agent • <a href="https://github.com/Hanzkii/Oxide" style="color: var(--blue);">github.com/Hanzkii/Oxide</a>
+      Oxide Studio • Local-First Autonomous AI Coding Agent •
+      <a href="https://github.com/Hanzkii/Oxide" style="color: var(--blue)"
+        >github.com/Hanzkii/Oxide</a
+      >
     </footer>
   </body>
 </html>

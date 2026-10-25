@@ -283,6 +283,23 @@ function createLocalSystemBridgePlugin(): Plugin {
 
   return {
     name: "oxide-local-system-bridge",
+    transformIndexHtml: {
+      order: "pre",
+      handler() {
+        return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oxide Studio — Autonomous AI Command Center</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`;
+      },
+    },
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith("/__oxide_api/")) {

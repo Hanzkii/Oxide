@@ -3,10 +3,391 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Oxide — Local Autonomous AI Command Center</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23f59e0b'/><text x='50%' y='68%' dominant-baseline='middle' text-anchor='middle' font-size='60' font-family='sans-serif' font-weight='bold' fill='%23070a12'>Ox</text></svg>"
+    />
+    <title>Oxide Studio — Local-First Autonomous AI Coding Agent GUI</title>
+    <style>
+      :root {
+        --bg: #070a12;
+        --panel: #0e1422;
+        --card: #151e32;
+        --border: #22304c;
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --amber: #f59e0b;
+        --blue: #38bdf8;
+        --purple: #a855f7;
+        --green: #10b981;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
+          sans-serif;
+        line-height: 1.65;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgba(14, 20, 34, 0.94);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.1rem;
+      }
+      .badge {
+        background: linear-gradient(135deg, #f59e0b, #ea580c);
+        color: #070a12;
+        font-weight: 800;
+        font-size: 0.78rem;
+        padding: 0.25rem 0.6rem;
+        border-radius: 6px;
+        letter-spacing: 0.05em;
+      }
+      nav {
+        display: flex;
+        gap: 1.25rem;
+        font-size: 0.9rem;
+        flex-wrap: wrap;
+      }
+      nav a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      nav a:hover {
+        color: var(--amber);
+      }
+      .container {
+        max-width: 1060px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 5rem;
+      }
+      .hero {
+        background: linear-gradient(
+          180deg,
+          rgba(21, 30, 50, 0.9),
+          rgba(14, 20, 34, 0.95)
+        );
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2.25rem;
+        margin-bottom: 2.5rem;
+      }
+      .hero h1 {
+        font-size: 2rem;
+        margin-bottom: 0.6rem;
+      }
+      .hero p {
+        color: var(--muted);
+        font-size: 1.02rem;
+        max-width: 840px;
+      }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.35rem;
+      }
+      .btn-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: linear-gradient(135deg, #f59e0b, #ea580c);
+        color: #070a12;
+        font-weight: 700;
+        padding: 0.6rem 1.15rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--card);
+        color: var(--text);
+        border: 1px solid var(--border);
+        font-weight: 600;
+        padding: 0.6rem 1.15rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      section {
+        margin-bottom: 3rem;
+      }
+      h2 {
+        font-size: 1.45rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.45rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--amber);
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+        gap: 1.15rem;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+      .card h3 {
+        margin-bottom: 0.5rem;
+        color: var(--blue);
+      }
+      pre {
+        background: #04060b;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.95rem 1.1rem;
+        overflow-x: auto;
+        font-family: "JetBrains Mono", Consolas, monospace;
+        font-size: 0.84rem;
+        color: #e2e8f0;
+        margin: 0.65rem 0 1rem;
+      }
+      code {
+        font-family: "JetBrains Mono", Consolas, monospace;
+        background: rgba(56, 189, 248, 0.1);
+        color: var(--blue);
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+      pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+      }
+      ul,
+      ol {
+        padding-left: 1.35rem;
+        color: #cbd5e1;
+      }
+      li {
+        margin-bottom: 0.45rem;
+      }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.85rem;
+        padding: 2rem;
+        border-top: 1px solid var(--border);
+      }
+    </style>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-amber-500/30">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="badge">OXIDE STUDIO</span>
+        <span>Autonomous AI Coding Agent GUI</span>
+      </div>
+      <nav>
+        <a href="#install">How to Open &amp; Install</a>
+        <a href="#subagents">Subagents &amp; PC Governor</a>
+        <a href="#gui-features">Live AI Thinking &amp; GUI</a>
+        <a href="#updater">One-Click GitHub Updater</a>
+        <a
+          href="https://github.com/Hanzkii/Oxide/releases"
+          target="_blank"
+          rel="noreferrer"
+          >Releases ↗</a
+        >
+      </nav>
+    </header>
+
+    <main class="container">
+      <div class="hero">
+        <h1>Oxide Studio — Antigravity-Style Autonomous AI Agent GUI</h1>
+        <p>
+          A lightning-fast desktop command center built with
+          <strong>Tauri v2</strong>, <strong>Rust</strong>, and
+          <strong>React 18 / TypeScript</strong>. Run one large
+          <strong>Lead Architect AI</strong> for complex reasoning while
+          delegating subtasks to fast, specialized
+          <strong>Subagents</strong>—automatically governed by your PC's live
+          RAM, CPU, and VRAM specs.
+        </p>
+        <div class="cta-row">
+          <a
+            class="btn-cta"
+            href="https://github.com/Hanzkii/Oxide/releases/latest"
+            target="_blank"
+            rel="noreferrer"
+          >
+            ⬇ Download Windows Installer (.exe / .msi)
+          </a>
+          <a
+            class="btn-secondary"
+            href="https://github.com/Hanzkii/Oxide"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View GitHub Repository ↗
+          </a>
+        </div>
+      </div>
+
+      <section id="install">
+        <h2>1. How to Open &amp; Start Oxide</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Option A: Standalone Windows Installer / .exe (Easiest)</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              GitHub Actions automatically compiles and publishes the Windows
+              installer and portable executable on every push to
+              <code>main</code>:
+            </p>
+            <ol style="margin-top: 0.6rem">
+              <li>
+                Open
+                <a
+                  href="https://github.com/Hanzkii/Oxide/releases/latest"
+                  style="color: var(--blue)"
+                  >GitHub Releases</a
+                >.
+              </li>
+              <li>
+                Download <strong><code>Oxide_0.1.0_x64-setup.exe</code></strong>
+                (Windows Installer) or
+                <strong><code>Oxide-Portable.exe</code></strong> (Single-File
+                Portable Executable).
+              </li>
+              <li>Double-click to launch Oxide Studio!</li>
+            </ol>
+          </div>
+
+          <div class="card">
+            <h3>Option B: Double-Click <code>start-oxide.bat</code></h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              From a local clone of the repository, double-click
+              <strong><code>start-oxide.bat</code></strong> in File Explorer:
+            </p>
+            <pre><code>.\start-oxide.bat</code></pre>
+            <p style="color: var(--muted); font-size: 0.85rem">
+              Runs <code>Oxide-Portable.exe</code> if present, or opens a
+              standalone desktop GUI window
+              (<code>--app=http://localhost:1420</code>) with full local system
+              capabilities!
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="subagents">
+        <h2>2. Lead Architect + Subagents &amp; PC Hardware Governor</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>🧠 Hierarchical Subagent Delegation</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Run one large model (e.g. <code>deepseek-r1</code> or
+              <code>qwen2.5-coder:14b</code>) as the
+              <strong>Lead Architect AI</strong> for complex planning, and
+              delegate subtasks to faster, lighter
+              <strong>Subagents</strong> (<code>coder_subagent</code>,
+              <code>research_subagent</code>, <code>tester_subagent</code>).
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>⚙ Task-to-Model Routing Matrix</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Click <strong>⚙ Subagents &amp; Models</strong> in the top bar to
+              choose which AI model runs each specific task role—or click
+              <strong>✨ Auto-Configure for My PC</strong> to automatically pick
+              the best models for your hardware.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>🖥 PC Hardware Concurrency Limiter</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Oxide continuously checks your PC's
+              <strong>Free RAM / Total RAM (GB)</strong>,
+              <strong>CPU Cores &amp; Load %</strong>, and
+              <strong>GPU VRAM</strong>. It enforces a hard semaphore limit so
+              too many subagents can never overload your PC, and auto-throttles
+              to <code>1</code> sequential worker if RAM exceeds 85%.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>🤖 Live Subagent Worker Pool</h3>
+            <p style="color: var(--muted); font-size: 0.9rem">
+              Watch every active or queued Subagent in the right-hand panel with
+              its assigned role, model tag, status
+              (<code>QUEUED</code>, <code>RUNNING</code>,
+              <code>COMPLETED</code>), live thought (<code>💭</code>), and
+              result preview.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="gui-features">
+        <h2>3. Live AI Thinking &amp; Full Autonomous Tool Suite</h2>
+        <ul>
+          <li>
+            <strong>🧠 Live AI Thinking Panel</strong>: Streams real-time
+            <code>&lt;think&gt;...&lt;/think&gt;</code> reasoning and numbered
+            task checklists at the top of the center workspace.
+          </li>
+          <li>
+            <strong>📁 Built-in File Explorer &amp; Code Editor</strong>:
+            Browse folders, view/edit/save files, create new files, move/rename
+            files, or delete files directly in the GUI.
+          </li>
+          <li>
+            <strong>🛠 Terminal &amp; Self-Correction Loop</strong>: Runs
+            bounded commands and automatically feeds non-zero exit codes
+            (<code>stderr</code>) back to the agent for autonomous repair.
+          </li>
+          <li>
+            <strong>🌿 One-Click Git &amp; VS Code Controls</strong>: Pull,
+            Commit, Push, and pop open Visual Studio Code directly from the top
+            bar.
+          </li>
+        </ul>
+      </section>
+
+      <section id="updater">
+        <h2>4. Updating Oxide from GitHub with One Click</h2>
+        <p style="color: var(--muted)">
+          Click the <strong><code>↻ Update</code></strong> button in the
+          top-right header of the GUI to check
+          <code>https://github.com/Hanzkii/Oxide</code> for new releases or
+          commits and install updates with a single click.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      Oxide Studio • Local-First Autonomous AI Coding Agent •
+      <a href="https://github.com/Hanzkii/Oxide" style="color: var(--blue)"
+        >github.com/Hanzkii/Oxide</a
+      >
+    </footer>
   </body>
 </html>
