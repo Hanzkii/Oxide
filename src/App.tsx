@@ -543,6 +543,82 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleDeleteProject = async (
+    e: React.MouseEvent,
+    projectId: string
+  ) => {
+    e.stopPropagation();
+    const remainingProjects = projects.filter((p) => p.id !== projectId);
+    const remainingConvs = conversations.filter(
+      (c) => c.projectId !== projectId
+    );
+
+    if (remainingProjects.length === 0) {
+      try {
+        const info = await oxideBridge.setWorkspace(".");
+        const defaultProj: ProjectWorkspace = {
+          id: `proj-${Date.now()}`,
+          name: getBaseName(info.canonical_path),
+          path: info.canonical_path,
+        };
+        const defaultConv: SavedConversation = {
+          id: `conv-${Date.now()}`,
+          projectId: defaultProj.id,
+          title: "New Conversation",
+          updatedAt: "now",
+          turns: [],
+        };
+        setProjects([defaultProj]);
+        setConversations([defaultConv]);
+        setActiveProjectId(defaultProj.id);
+        setActiveConvId(defaultConv.id);
+        await persistStudioSessions(
+          [defaultProj],
+          [defaultConv],
+          defaultProj.id,
+          defaultConv.id
+        );
+      } catch {}
+      return;
+    }
+
+    const nextProj =
+      activeProjectId === projectId
+        ? remainingProjects[0]
+        : projects.find((p) => p.id === activeProjectId) ||
+          remainingProjects[0];
+
+    let nextConvs = [...remainingConvs];
+    let nextProjConvs = nextConvs.filter((c) => c.projectId === nextProj.id);
+    if (nextProjConvs.length === 0) {
+      const fresh: SavedConversation = {
+        id: `conv-${Date.now()}`,
+        projectId: nextProj.id,
+        title: "New Conversation",
+        updatedAt: "now",
+        turns: [],
+      };
+      nextConvs = [fresh, ...nextConvs];
+      nextProjConvs = [fresh];
+    }
+
+    const nextConvId = nextProjConvs[0].id;
+    setProjects(remainingProjects);
+    setConversations(nextConvs);
+    setActiveProjectId(nextProj.id);
+    setActiveConvId(nextConvId);
+    try {
+      await oxideBridge.setWorkspace(nextProj.path);
+      await refreshWorkspaceState(".");
+    } catch {}
+    await persistStudioSessions(
+      remainingProjects,
+      nextConvs,
+      nextProj.id,
+      nextConvId
+    );
+  };
+
   const handleDeleteConversation = async (
     e: React.MouseEvent,
     convId: string
@@ -913,10 +989,50 @@ export const App: React.FC = () => {
                 <div
                   className="ag-project-title"
                   onClick={() => handleNewConversation(proj.id)}
-                  title={`${proj.path}\nClick to start a conversation in ${proj.name}`}
+                  title={proj.path}
                 >
-                  <span>📁 {proj.name}</span>
-                  <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>+</span>
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    📁 {proj.name}
+                  </span>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.35rem",
+                    }}
+                  >
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleNewConversation(proj.id);
+                      }}
+                      title={`New conversation in ${proj.name}`}
+                      style={{
+                        fontSize: "0.78rem",
+                        padding: "0 0.2rem",
+                        opacity: 0.75,
+                      }}
+                    >
+                      +
+                    </span>
+                    <span
+                      onClick={(e) => handleDeleteProject(e, proj.id)}
+                      title={`Remove workspace '${proj.name}'`}
+                      style={{
+                        fontSize: "0.72rem",
+                        padding: "0 0.2rem",
+                        opacity: 0.65,
+                      }}
+                    >
+                      ✕
+                    </span>
+                  </div>
                 </div>
 
                 {projConvs.map((conv) => {
@@ -928,13 +1044,29 @@ export const App: React.FC = () => {
                       onClick={() => handleSelectConversation(proj, conv)}
                     >
                       <span className="ag-conv-title">{conv.title}</span>
-                      <span
-                        className="ag-conv-meta"
-                        onClick={(e) => handleDeleteConversation(e, conv.id)}
-                        title="Delete conversation"
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                          flexShrink: 0,
+                        }}
                       >
-                        {isActive && isRunning ? "⟳" : conv.updatedAt}
-                      </span>
+                        <span className="ag-conv-meta">
+                          {isActive && isRunning ? "⟳" : conv.updatedAt}
+                        </span>
+                        <span
+                          className="ag-conv-meta"
+                          onClick={(e) => handleDeleteConversation(e, conv.id)}
+                          title="Delete conversation"
+                          style={{
+                            padding: "0 0.2rem",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          ✕
+                        </span>
+                      </div>
                     </div>
                   );
                 })}

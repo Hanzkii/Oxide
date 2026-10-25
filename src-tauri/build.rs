@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=../dist");
     println!("cargo:rerun-if-changed=tauri.conf.json");
+    println!("cargo:rerun-if-changed=icons/icon.ico");
     tauri_build::build()
 }
