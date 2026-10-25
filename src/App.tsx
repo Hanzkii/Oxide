@@ -15,6 +15,7 @@ import {
   ModelDownloadProgress,
   UpdateDownloadProgress,
   HardwareAccelerationMode,
+  GpuOffloadPolicy,
   ProviderConfig,
   ProviderKind,
   SubagentRunState,
@@ -68,6 +69,77 @@ interface ProjectWorkspace {
   path: string;
 }
 
+
+
+export interface SlashCommandItem {
+  command: string;
+  label: string;
+  description: string;
+  badge: string;
+}
+
+export const SLASH_COMMANDS: SlashCommandItem[] = [
+  {
+    command: "/btw",
+    label: "/btw <question>",
+    description: "Ask a quick side-question without modifying files or running commands",
+    badge: "Side Question",
+  },
+  {
+    command: "/plan",
+    label: "/plan <task>",
+    description: "Generate an architectural blueprint & step-by-step plan without executing",
+    badge: "Plan Mode",
+  },
+  {
+    command: "/fix",
+    label: "/fix <issue>",
+    description: "Focus Lead Architect and Coder Subagent on debugging and fixing an error",
+    badge: "Debugging",
+  },
+  {
+    command: "/test",
+    label: "/test [cmd]",
+    description: "Run workspace tests or build verification and diagnose issues",
+    badge: "Verification",
+  },
+  {
+    command: "/models",
+    label: "/models",
+    description: "Open 1-Click AI Model Hub (Ollama & HuggingFace GGUF)",
+    badge: "Model Store",
+  },
+  {
+    command: "/hardware",
+    label: "/hardware",
+    description: "Configure Hybrid Split Inference and GPU Layer Offloading",
+    badge: "Hardware",
+  },
+  {
+    command: "/subagents",
+    label: "/subagents",
+    description: "Open Subagent Delegation Guide & Routing Matrix",
+    badge: "Subagents",
+  },
+  {
+    command: "/compact",
+    label: "/compact",
+    description: "Compact chat conversation to save context tokens",
+    badge: "Memory",
+  },
+  {
+    command: "/clear",
+    label: "/clear",
+    description: "Clear active conversation history",
+    badge: "Workspace",
+  },
+  {
+    command: "/help",
+    label: "/help",
+    description: "Show command reference, subagent delegation tips & shortcuts",
+    badge: "Help",
+  },
+];
 
 function formatModelDisplayName(modelId: string): string {
   if (!modelId) return "Select Model";
@@ -210,6 +282,16 @@ export const App: React.FC = () => {
   const [updateDownloadProgress, setUpdateDownloadProgress] =
     useState<UpdateDownloadProgress | null>(null);
   const [liveThoughtExpanded, setLiveThoughtExpanded] = useState<boolean>(true);
+  const [showSubagentsGuide, setShowSubagentsGuide] = useState<boolean>(false);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>(0);
+  const [liveMetrics, setLiveMetrics] = useState<{
+    step: number;
+    tokens_generated: number;
+    tokens_per_second: number;
+    elapsed_seconds: number;
+    phase: string;
+    gpu_layers?: number;
+  } | null>(null);
 
   // MCP Servers State
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
@@ -408,6 +490,16 @@ export const App: React.FC = () => {
           break;
         case "plan_update":
           setPlanChecklist(event.items);
+          break;
+        case "thinking_metrics":
+          setLiveMetrics({
+            step: event.step,
+            tokens_generated: event.tokens_generated,
+            tokens_per_second: event.tokens_per_second,
+            elapsed_seconds: event.elapsed_seconds,
+            phase: event.phase,
+            gpu_layers: event.gpu_layers,
+          });
           break;
         case "subagent_status":
           setSubagents((prev) => {
@@ -728,6 +820,7 @@ export const App: React.FC = () => {
     setIsRunning(true);
     setStreamingBuffer("");
     setLiveThinking(`Analyzing request and planning next actions...`);
+    setLiveMetrics(null);
     setPlanChecklist([]);
     setLiveSteps([]);
 
@@ -1346,7 +1439,29 @@ export const App: React.FC = () => {
                     >
                       <div className="ag-user-bubble">{turn.userPrompt}</div>
 
-                      <div className="ag-trace-group">
+                      {liveMetrics && (
+                      <div className="oxide-thinking-gauge">
+                        <span style={{ fontSize: "0.9rem" }}>🧠</span>
+                        <span style={{ fontWeight: 600 }}>
+                          {liveMetrics.phase === "reasoning" ? "Deep Reasoning" : "Executing Code"}
+                        </span>
+                        <span>•</span>
+                        <span>Turn Step {liveMetrics.step}</span>
+                        <span>•</span>
+                        <span className="oxide-token-speed">
+                          ⚡ {liveMetrics.tokens_generated} tokens ({liveMetrics.tokens_per_second.toFixed(1)} tok/s)
+                        </span>
+                        {liveMetrics.gpu_layers && liveMetrics.gpu_layers > 0 && (
+                          <>
+                            <span>•</span>
+                            <span style={{ color: "#34d399", fontWeight: 600 }}>
+                              🎮 GPU: {liveMetrics.gpu_layers} layers
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div className="ag-trace-group">
                         <button
                           className="ag-thought-toggle"
                           onClick={() =>
@@ -1465,13 +1580,77 @@ export const App: React.FC = () => {
 
             {/* ==================== BOTTOM FLOATING CHAT COMPOSER ==================== */}
             <div className="ag-composer-dock">
-              <div className="ag-composer-card">
+              <div className="ag-composer-card" style={{ position: "relative" }}>
+                {/* Floating Slash Commands Palette */}
+                {prompt.startsWith("/") && !prompt.includes(" ") && (
+                  <div className="oxide-slash-palette">
+                    <div
+                      style={{
+                        fontSize: "0.7rem",
+                        color: "var(--text-muted)",
+                        padding: "0.2rem 0.5rem",
+                        borderBottom: "1px solid var(--border-subtle)",
+                        marginBottom: "0.25rem",
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span>⚡ Slash Commands</span>
+                      <span>Tab / Enter to select • Esc to dismiss</span>
+                    </div>
+                    {SLASH_COMMANDS.filter((cmd) =>
+                      cmd.command.toLowerCase().startsWith(prompt.toLowerCase())
+                    ).map((cmd, idx) => (
+                      <button
+                        key={cmd.command}
+                        type="button"
+                        className={`oxide-slash-item ${selectedSlashIndex === idx ? "selected" : ""}`}
+                        onClick={() => {
+                          setPrompt(cmd.command + " ");
+                        }}
+                      >
+                        <div className="oxide-slash-left">
+                          <span className="oxide-slash-cmd">{cmd.command}</span>
+                          <span className="oxide-slash-desc">{cmd.description}</span>
+                        </div>
+                        <span className="oxide-slash-badge">{cmd.badge}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <textarea
                   className="ag-composer-textarea"
-                  placeholder="Ask Oxide to write code, edit files, or run commands..."
+                  placeholder="Ask Oxide to write code, edit files, or run commands... (Type / for commands)"
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    setSelectedSlashIndex(0);
+                  }}
                   onKeyDown={(e) => {
+                    const filtered = prompt.startsWith("/") && !prompt.includes(" ")
+                      ? SLASH_COMMANDS.filter((cmd) => cmd.command.toLowerCase().startsWith(prompt.toLowerCase()))
+                      : [];
+                    if (filtered.length > 0) {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setSelectedSlashIndex((prev) => (prev + 1) % filtered.length);
+                        return;
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setSelectedSlashIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+                        return;
+                      } else if (e.key === "Tab" || (e.key === "Enter" && selectedSlashIndex < filtered.length)) {
+                        e.preventDefault();
+                        setPrompt(filtered[selectedSlashIndex].command + " ");
+                        return;
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setPrompt("");
+                        return;
+                      }
+                    }
+
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       handleRunTask();
@@ -1634,6 +1813,18 @@ export const App: React.FC = () => {
                       title="Install or manage AI models"
                     >
                       + Models
+                    </button>
+
+                    <button
+                      className="ag-model-picker-inline"
+                      onClick={() => setShowSubagentsGuide(true)}
+                      title="Subagent Architecture & Multi-Agent Delegation Guide"
+                      style={{
+                        borderColor: providerConfig.enable_subagents ? "rgba(34, 197, 94, 0.4)" : undefined,
+                        color: providerConfig.enable_subagents ? "#86efac" : undefined,
+                      }}
+                    >
+                      🤖 Subagents
                     </button>
                   </div>
 
@@ -2837,14 +3028,35 @@ export const App: React.FC = () => {
                   </div>
 
                   <div className="form-group">
+                    <label>GPU Offload Policy (Hybrid Split Inference)</label>
+                    <select
+                      className="select-control"
+                      value={providerConfig.gpu_offload_policy || "hybrid_split"}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          gpu_offload_policy: e.target.value as GpuOffloadPolicy,
+                        })
+                      }
+                    >
+                      <option value="hybrid_split">⚡ Hybrid Split (Auto-calculate VRAM + System RAM split)</option>
+                      <option value="full_gpu">🚀 Full GPU (Offload all layers to VRAM - Fastest)</option>
+                      <option value="custom_layers">⚙️ Custom Layers (Use manual slider below)</option>
+                      <option value="cpu_only">🖥️ CPU Only (0 layers on GPU)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {providerConfig.gpu_offload_policy === "custom_layers" && (
+                  <div className="form-group" style={{ marginTop: "0.4rem" }}>
                     <label>
-                      GPU Offload Layers ({providerConfig.gpu_offload_layers ?? 99} layers {providerConfig.gpu_offload_layers === 0 ? "â€” CPU Only" : "â€” Fast GPU"})
+                      Manual GPU Layers ({providerConfig.gpu_offload_layers ?? 48} layers)
                     </label>
                     <input
                       type="range"
                       min="0"
                       max="99"
-                      value={providerConfig.gpu_offload_layers ?? 99}
+                      value={providerConfig.gpu_offload_layers ?? 48}
                       onChange={(e) =>
                         setProviderConfig({
                           ...providerConfig,
@@ -2853,8 +3065,48 @@ export const App: React.FC = () => {
                       }
                     />
                   </div>
-                </div>
+                )}
 
+                {/* Hybrid Split Visualizer */}
+                {(() => {
+                  const policy = providerConfig.gpu_offload_policy || "hybrid_split";
+                  const effectiveGpuLayers =
+                    policy === "cpu_only"
+                      ? 0
+                      : policy === "full_gpu"
+                      ? 99
+                      : policy === "custom_layers"
+                      ? (providerConfig.gpu_offload_layers ?? 48)
+                      : (hwSpecs?.gpu_vram_gb && hwSpecs.gpu_vram_gb <= 12)
+                      ? 36
+                      : 48;
+                  const gpuPercent = Math.min(100, Math.max(0, Math.round((effectiveGpuLayers / 99) * 100)));
+                  const cpuPercent = 100 - gpuPercent;
+
+                  return (
+                    <div className="hw-spec-box" style={{ marginTop: "0.5rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.74rem", marginBottom: "0.25rem" }}>
+                        <span style={{ color: "#34d399", fontWeight: 600 }}>
+                          🎮 GPU VRAM Offload: {gpuPercent}% (~{effectiveGpuLayers} layers)
+                        </span>
+                        <span style={{ color: "#60a5fa", fontWeight: 600 }}>
+                          🖥️ System RAM (CPU): {cpuPercent}% (~{Math.max(0, 99 - effectiveGpuLayers)} layers)
+                        </span>
+                      </div>
+                      <div className="oxide-split-bar">
+                        <div className="oxide-split-gpu" style={{ width: `${gpuPercent}%` }}>
+                          {gpuPercent > 12 ? `GPU (${effectiveGpuLayers} Layers)` : ""}
+                        </div>
+                        <div className="oxide-split-cpu" style={{ width: `${cpuPercent}%` }}>
+                          {cpuPercent > 12 ? `System RAM (${Math.max(0, 99 - effectiveGpuLayers)} Layers)` : ""}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.35rem", lineHeight: 1.4 }}>
+                        💡 <strong>GPU Layer Offloading (Hybrid Split Inference):</strong> Oxide partitions transformer neural layers across your dedicated GPU VRAM and high-speed System RAM. This enables running heavyweight 14B, 32B, and 70B models that exceed physical VRAM without Out-Of-Memory (OOM) errors.
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
                     className="btn btn-primary"
@@ -3427,7 +3679,170 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ==================== SUBAGENT ARCHITECTURE & DELEGATION MODAL ==================== */}
+      {showSubagentsGuide && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowSubagentsGuide(false)}
+        >
+          <div
+            className="model-hub-card"
+            style={{ width: "780px", maxHeight: "88vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "1px solid var(--border-subtle)",
+                paddingBottom: "0.6rem",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🤖</span>
+                  <span>Oxide Multi-Agent Architecture</span>
+                </h3>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                  Lead Architect executive reasoning &amp; specialized subagent delegation
+                </div>
+              </div>
+              <button
+                className="btn"
+                onClick={() => setShowSubagentsGuide(false)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
+              {/* How it works banner */}
+              <div
+                style={{
+                  background: "rgba(242, 108, 58, 0.08)",
+                  border: "1px solid rgba(242, 108, 58, 0.3)",
+                  borderRadius: "8px",
+                  padding: "0.75rem 1rem",
+                  fontSize: "0.78rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong>🧠 How Subagent Delegation Works in Oxide:</strong>
+                <p style={{ margin: "0.35rem 0 0" }}>
+                  Complex coding tasks overwhelm single-threaded LLMs with context pollution and hallucination. In Oxide, your <strong>Lead Architect</strong> reasons deeply inside <code>&lt;think&gt;</code> tags, breaks down the user request into concrete subtasks, and issues parallel orders to <strong>Specialized Subagents</strong>.
+                </p>
+              </div>
+
+              {/* Roles Breakdown */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "0.75rem",
+                }}
+              >
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(242, 108, 58, 0.3)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "var(--oxide-ember)" }}>
+                    <span>👑 Lead Architect (Main Agent)</span>
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
+                    Analyzes user requests, forms multi-step plans, reasons about architecture, and synthesizes final deliverables. Emits <code>delegate_subagents</code> tool calls to trigger subagents.
+                  </div>
+                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#fde047" }}>
+                    Active Model: <code>{providerConfig.task_routing.architect_model || providerConfig.ollama_model}</code>
+                  </div>
+                </div>
+
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(96, 165, 250, 0.3)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#60a5fa" }}>
+                    <span>⚡ Coder Subagent</span>
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
+                    Specialized in granular code mutations (<code>write_file</code>, <code>replace_in_file</code>). Performs fast, clean code edits across files concurrently without distracting the Lead Architect.
+                  </div>
+                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#60a5fa" }}>
+                    Active Model: <code>{providerConfig.task_routing.coder_subagent_model || providerConfig.ollama_model}</code>
+                  </div>
+                </div>
+
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(167, 139, 250, 0.3)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#a78bfa" }}>
+                    <span>🔍 Research Subagent</span>
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
+                    Fast read-only exploration. Traverses project files, parses symbols, and checks dependencies using <code>search_codebase</code> and <code>read_file</code> to verify facts before changes.
+                  </div>
+                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#a78bfa" }}>
+                    Active Model: <code>{providerConfig.task_routing.research_subagent_model || providerConfig.ollama_model}</code>
+                  </div>
+                </div>
+
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(52, 211, 153, 0.3)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#34d399" }}>
+                    <span>🧪 Tester Subagent</span>
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
+                    Executes test suites (<code>cargo test</code>, <code>npm test</code>, linters), parses terminal compiler errors, and reports exact diagnostics back to the Lead Architect.
+                  </div>
+                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#34d399" }}>
+                    Active Model: <code>{providerConfig.task_routing.tester_subagent_model || providerConfig.ollama_model}</code>
+                  </div>
+                </div>
+              </div>
+
+              {/* Multi-Agent Toggle */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "0.75rem",
+                  background: "var(--bg-elevated)",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                    Multi-Agent Delegation Status
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>
+                    {providerConfig.enable_subagents
+                      ? "Enabled — Lead Architect delegates subtasks to parallel subagents."
+                      : "Disabled — Lead Architect handles all steps in a single thread."}
+                  </div>
+                </div>
+                <button
+                  className={`btn ${providerConfig.enable_subagents ? "btn-primary" : ""}`}
+                  onClick={async () => {
+                    const updated = {
+                      ...providerConfig,
+                      enable_subagents: !providerConfig.enable_subagents,
+                    };
+                    setProviderConfig(updated);
+                    await oxideBridge.updateProviderConfig(updated);
+                    setStatusBanner(
+                      updated.enable_subagents
+                        ? "Enabled Multi-Agent Delegation."
+                        : "Disabled Multi-Agent Delegation."
+                    );
+                  }}
+                >
+                  {providerConfig.enable_subagents ? "✓ Enabled" : "Enable Multi-Agent"}
+                </button>
+              </div>
+
+              {/* Slash Command Hint */}
+              <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                💡 <strong>Tip:</strong> You can type <code>/subagents &lt;your request&gt;</code> in chat to explicitly demand multi-agent delegation, or <code>/plan</code> to have the Lead Architect draft a breakdown before execution.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
-

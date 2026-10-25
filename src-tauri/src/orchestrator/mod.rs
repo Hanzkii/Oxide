@@ -19,31 +19,40 @@ use tokio::sync::{RwLock, Semaphore};
 
 const DEFAULT_MAX_AGENT_STEPS: usize = 12;
 
-const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide Lead Architect, a large-model autonomous AI orchestrator (modeled after Google Antigravity) running inside a desktop GUI Studio.
-You handle high-level architectural thinking, task decomposition, and reviewing results. You can either execute workspace tools directly OR delegate focused subtasks to faster, lightweight Subagents (`coder_subagent`, `research_subagent`, `tester_subagent`) governed by the PC's hardware concurrency limiter!
+const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide Lead Architect, an elite autonomous executive AI command center modeled after Google Antigravity.
+You are the Lead Reasoning Agent in a hierarchical multi-agent software engineering team.
 
-Always explain what you are thinking first inside `<think>...</think>` tags so the user can watch your live reasoning in the GUI!
+YOUR ROLE & MULTI-AGENT SUBAGENT ORDERS:
+- You handle high-level architectural reasoning, strategy, code decomposition, and quality review.
+- For non-trivial coding tasks (features spanning multiple files, researching APIs, implementing modules, or running tests), you SHOULD actively DECOMPOSE the request and issue concrete orders to your specialized subagents using the `delegate_subagents` action:
+  * `research_subagent`: to scan repositories, search for symbols, analyze dependencies, and read files.
+  * `coder_subagent`: to draft module implementations, edit code files, refactor logic, and build features.
+  * `tester_subagent`: to run terminal commands, execute tests, check builds, and diagnose errors.
+- You can delegate multiple subagents in a single batch! The PC Hardware Governor runs them concurrently using GPU Layer Offloading (Hybrid Split Inference).
+- Review the subagents' outputs and synthesize the final verified report for the user.
+
+Always explain your strategy first inside `<think>...</think>` tags so the user can watch your live reasoning in the GUI!
 Then, output a single JSON block inside ```json ... ``` fences with one of these actions:
 
-0. `delegate_subagents` — Delegate 1 or more focused subtasks to specialized fast subagents (Oxide's Hardware Governor will automatically run them in parallel or queue them safely based on the user's PC RAM/CPU/VRAM):
+0. `delegate_subagents` — Delegate 1 or more focused subtasks to specialized fast subagents:
 ```json
 {
-  "thought": "Breaking this task down: I will assign ResearchSubagent to inspect the config files and CoderSubagent to implement the helper module.",
+  "thought": "Decomposing this feature: I will assign ResearchSubagent to inspect dependencies and CoderSubagent to implement the core logic.",
   "plan": ["Delegate research & coding subtasks to subagents", "Review subagent outputs & verify build"],
   "action": "delegate_subagents",
   "subtasks": [
     {
       "id": "sub-1",
       "role": "research_subagent",
-      "title": "Inspect workspace config files",
+      "title": "Inspect workspace config & exports",
       "instructions": "Read package.json and summarize scripts and dependencies",
       "target_path": "package.json"
     },
     {
       "id": "sub-2",
       "role": "coder_subagent",
-      "title": "Draft utility module",
-      "instructions": "Analyze how to structure the requested feature"
+      "title": "Implement core feature module",
+      "instructions": "Write the requested module implementation"
     }
   ]
 }
@@ -350,6 +359,14 @@ pub enum AgentStreamEvent {
         step: usize,
         items: Vec<String>,
     },
+    ThinkingMetrics {
+        step: usize,
+        tokens_generated: usize,
+        tokens_per_second: f32,
+        elapsed_seconds: f32,
+        phase: String,
+        gpu_layers: i32,
+    },
     SubagentStatus {
         id: String,
         role: AgentRoleKind,
@@ -430,10 +447,12 @@ impl AgentOrchestrator {
             .await
             .format_tools_for_agent_prompt();
 
+        let is_btw_mode = user_prompt.trim().starts_with("/btw");
+
         let mut conversation = vec![
             ChatMessage::system(AGENT_SYSTEM_PROMPT),
             ChatMessage::user(format!(
-                "Workspace Root: {}\nPC Hardware Governor: {} ({:.1} GB Free RAM, Max Concurrent Subagents: {})\nTask Model Routing: Architect={}, CoderSubagent={}, ResearchSubagent={}, TesterSubagent={}\n[AVAILABLE_MCP_TOOLS]\n{}\n[/AVAILABLE_MCP_TOOLS]\nUser Request: {}",
+                "Workspace Root: {}\nPC Hardware Governor: {} ({:.1} GB Free RAM, Max Concurrent Subagents: {})\nTask Model Routing: Architect={}, CoderSubagent={}, ResearchSubagent={}, TesterSubagent={}\n[AVAILABLE_MCP_TOOLS]\n{}\n[/AVAILABLE_MCP_TOOLS]\n{}\nUser Request: {}",
                 self.sandbox.canonical_root().display(),
                 hw.governor_tier,
                 hw.available_ram_gb,
@@ -443,6 +462,11 @@ impl AgentOrchestrator {
                 self.provider_config.task_routing.research_subagent_model,
                 self.provider_config.task_routing.tester_subagent_model,
                 mcp_tools_summary,
+                if is_btw_mode {
+                    "[MODE: /btw SIDE-QUESTION] Answer the user's question directly and concisely with architectural clarity. Do not call tool actions or edit files."
+                } else {
+                    ""
+                },
                 user_prompt
             )),
         ];
@@ -462,16 +486,43 @@ impl AgentOrchestrator {
             );
 
             let app_for_stream = app.clone();
+            let app_metrics_stream = app.clone();
             let arch_model = self
                 .provider_config
                 .model_for_role(AgentRoleKind::Architect)
                 .to_string();
             let raw_stream_buffer = Arc::new(std::sync::Mutex::new(String::new()));
             let buffer_clone = raw_stream_buffer.clone();
+            let start_instant = std::time::Instant::now();
+            let token_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counter_clone = token_counter.clone();
+
             let token_cb = Arc::new(move |token: &str| {
+                let count = counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 let mut buf = buffer_clone.lock().unwrap();
                 buf.push_str(token);
                 let trimmed = buf.trim_start();
+
+                if count % 6 == 0 {
+                    let elapsed = start_instant.elapsed().as_secs_f32().max(0.01);
+                    let tok_s = (count as f32 / elapsed * 10.0).round() / 10.0;
+                    let _ = app_metrics_stream.emit(
+                        "oxide://agent-event",
+                        AgentStreamEvent::ThinkingMetrics {
+                            step,
+                            tokens_generated: count,
+                            tokens_per_second: tok_s,
+                            elapsed_seconds: elapsed,
+                            phase: if trimmed.contains("<think>") && !trimmed.contains("</think>") {
+                                "reasoning".to_string()
+                            } else {
+                                "generating".to_string()
+                            },
+                            gpu_layers: 99,
+                        },
+                    );
+                }
+
                 if trimmed.starts_with('{') || trimmed.starts_with("```json") {
                     return;
                 }
@@ -489,6 +540,21 @@ impl AgentOrchestrator {
                 .stream_for_role(AgentRoleKind::Architect, &conversation, token_cb)
                 .await?;
 
+            let final_toks = token_counter.load(std::sync::atomic::Ordering::Relaxed);
+            let final_elapsed = start_instant.elapsed().as_secs_f32().max(0.01);
+            let final_tok_s = (final_toks as f32 / final_elapsed * 10.0).round() / 10.0;
+            self.emit_event(
+                &app,
+                AgentStreamEvent::ThinkingMetrics {
+                    step,
+                    tokens_generated: final_toks,
+                    tokens_per_second: final_tok_s,
+                    elapsed_seconds: final_elapsed,
+                    phase: "completed".to_string(),
+                    gpu_layers: 99,
+                },
+            );
+
             if let Some(think_text) = Self::extract_think_tag(&assistant_reply) {
                 self.emit_event(
                     &app,
@@ -500,6 +566,20 @@ impl AgentOrchestrator {
             }
 
             conversation.push(ChatMessage::assistant(assistant_reply.clone()));
+
+            if is_btw_mode {
+                let clean_ans = assistant_reply
+                    .replace("<think>", "")
+                    .replace("</think>", "");
+                self.emit_event(
+                    &app,
+                    AgentStreamEvent::TaskCompleted {
+                        steps_taken: step,
+                        summary: clean_ans.trim().to_string(),
+                    },
+                );
+                return Ok(clean_ans.trim().to_string());
+            }
 
             let Some(action) = Self::extract_tool_action(&assistant_reply) else {
                 let final_report = Self::format_execution_report(&user_prompt, &executed_actions, &assistant_reply);

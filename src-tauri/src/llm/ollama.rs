@@ -41,6 +41,8 @@ struct OllamaStreamChunk {
     message: Option<OllamaChunkMessage>,
     done: bool,
     error: Option<String>,
+    eval_count: Option<u64>,
+    eval_duration: Option<u64>,
 }
 
 #[derive(Deserialize)]

@@ -34,9 +34,32 @@ impl HybridProviderRouter {
         let role_model = self.config.model_for_role(role);
         match kind {
             ProviderKind::Ollama => {
-                let num_gpu = match self.config.hardware_acceleration {
-                    crate::llm::HardwareAccelerationMode::Cpu => Some(0),
-                    _ => Some(self.config.gpu_offload_layers),
+                let num_gpu = if self.config.hardware_acceleration
+                    == crate::llm::HardwareAccelerationMode::Cpu
+                    || self.config.gpu_offload_policy == crate::llm::GpuOffloadPolicy::CpuOnly
+                {
+                    Some(0)
+                } else {
+                    match self.config.gpu_offload_policy {
+                        crate::llm::GpuOffloadPolicy::CpuOnly => Some(0),
+                        crate::llm::GpuOffloadPolicy::FullGpu => Some(99),
+                        crate::llm::GpuOffloadPolicy::CustomLayers => {
+                            Some(self.config.gpu_offload_layers)
+                        }
+                        crate::llm::GpuOffloadPolicy::HybridSplit => {
+                            let lower = role_model.to_lowercase();
+                            let layers = if lower.contains("70b") {
+                                24
+                            } else if lower.contains("32b") || lower.contains("30b") {
+                                36
+                            } else if lower.contains("14b") {
+                                48
+                            } else {
+                                99
+                            };
+                            Some(layers)
+                        }
+                    }
                 };
                 Arc::new(OllamaProvider::with_num_gpu(
                     &self.config.ollama_base_url,

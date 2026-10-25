@@ -31,6 +31,27 @@ impl Default for HardwareAccelerationMode {
     }
 }
 
+/// GPU Layer Offloading (Hybrid Split Inference) Policy.
+/// Controls how transformer layers are partitioned between GPU VRAM and CPU System RAM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuOffloadPolicy {
+    /// 100% GPU offload (num_gpu: 99) for maximum token/s inference
+    FullGpu,
+    /// Dynamic Hybrid Split: auto-calculates the layer split so massive models run without OOM
+    HybridSplit,
+    /// Explicit user-controlled layer count
+    CustomLayers,
+    /// 0 layers offloaded to GPU (forces CPU inference)
+    CpuOnly,
+}
+
+impl Default for GpuOffloadPolicy {
+    fn default() -> Self {
+        GpuOffloadPolicy::FullGpu
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRoleKind {
@@ -80,6 +101,8 @@ pub struct ProviderConfig {
     pub auto_throttle_on_high_load: bool,
     #[serde(default)]
     pub hardware_acceleration: HardwareAccelerationMode,
+    #[serde(default)]
+    pub gpu_offload_policy: GpuOffloadPolicy,
     #[serde(default = "default_gpu_layers")]
     pub gpu_offload_layers: i32,
 }
@@ -111,6 +134,7 @@ impl Default for ProviderConfig {
             max_concurrent_subagents: 4,
             auto_throttle_on_high_load: true,
             hardware_acceleration: HardwareAccelerationMode::Auto,
+            gpu_offload_policy: GpuOffloadPolicy::FullGpu,
             gpu_offload_layers: 99,
         }
     }

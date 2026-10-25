@@ -120,7 +120,52 @@ Filter models by specialty or search **HuggingFace Hub Live** (`https://huggingf
 
 ---
 
-## 🤖 4. Hierarchical Lead Architect + Subagents & PC Hardware Governor
+## ⚡ 4. GPU Layer Offloading (Hybrid Split Inference) & Hardware Governor
+
+Running large, highly-capable models (14B, 32B, 70B) locally usually causes Out-Of-Memory (OOM) crashes on consumer GPUs with 8GB–16GB VRAM. Oxide Studio solves this with **GPU Layer Offloading (Hybrid Split Inference)**:
+
+```
+[ Heavyweight 32B / 70B Model Architecture ]
+┌────────────────────────────────────────────────────────┐
+│  GPU VRAM (e.g. Layers 0..36 on AMD Radeon / NVIDIA)   │ ⚡ High-speed parallel tensor math
+├────────────────────────────────────────────────────────┤
+│  System RAM (e.g. Layers 37..64 via CPU & System RAM)  │ 🖥️ Paged without Out-Of-Memory errors
+└────────────────────────────────────────────────────────┘
+```
+
+- **Configurable Offload Policies (`Settings -> Hardware & Acceleration` Tab)**:
+  - `hybrid_split`: Auto-calculates optimal VRAM/RAM split based on GPU VRAM detection (e.g. 36 layers to GPU on 12GB VRAM cards like AMD RX 6700 XT).
+  - `full_gpu`: Offloads 100% of transformer layers to VRAM for maximum tokens/s (ideal for 7B/8B models).
+  - `custom_layers`: Fine-tune exact GPU layer allocation via interactive slider.
+  - `cpu_only`: Disables GPU execution for pure CPU inference.
+- **Interactive Visual Split Bar**: Displays real-time GPU VRAM vs System RAM layer distribution percentages directly in the Hardware settings.
+- **Neural Thinking & Token Speed Gauge**: Real-time pulsing badge during agent turns tracking:
+  - 🧠 Inference Phase (`Deep Reasoning` in `<think>` vs `Executing Code / Tool Call`)
+  - ⚡ Live token generation count and generation speed in **tok/s**
+  - 🎮 Active GPU offload layer count
+
+---
+
+## 💬 5. Slash Commands (`/`) & Side-Queries (`/btw`)
+
+Oxide Studio includes an interactive auto-completing slash command palette. Type `/` in the composer to access quick controls:
+
+| Slash Command | Description | Concurrency / Tool Effect |
+| :--- | :--- | :--- |
+| **`/btw <question>`** | **Side-Question / By-The-Way Mode** | Bypasses file modifications and tool loops to answer quick architectural questions immediately. |
+| **`/plan <task>`** | **Architectural Planning** | Orders the Lead Architect to draft a step-by-step checklist before making file changes. |
+| **`/subagents <task>`** | **Multi-Agent Execution** | Decomposes task and delegates subtasks to parallel Coder, Research, and Tester subagents. |
+| **`/fix <issue>`** | **Autonomous Diagnostics** | Reads compiler / test errors and issues targeted repair commands. |
+| **`/test`** | **Run Test Suites** | Runs project tests (`cargo test`, `npm test`, `pytest`) silently. |
+| **`/models`** | **1-Click Model Hub** | Opens the AI Model Store modal. |
+| **`/hardware`** | **Governor & Acceleration** | Opens hardware specs and layer offload configuration. |
+| **`/compact`** | **Context Compaction** | Compacts long conversational context into clean executive summaries. |
+| **`/clear`** | **Clear Session** | Resets active conversation turns. |
+| **`/help`** | **Slash Command Help** | Lists all available shortcuts. |
+
+---
+
+## 🤖 6. Hierarchical Lead Architect + Subagents & PC Hardware Governor
 
 Instead of running one slow model for every tiny file lookup, Oxide Studio implements a **two-tier multi-agent hierarchy**:
 
@@ -159,7 +204,7 @@ sequenceDiagram
 
 ---
 
-## 🔌 5. Model Context Protocol (MCP) Hub
+## 🔌 7. Model Context Protocol (MCP) Hub
 
 Oxide Studio includes a native **JSON-RPC 2.0 MCP Client & Registry** (`src-tauri/src/mcp.rs`):
 - **Supported Transports**:
@@ -170,7 +215,7 @@ Oxide Studio includes a native **JSON-RPC 2.0 MCP Client & Registry** (`src-taur
 
 ---
 
-## 🔒 6. Defense-in-Depth Security & Silent Windows Execution
+## 🔒 8. Defense-in-Depth Security & Silent Windows Execution
 
 1. **Canonical Path Sandbox (`src-tauri/src/security/sandbox.rs`)**:
    - Every file read, write, move, delete, and terminal working directory is canonicalized and verified to reside strictly inside your active project folder, blocking `../` traversal and symlink escapes.
@@ -181,7 +226,7 @@ Oxide Studio includes a native **JSON-RPC 2.0 MCP Client & Registry** (`src-taur
 
 ---
 
-## 🛠️ 7. Building from Source
+## 🛠️ 9. Building from Source
 
 ### Prerequisites
 - **Node.js 20+** and **npm**

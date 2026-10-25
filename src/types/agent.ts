@@ -7,6 +7,12 @@ export type HardwareAccelerationMode =
   | "directml"
   | "cpu";
 
+export type GpuOffloadPolicy =
+  | "full_gpu"
+  | "hybrid_split"
+  | "custom_layers"
+  | "cpu_only";
+
 export type AgentRoleKind =
   | "architect"
   | "coder_subagent"
@@ -68,6 +74,7 @@ export interface ProviderConfig {
   max_concurrent_subagents: number;
   auto_throttle_on_high_load: boolean;
   hardware_acceleration?: HardwareAccelerationMode;
+  gpu_offload_policy?: GpuOffloadPolicy;
   gpu_offload_layers?: number;
 }
 
@@ -192,6 +199,15 @@ export type AgentStreamEvent =
       type: "plan_update";
       step: number;
       items: string[];
+    }
+  | {
+      type: "thinking_metrics";
+      step: number;
+      tokens_generated: number;
+      tokens_per_second: number;
+      elapsed_seconds: number;
+      phase: string;
+      gpu_layers: number;
     }
   | {
       type: "subagent_status";
