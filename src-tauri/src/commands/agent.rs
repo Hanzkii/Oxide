@@ -391,9 +391,10 @@ pub async fn ensure_ollama_engine() -> OxideResult<String> {
         if out.status.success() {
             return Ok("Ollama installed via Winget! Starting local AI engine...".to_string());
         }
-        return Err(OxideError::ProviderError(
-            "Could not auto-install Ollama via Winget. Please download from https://ollama.com/download".to_string(),
-        ));
+        return Err(OxideError::ProviderError {
+            provider: "ollama".to_string(),
+            message: "Could not auto-install Ollama via Winget. Please download from https://ollama.com/download".to_string(),
+        });
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -445,10 +446,13 @@ pub async fn install_ai_model(
     }
 
     let out = cmd.output().await.map_err(|e| {
-        OxideError::ProviderError(format!(
-            "Failed to run `ollama pull {}`: {}. Click 'Start / Install Ollama' first.",
-            model_id, e
-        ))
+        OxideError::ProviderError {
+            provider: "ollama".to_string(),
+            message: format!(
+                "Failed to run `ollama pull {}`: {}. Click 'Start / Install Ollama' first.",
+                model_id, e
+            ),
+        }
     })?;
 
     if out.status.success() {
@@ -459,10 +463,10 @@ pub async fn install_ai_model(
         })
     } else {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(OxideError::ProviderError(format!(
-            "Failed to pull {}: {}",
-            model_id, stderr
-        )))
+        Err(OxideError::ProviderError {
+            provider: "ollama".to_string(),
+            message: format!("Failed to pull {}: {}", model_id, stderr),
+        })
     }
 }
 
