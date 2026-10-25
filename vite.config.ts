@@ -37,6 +37,10 @@ interface LocalBridgeState {
     enable_subagents: boolean;
     max_concurrent_subagents: number;
     auto_throttle_on_high_load: boolean;
+    enforce_workspace_sandbox?: boolean;
+    permitted_terminal_binaries?: string[];
+    security_mode?: string;
+    allow_internet_access?: boolean;
   };
   cachedGpu: { name: string; vramGb: number } | null;
   mcpServers: any[];
@@ -106,6 +110,21 @@ function createLocalSystemBridgePlugin(): Plugin {
       enable_subagents: true,
       max_concurrent_subagents: 2,
       auto_throttle_on_high_load: true,
+      enforce_workspace_sandbox: true,
+      permitted_terminal_binaries: [
+        "cargo",
+        "rustc",
+        "npm",
+        "npx",
+        "node",
+        "git",
+        "python",
+        "pytest",
+        "tsc",
+        "vite",
+      ],
+      security_mode: "turbo",
+      allow_internet_access: true,
     },
     cachedGpu: null,
     builtinMemories: [
@@ -277,7 +296,8 @@ function createLocalSystemBridgePlugin(): Plugin {
 
   function runCommandBounded(
     cmdLine: string,
-    cwd: string = state.workspaceRoot
+    cwd: string = state.workspaceRoot,
+    isInternal: boolean = false
   ): Promise<{
     program: string;
     args: string[];
@@ -299,8 +319,59 @@ function createLocalSystemBridgePlugin(): Plugin {
           .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
           ?.map((t) => t.replace(/^['"]|['"]$/g, "")) ?? [];
       const program = tokens[0] || trimmed;
+      const baseProgram = path
+        .basename(program)
+        .replace(/\.(exe|cmd|bat)$/i, "")
+        .toLowerCase();
       const args = tokens.slice(1);
       const start = Date.now();
+
+      // Workspace sandbox & terminal command restriction
+      if (!isInternal && state.providerConfig.enforce_workspace_sandbox !== false) {
+        const canonicalCwd = path.resolve(cwd);
+        const canonicalRoot = path.resolve(state.workspaceRoot);
+        if (!canonicalCwd.toLowerCase().startsWith(canonicalRoot.toLowerCase())) {
+          return resolve({
+            program: baseProgram,
+            args,
+            working_dir: cwd,
+            exit_code: 126,
+            stdout: "",
+            stderr: `Security violation [Sandbox]: Execution directory '${cwd}' escapes workspace root '${state.workspaceRoot}'.`,
+            duration_ms: 0,
+            succeeded: false,
+            truncated: false,
+          });
+        }
+
+        const permitted = state.providerConfig.permitted_terminal_binaries || [
+          "cargo",
+          "rustc",
+          "npm",
+          "npx",
+          "node",
+          "git",
+          "python",
+          "pytest",
+          "tsc",
+          "vite",
+        ];
+        if (!permitted.includes(baseProgram)) {
+          return resolve({
+            program: baseProgram,
+            args,
+            working_dir: cwd,
+            exit_code: 126,
+            stdout: "",
+            stderr: `Security violation [Sandbox]: Terminal binary '${baseProgram}' is not in the permitted CLI binaries list [${permitted.join(
+              ", "
+            )}]. Execution blocked by Oxide Sandbox. You can authorize additional tools in Settings -> Security & Sandbox.`,
+            duration_ms: 0,
+            succeeded: false,
+            truncated: false,
+          });
+        }
+      }
 
       // Pass command string directly to avoid Node.js [DEP0190] DeprecationWarning
       const child = spawn(trimmed, {
@@ -386,7 +457,9 @@ function createLocalSystemBridgePlugin(): Plugin {
       let gpuFound = false;
       if (fs.existsSync(gpuScript)) {
         const gpuRes = await runCommandBounded(
-          `powershell -NoProfile -ExecutionPolicy Bypass -File "${gpuScript}"`
+          `powershell -NoProfile -ExecutionPolicy Bypass -File "${gpuScript}"`,
+          undefined,
+          true
         );
         if (gpuRes.succeeded && gpuRes.stdout.trim()) {
           const parts = gpuRes.stdout.trim().split("|");
@@ -404,7 +477,9 @@ function createLocalSystemBridgePlugin(): Plugin {
 
       if (!gpuFound) {
         const nv = await runCommandBounded(
-          "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits"
+          "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits",
+          undefined,
+          true
         );
         if (nv.succeeded && nv.stdout.trim()) {
           const first = nv.stdout.trim().split(/\r?\n/)[0];
@@ -485,14 +560,20 @@ function createLocalSystemBridgePlugin(): Plugin {
     }
     const branchRes = await runCommandBounded(
       "git rev-parse --abbrev-ref HEAD",
-      cwd
+      cwd,
+      true
     );
     const remoteRes = await runCommandBounded(
       "git remote get-url origin",
-      cwd
+      cwd,
+      true
     );
-    const statusRes = await runCommandBounded("git status --porcelain", cwd);
-    const logRes = await runCommandBounded("git log -1 --oneline", cwd);
+    const statusRes = await runCommandBounded(
+      "git status --porcelain",
+      cwd,
+      true
+    );
+    const logRes = await runCommandBounded("git log -1 --oneline", cwd, true);
     const changed = statusRes.stdout
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -1042,7 +1123,11 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "stop_native_engine") {
-            await runCommandBounded("taskkill /F /IM llama-server.exe");
+            await runCommandBounded(
+              "taskkill /F /IM llama-server.exe",
+              undefined,
+              true
+            );
             res.end(JSON.stringify({ stopped: true }));
             return;
           }
@@ -1086,7 +1171,11 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "execute_bounded_command") {
-            const out = await runCommandBounded(args.commandLine);
+            const out = await runCommandBounded(
+              args.commandLine,
+              args.cwd || state.workspaceRoot,
+              false
+            );
             res.end(JSON.stringify(out));
             return;
           }
@@ -1101,10 +1190,16 @@ function createLocalSystemBridgePlugin(): Plugin {
             const op = (args.operation || "").toLowerCase();
             if (op === "pull") {
               res.end(
-                JSON.stringify(await runCommandBounded("git pull --rebase"))
+                JSON.stringify(
+                  await runCommandBounded("git pull --rebase", undefined, true)
+                )
               );
             } else if (op === "push") {
-              res.end(JSON.stringify(await runCommandBounded("git push")));
+              res.end(
+                JSON.stringify(
+                  await runCommandBounded("git push", undefined, true)
+                )
+              );
             } else {
               throw new Error(`Unsupported git sync action: ${op}`);
             }
@@ -1112,19 +1207,23 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "trigger_git_milestone") {
-            await runCommandBounded("git add -A");
+            await runCommandBounded("git add -A", undefined, true);
             const msg = (
               args.milestoneSummary || "feat(agent): update workspace milestone"
             ).replace(/"/g, "'");
             const commitRes = await runCommandBounded(
-              `git commit -m "${msg}"`
+              `git commit -m "${msg}"`,
+              undefined,
+              true
             );
             if (!commitRes.succeeded) {
               res.end(JSON.stringify(null));
               return;
             }
             const hashRes = await runCommandBounded(
-              "git rev-parse --short HEAD"
+              "git rev-parse --short HEAD",
+              undefined,
+              true
             );
             res.end(
               JSON.stringify({
@@ -1139,7 +1238,8 @@ function createLocalSystemBridgePlugin(): Plugin {
           if (action === "check_github_update") {
             const localHead = await runCommandBounded(
               "git rev-parse --short HEAD",
-              process.cwd()
+              process.cwd(),
+              true
             );
             const localSha = localHead.succeeded
               ? localHead.stdout.trim()
@@ -1212,7 +1312,8 @@ function createLocalSystemBridgePlugin(): Plugin {
           if (action === "perform_github_update") {
             const pullRes = await runCommandBounded(
               "git pull --rebase origin main",
-              process.cwd()
+              process.cwd(),
+              true
             );
             if (!pullRes.succeeded) {
               throw new Error(pullRes.stderr || "git pull failed");
@@ -1230,7 +1331,7 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "ensure_ollama_engine") {
-            const ver = await runCommandBounded("ollama --version");
+            const ver = await runCommandBounded("ollama --version", undefined, true);
             if (ver.succeeded) {
               spawn("ollama", ["serve"], {
                 detached: true,
@@ -1243,7 +1344,9 @@ function createLocalSystemBridgePlugin(): Plugin {
               return;
             }
             const wg = await runCommandBounded(
-              "winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements"
+              "winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements",
+              undefined,
+              true
             );
             if (wg.succeeded) {
               res.end(

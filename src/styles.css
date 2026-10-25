@@ -633,12 +633,21 @@ body {
 
 .workspace-input,
 .select-control {
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-primary);
-  padding: 0.42rem 0.6rem;
+  background: #181a20;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f8fafc;
+  padding: 0.44rem 0.65rem;
   border-radius: 7px;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  outline: none;
+}
+
+select option,
+.select-control option {
+  background-color: #1a1c23;
+  color: #f8fafc;
+  padding: 0.4rem;
 }
 
 .btn {
@@ -960,37 +969,38 @@ body {
   left: 0;
   right: 0;
   max-width: 580px;
-  background: #141416;
-  border: 1px solid var(--border-focus);
+  background: #1e2026;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
-  padding: 0.4rem;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.85);
+  padding: 0.45rem;
   z-index: 99;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
   max-height: 280px;
   overflow-y: auto;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
 }
 
 .oxide-slash-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 6px;
   cursor: pointer;
-  background: transparent;
-  transition: background 0.12s;
-  border: none;
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.12s ease;
+  border: 1px solid transparent;
   text-align: left;
   width: 100%;
 }
 
 .oxide-slash-item:hover,
 .oxide-slash-item.selected {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(242, 108, 58, 0.18);
+  border-color: rgba(242, 108, 58, 0.35);
 }
 
 .oxide-slash-left {
@@ -1001,23 +1011,25 @@ body {
 
 .oxide-slash-cmd {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.84rem;
   font-weight: 700;
-  color: var(--oxide-ember);
+  color: #ff8555;
 }
 
 .oxide-slash-desc {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
+  font-size: 0.76rem;
+  color: #e2e8f0;
+  font-weight: 400;
 }
 
 .oxide-slash-badge {
   font-size: 0.68rem;
-  padding: 0.12rem 0.45rem;
+  font-weight: 600;
+  padding: 0.16rem 0.5rem;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-muted);
-  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 /* ==================== THINKING INTENSITY & TOKEN SPEED GAUGE ==================== */
@@ -1089,90 +1101,92 @@ body {
 .oxide-security-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.38rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  font-weight: 500;
-  padding: 0.28rem 0.6rem;
+  gap: 0.42rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f8fafc;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.32rem 0.68rem;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .oxide-security-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--border-focus);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--oxide-ember);
+  color: #ffffff;
 }
 
 .oxide-security-menu {
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
-  width: 295px;
-  background: #141416;
-  border: 1px solid var(--border-subtle);
+  width: 310px;
+  background: #1e2026;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
-  padding: 0.35rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.85);
+  padding: 0.45rem;
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  backdrop-filter: blur(14px);
+  gap: 0.28rem;
+  backdrop-filter: blur(16px);
 }
 
 .oxide-security-item {
   display: flex;
   align-items: flex-start;
-  gap: 0.65rem;
-  padding: 0.55rem 0.75rem;
+  gap: 0.7rem;
+  padding: 0.6rem 0.8rem;
   border-radius: 8px;
   cursor: pointer;
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
   text-align: left;
   width: 100%;
-  transition: background 0.12s ease;
+  transition: all 0.12s ease;
 }
 
 .oxide-security-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .oxide-security-item.active {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(242, 108, 58, 0.18);
+  border-color: rgba(242, 108, 58, 0.4);
 }
 
 .oxide-security-item-icon {
   font-size: 1rem;
   margin-top: 0.1rem;
-  color: var(--text-secondary);
+  color: #cbd5e1;
 }
 
 .oxide-security-item-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.18rem;
 }
 
 .oxide-security-item-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffffff;
 }
 
 .oxide-security-item-desc {
-  font-size: 0.71rem;
-  color: var(--text-muted);
-  line-height: 1.35;
+  font-size: 0.74rem;
+  color: #cbd5e1;
+  line-height: 1.38;
 }
 
 .oxide-security-item-check {
-  color: var(--oxide-ember);
+  color: #ff8555;
   font-weight: 700;
   font-size: 0.85rem;
   margin-top: 0.15rem;

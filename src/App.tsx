@@ -1449,9 +1449,9 @@ export const App: React.FC = () => {
             <button
               className={`ag-pill-btn ${showRightPanel ? "active" : ""}`}
               onClick={() => setShowRightPanel((v) => !v)}
-              title="Toggle Right Panel"
+              title="Toggle Right Sidebar Drawer"
             >
-              v
+              Sidebar
             </button>
           </div>
         </header>
@@ -3461,7 +3461,7 @@ export const App: React.FC = () => {
                 <div className="hw-spec-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <strong style={{ fontSize: "0.88rem" }}>Active Workspace Sandbox Jail</strong>
+                      <strong style={{ fontSize: "0.88rem" }}>Active Workspace Boundary &amp; Terminal Sandbox</strong>
                       <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
                         Restricts AI tools, file mutations, and terminal executions strictly to your active project folder
                       </div>
@@ -3489,7 +3489,7 @@ export const App: React.FC = () => {
                     Jailed Root: <code>{activeProject?.path}</code>
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.35rem", lineHeight: 1.4 }}>
-                    Oxide canonicalizes all target paths and enforces strict boundary checks. Any attempt to traverse (<code>..</code>), access system directories (e.g. Windows/System32), or escape the project folder is blocked.
+                    When enabled, Oxide canonicalizes all target paths and enforces strict boundary checks. Any attempt to traverse (<code>..</code>), access root/system directories, or escape the project folder is blocked. Terminal command executions are strictly limited to the permitted developer CLI binaries configured below.
                   </div>
                 </div>
 
@@ -3528,43 +3528,32 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Execution Approval & Review Mode */}
-                <div className="routing-grid">
-                  <div className="form-group">
-                    <label>Command Execution &amp; Review Mode</label>
-                    <select
-                      className="select-control"
-                      value={providerConfig.security_mode || "turbo"}
-                      onChange={(e) =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          security_mode: e.target.value as SecurityReviewMode,
-                        })
-                      }
-                    >
-                      <option value="turbo">Turbo (Run all commands without restrictions)</option>
-                      <option value="auto">Auto / Preview (Automatically evaluate command safety)</option>
-                      <option value="default">Default (Ask before sensitive or destructive operations)</option>
-                      <option value="request_review">Request Review (Every command requires approval)</option>
-                    </select>
+                {/* Autonomous Execution & Review Mode */}
+                <div className="hw-spec-box">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+                    <div>
+                      <strong style={{ fontSize: "0.88rem" }}>Command Execution &amp; Review Mode</strong>
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                        Choose whether the AI runs terminal commands and file edits autonomously or prompts for review
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="form-group">
-                    <label>Strict Workspace Jailing</label>
-                    <select
-                      className="select-control"
-                      value={providerConfig.enforce_workspace_sandbox ? "true" : "false"}
-                      onChange={(e) =>
-                        setProviderConfig({
-                          ...providerConfig,
-                          enforce_workspace_sandbox: e.target.value === "true",
-                        })
-                      }
-                    >
-                      <option value="true">Strict Sandbox (Block all paths outside workspace)</option>
-                      <option value="false">Permissive (Allow read-only outside workspace)</option>
-                    </select>
-                  </div>
+                  <select
+                    className="select-control"
+                    style={{ width: "100%", marginTop: "0.2rem" }}
+                    value={providerConfig.security_mode || "turbo"}
+                    onChange={(e) =>
+                      setProviderConfig({
+                        ...providerConfig,
+                        security_mode: e.target.value as SecurityReviewMode,
+                      })
+                    }
+                  >
+                    <option value="turbo">Turbo (Run all commands and edits autonomously without prompt)</option>
+                    <option value="auto">Auto / Preview (Automatically evaluate command safety before running)</option>
+                    <option value="default">Default (Prompt for confirmation before sensitive or destructive operations)</option>
+                    <option value="request_review">Request Review (Every command and edit requires approval)</option>
+                  </select>
                 </div>
 
                 {/* Allowed Terminal Binaries */}
@@ -3573,7 +3562,7 @@ export const App: React.FC = () => {
                     Permitted Developer CLI Binaries
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                    Check or uncheck which CLI tools the AI sandbox is authorized to execute:
+                    When Sandbox is active, terminal commands outside this allowlist are immediately blocked:
                   </div>
                   <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", marginTop: "0.6rem" }}>
                     {[
@@ -3587,15 +3576,49 @@ export const App: React.FC = () => {
                       "pytest",
                       "tsc",
                       "vite",
-                    ].map((b) => (
-                      <label key={b} className="cli-checkbox-pill active">
-                        <input
-                          type="checkbox"
-                          defaultChecked={true}
-                        />
-                        <span>{b}</span>
-                      </label>
-                    ))}
+                    ].map((b) => {
+                      const currentList = providerConfig.permitted_terminal_binaries || [
+                        "cargo",
+                        "rustc",
+                        "npm",
+                        "npx",
+                        "node",
+                        "git",
+                        "python",
+                        "pytest",
+                        "tsc",
+                        "vite",
+                      ];
+                      const isAllowed = currentList.includes(b);
+                      return (
+                        <label
+                          key={b}
+                          className={`cli-checkbox-pill ${isAllowed ? "active" : ""}`}
+                          style={{
+                            cursor: "pointer",
+                            userSelect: "none",
+                            background: isAllowed ? "rgba(242, 108, 58, 0.2)" : "rgba(255, 255, 255, 0.05)",
+                            borderColor: isAllowed ? "var(--oxide-ember)" : "rgba(255, 255, 255, 0.15)",
+                            color: isAllowed ? "#ff8555" : "var(--text-muted)",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isAllowed}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...currentList, b]
+                                : currentList.filter((x) => x !== b);
+                              setProviderConfig({
+                                ...providerConfig,
+                                permitted_terminal_binaries: next,
+                              });
+                            }}
+                          />
+                          <span>{b}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 

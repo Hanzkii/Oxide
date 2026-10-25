@@ -98,6 +98,7 @@ export interface ProviderConfig {
   security_mode?: SecurityReviewMode;
   allow_internet_access?: boolean;
   enforce_workspace_sandbox?: boolean;
+  permitted_terminal_binaries?: string[];
   oxide_native_port?: number;
   oxide_native_model?: string;
   custom_openai_url?: string;
