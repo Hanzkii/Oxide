@@ -631,6 +631,10 @@ export const oxideBridge = {
     return callBackend<string>("delete_workspace_file", { relativePath });
   },
 
+  async createWorkspaceFolder(relativePath: string): Promise<string> {
+    return callBackend<string>("create_workspace_folder", { relativePath });
+  },
+
   async openInVsCode(workspacePath?: string): Promise<string> {
     return callBackend<string>("open_in_vscode", {
       workspacePath: workspacePath ?? null,

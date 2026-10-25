@@ -321,6 +321,17 @@ export const App: React.FC = () => {
     onConfirm: () => Promise<void> | void;
   } | null>(null);
 
+  // Open Folder & Workspace Navigation Modal State
+  const [showOpenFolderModal, setShowOpenFolderModal] = useState<boolean>(false);
+  const [folderPathInput, setFolderPathInput] = useState<string>("");
+
+  // Create New File / Folder Modal State
+  const [createItemModal, setCreateItemModal] = useState<{
+    isOpen: boolean;
+    type: "file" | "folder";
+    name: string;
+  } | null>(null);
+
   // API Key & Connection Testing State
   const [showApiKeys, setShowApiKeys] = useState<{
     anthropic: boolean;
@@ -619,12 +630,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const handlePickProjectFolder = async () => {
+  const openWorkspaceDirectory = async (folderPath: string) => {
     try {
-      const picked = await oxideBridge.pickFolderDialog();
-      if (!picked?.trim()) return;
+      const cleanPath = folderPath.trim();
+      if (!cleanPath) return;
 
-      const info = await oxideBridge.setWorkspace(picked.trim());
+      const info = await oxideBridge.setWorkspace(cleanPath);
       const existingProj = projects.find(
         (p) => p.path.toLowerCase() === info.canonical_path.toLowerCase()
       );
@@ -678,8 +689,27 @@ export const App: React.FC = () => {
         targetConvId
       );
       setStatusBanner(`Opened workspace '${getBaseName(info.canonical_path)}'`);
+      setShowOpenFolderModal(false);
     } catch (err: any) {
       setStatusBanner(`Folder error: ${err?.message || String(err)}`);
+    }
+  };
+
+  const handlePickProjectFolder = () => {
+    const active = projects.find((p) => p.id === activeProjectId);
+    setFolderPathInput(active?.path || "");
+    setShowOpenFolderModal(true);
+  };
+
+  const handleBrowseWithWindowsExplorer = async () => {
+    try {
+      setStatusBanner("Opening Windows Explorer folder picker...");
+      const picked = await oxideBridge.pickFolderDialog();
+      if (picked?.trim()) {
+        await openWorkspaceDirectory(picked.trim());
+      }
+    } catch (err: any) {
+      setStatusBanner(`Picker error: ${err?.message || String(err)}`);
     }
   };
 
@@ -1002,24 +1032,41 @@ export const App: React.FC = () => {
     setStatusBanner(`Saved ${activeFile}`);
   };
 
-  const handleCreateNewFile = async () => {
-    const name = window.prompt(
-      "New file path relative to workspace folder (e.g. src/utils.ts):"
-    );
-    if (!name?.trim()) return;
-    await oxideBridge.saveWorkspaceFile(name.trim(), "");
-    await refreshWorkspaceState(currentDir);
-    setActiveFile(name.trim());
-    setActiveFileContent("");
-    setRightDrawer("editor");
+  const handleOpenCreateFileModal = () => {
+    setCreateItemModal({ isOpen: true, type: "file", name: "" });
+  };
+
+  const handleOpenCreateFolderModal = () => {
+    setCreateItemModal({ isOpen: true, type: "folder", name: "" });
+  };
+
+  const handleConfirmCreateItem = async (type: "file" | "folder", name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    try {
+      if (type === "file") {
+        await oxideBridge.saveWorkspaceFile(clean, "");
+        await refreshWorkspaceState(currentDir);
+        setActiveFile(clean);
+        setActiveFileContent("");
+        setRightDrawer("editor");
+        setStatusBanner(`Created file '${clean}'`);
+      } else {
+        await oxideBridge.createWorkspaceFolder(clean);
+        await refreshWorkspaceState(currentDir);
+        setStatusBanner(`Created folder '${clean}'`);
+      }
+      setCreateItemModal(null);
+    } catch (err: any) {
+      setStatusBanner(`Create error: ${err?.message || String(err)}`);
+    }
   };
 
   const handleGitAction = async (op: "pull" | "push" | "commit") => {
     try {
       setStatusBanner(`Running git ${op}...`);
       if (op === "commit") {
-        const msg =
-          window.prompt("Commit message:") || "feat: update project milestone";
+        const msg = `feat: update project workspace milestone (${new Date().toLocaleTimeString()})`;
         const rec = await oxideBridge.triggerGitMilestone(msg);
         if (rec) {
           setStatusBanner(`Committed [${rec.commit_hash}] ${rec.message}`);
@@ -2207,9 +2254,18 @@ export const App: React.FC = () => {
                       <button
                         className="btn"
                         style={{ padding: "0.18rem 0.45rem" }}
-                        onClick={handleCreateNewFile}
+                        onClick={handleOpenCreateFileModal}
+                        title="Create new file in workspace"
                       >
                         + File
+                      </button>
+                      <button
+                        className="btn"
+                        style={{ padding: "0.18rem 0.45rem" }}
+                        onClick={handleOpenCreateFolderModal}
+                        title="Create new folder in workspace"
+                      >
+                        + Folder
                       </button>
                     </div>
                   </div>
@@ -2226,13 +2282,49 @@ export const App: React.FC = () => {
                         className={`file-item ${
                           activeFile === entry.relative_path ? "active" : ""
                         }`}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          cursor: "pointer",
+                        }}
                         onClick={() => handleOpenFileOrDir(entry)}
                       >
-                        <span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                           {entry.is_dir ? "[Dir]" : "[File]"} {entry.name}
                         </span>
+                        <button
+                          type="button"
+                          className="status-dismiss"
+                          style={{
+                            padding: "0 0.35rem",
+                            fontSize: "0.75rem",
+                            color: "var(--text-muted)",
+                            opacity: 0.6,
+                          }}
+                          title={`Delete ${entry.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDelete({
+                              type: entry.is_dir ? "folder" : "file",
+                              name: entry.name,
+                              onConfirm: async () => {
+                                await oxideBridge.deleteWorkspaceFile(entry.relative_path);
+                                setFiles(await oxideBridge.listWorkspaceFiles(currentDir));
+                                setStatusBanner(`Deleted ${entry.name}`);
+                              },
+                            });
+                          }}
+                        >
+                          x
+                        </button>
                       </div>
                     ))}
+                    {files.length === 0 && (
+                      <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", padding: "1rem", textAlign: "center" }}>
+                        Workspace folder is empty. Click <strong>+ File</strong> above to create a file.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -4646,6 +4738,273 @@ export const App: React.FC = () => {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== OPEN WORKSPACE FOLDER MODAL ==================== */}
+      {showOpenFolderModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowOpenFolderModal(false)}
+        >
+          <div
+            className="model-hub-card"
+            style={{ width: "620px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "1px solid var(--border-subtle)",
+                paddingBottom: "0.6rem",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
+                  Open Project Workspace
+                </h3>
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "var(--text-secondary)",
+                    marginTop: "0.15rem",
+                  }}
+                >
+                  Select or enter the folder path to use as the active project workspace
+                </div>
+              </div>
+              <button
+                className="btn"
+                onClick={() => setShowOpenFolderModal(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                marginTop: "1rem",
+              }}
+            >
+              {/* Option 1: Native Windows Explorer Dialog */}
+              <div
+                style={{
+                  padding: "0.85rem",
+                  background: "var(--bg-elevated)",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "0.86rem",
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Option 1: Windows Explorer Folder Picker
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.74rem",
+                    color: "var(--text-secondary)",
+                    marginBottom: "0.6rem",
+                  }}
+                >
+                  Open the native Windows folder browser dialog to select a folder on your computer
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBrowseWithWindowsExplorer}
+                >
+                  Browse with Windows Explorer...
+                </button>
+              </div>
+
+              {/* Option 2: Direct Folder Path Input */}
+              <div
+                style={{
+                  padding: "0.85rem",
+                  background: "var(--bg-elevated)",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "0.86rem",
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Option 2: Enter or Paste Folder Path
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+                  <input
+                    className="workspace-input"
+                    style={{ flex: 1 }}
+                    placeholder="e.g. C:\Users\hannu\.gemini\antigravity\scratch"
+                    value={folderPathInput}
+                    onChange={(e) => setFolderPathInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && folderPathInput.trim()) {
+                        openWorkspaceDirectory(folderPathInput.trim());
+                      }
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    disabled={!folderPathInput.trim()}
+                    onClick={() => openWorkspaceDirectory(folderPathInput.trim())}
+                  >
+                    Open Folder
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div>
+                <div
+                  style={{
+                    fontSize: "0.74rem",
+                    color: "var(--text-muted)",
+                    marginBottom: "0.4rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Quick Preset Workspaces:
+                </div>
+                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                  <button
+                    className="ag-pill-btn"
+                    onClick={() =>
+                      openWorkspaceDirectory(
+                        "C:\\Users\\hannu\\.gemini\\antigravity\\scratch"
+                      )
+                    }
+                  >
+                    Antigravity Scratch
+                  </button>
+                  <button
+                    className="ag-pill-btn"
+                    onClick={() =>
+                      openWorkspaceDirectory(
+                        "C:\\Users\\hannu\\AppData\\Local\\Programs\\Oxide\\workspace"
+                      )
+                    }
+                  >
+                    Oxide Workspace
+                  </button>
+                  <button
+                    className="ag-pill-btn"
+                    onClick={() =>
+                      openWorkspaceDirectory("C:\\Users\\hannu")
+                    }
+                  >
+                    User Home (~/)
+                  </button>
+                  <button
+                    className="ag-pill-btn"
+                    onClick={() =>
+                      openWorkspaceDirectory("C:\\Users\\hannu\\Desktop")
+                    }
+                  >
+                    Desktop
+                  </button>
+                  <button
+                    className="ag-pill-btn"
+                    onClick={() =>
+                      openWorkspaceDirectory("C:\\Users\\hannu\\Downloads")
+                    }
+                  >
+                    Downloads
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== CREATE NEW FILE / FOLDER MODAL ==================== */}
+      {createItemModal && createItemModal.isOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setCreateItemModal(null)}
+        >
+          <div
+            className="confirm-modal-box"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: "1.05rem",
+                color: "var(--text-primary)",
+                marginBottom: "0.35rem",
+              }}
+            >
+              Create New {createItemModal.type === "file" ? "File" : "Folder"}
+            </div>
+            <div
+              style={{
+                fontSize: "0.78rem",
+                color: "var(--text-secondary)",
+                marginBottom: "0.85rem",
+              }}
+            >
+              {createItemModal.type === "file"
+                ? "Enter file path relative to workspace (e.g. src/index.ts, app.py, notes.md):"
+                : "Enter folder name or path (e.g. components, src/utils):"}
+            </div>
+            <input
+              autoFocus
+              className="workspace-input"
+              style={{ width: "100%", marginBottom: "1rem" }}
+              placeholder={
+                createItemModal.type === "file" ? "src/main.rs" : "my_folder"
+              }
+              value={createItemModal.name}
+              onChange={(e) =>
+                setCreateItemModal({ ...createItemModal, name: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && createItemModal.name.trim()) {
+                  handleConfirmCreateItem(
+                    createItemModal.type,
+                    createItemModal.name.trim()
+                  );
+                } else if (e.key === "Escape") {
+                  setCreateItemModal(null);
+                }
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+              <button
+                className="btn"
+                onClick={() => setCreateItemModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={!createItemModal.name.trim()}
+                onClick={() =>
+                  handleConfirmCreateItem(
+                    createItemModal.type,
+                    createItemModal.name.trim()
+                  )
+                }
+              >
+                Create {createItemModal.type === "file" ? "File" : "Folder"}
               </button>
             </div>
           </div>

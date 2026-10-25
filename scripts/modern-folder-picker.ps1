@@ -8,6 +8,9 @@ using System.Runtime.InteropServices;
 
 namespace OxideNative {
     public class ModernFolderPicker {
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
         [DllImport("shell32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern int SHCreateItemFromParsingName(
             [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
@@ -63,30 +66,33 @@ namespace OxideNative {
         }
 
         public static string SelectFolder(string title, string initialDir) {
-            var dialog = (IFileOpenDialog)new FileOpenDialogRCW();
-            // FOS_PICKFOLDERS = 0x20, FOS_FORCEFILESYSTEM = 0x40, FOS_NOCHANGEDIR = 0x8
-            uint options = 0x00000020 | 0x00000040 | 0x00000008;
-            dialog.SetOptions(options);
+            try {
+                var dialog = (IFileOpenDialog)new FileOpenDialogRCW();
+                // FOS_PICKFOLDERS = 0x20, FOS_FORCEFILESYSTEM = 0x40, FOS_NOCHANGEDIR = 0x8
+                uint options = 0x00000020 | 0x00000040 | 0x00000008;
+                dialog.SetOptions(options);
 
-            if (!string.IsNullOrEmpty(title)) {
-                dialog.SetTitle(title);
-            }
-            if (!string.IsNullOrEmpty(initialDir) && System.IO.Directory.Exists(initialDir)) {
-                Guid iid = new Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe");
-                object item;
-                if (SHCreateItemFromParsingName(initialDir, IntPtr.Zero, ref iid, out item) == 0) {
-                    dialog.SetFolder(item);
+                if (!string.IsNullOrEmpty(title)) {
+                    dialog.SetTitle(title);
                 }
-            }
+                if (!string.IsNullOrEmpty(initialDir) && System.IO.Directory.Exists(initialDir)) {
+                    Guid iid = new Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+                    object item;
+                    if (SHCreateItemFromParsingName(initialDir, IntPtr.Zero, ref iid, out item) == 0) {
+                        dialog.SetFolder(item);
+                    }
+                }
 
-            int hr = dialog.Show(IntPtr.Zero);
-            if (hr == 0) {
-                IShellItem result;
-                dialog.GetResult(out result);
-                string path;
-                result.GetDisplayName(0x80058000, out path); // SIGDN_FILESYSPATH
-                return path;
-            }
+                IntPtr fg = GetForegroundWindow();
+                int hr = dialog.Show(fg);
+                if (hr == 0) {
+                    IShellItem result;
+                    dialog.GetResult(out result);
+                    string path;
+                    result.GetDisplayName(0x80058000, out path); // SIGDN_FILESYSPATH
+                    return path;
+                }
+            } catch {}
             return null;
         }
     }
@@ -96,6 +102,20 @@ namespace OxideNative {
 Add-Type -TypeDefinition $source -ErrorAction SilentlyContinue
 
 $res = [OxideNative.ModernFolderPicker]::SelectFolder("Select Project Folder for Oxide Studio", $InitialDir)
+if ([string]::IsNullOrEmpty($res)) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+        $fbd.Description = "Select Project Workspace Folder"
+        if (![string]::IsNullOrEmpty($InitialDir) -and (Test-Path $InitialDir)) {
+            $fbd.SelectedPath = $InitialDir
+        }
+        if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $res = $fbd.SelectedPath
+        }
+    } catch {}
+}
+
 if (![string]::IsNullOrEmpty($res)) {
     Write-Output $res
 }

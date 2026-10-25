@@ -560,12 +560,42 @@ function createLocalSystemBridgePlugin(): Plugin {
             )
               ? path.resolve("scripts/modern-folder-picker.ps1")
               : path.join(oxideRuntimeRoot, "modern-folder-picker.ps1");
-            const initial = state.workspaceRoot ? `"${state.workspaceRoot}"` : "";
-            const out = await runCommandBounded(
-              `powershell -NoProfile -Sta -ExecutionPolicy Bypass -File "${pickerScript}" ${initial}`
-            );
-            const selected = out.stdout.trim();
-            res.end(JSON.stringify(selected || null));
+            const initial = state.workspaceRoot ? state.workspaceRoot : (process.env.USERPROFILE || "C:\\");
+
+            try {
+              const child = spawn(
+                "powershell.exe",
+                [
+                  "-NoProfile",
+                  "-Sta",
+                  "-ExecutionPolicy",
+                  "Bypass",
+                  "-File",
+                  pickerScript,
+                  initial,
+                ],
+                {
+                  windowsHide: false,
+                  shell: false,
+                }
+              );
+
+              let stdout = "";
+              child.stdout?.on("data", (d) => {
+                stdout += d.toString();
+              });
+
+              child.on("close", () => {
+                const selected = stdout.trim();
+                res.end(JSON.stringify(selected || null));
+              });
+
+              child.on("error", () => {
+                res.end(JSON.stringify(null));
+              });
+            } catch {
+              res.end(JSON.stringify(null));
+            }
             return;
           }
 
@@ -837,6 +867,13 @@ function createLocalSystemBridgePlugin(): Plugin {
           if (action === "delete_workspace_file") {
             const target = resolveInsideWorkspace(args.relativePath);
             fs.rmSync(target, { recursive: true, force: true });
+            res.end(JSON.stringify(args.relativePath));
+            return;
+          }
+
+          if (action === "create_workspace_folder") {
+            const target = resolveInsideWorkspace(args.relativePath);
+            fs.mkdirSync(target, { recursive: true });
             res.end(JSON.stringify(args.relativePath));
             return;
           }
