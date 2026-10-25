@@ -7,8 +7,10 @@ import {
   GitCommitRecord,
   GitStatusSummary,
   HardwareSpecs,
+  HuggingFaceModelEntry,
   McpServerConfig,
   McpToolCallResult,
+  ModelInstallResult,
   ProviderConfig,
   ProviderHealthReport,
   UpdateInstallResult,
@@ -223,6 +225,30 @@ export const oxideBridge = {
 
   async performGithubUpdate(): Promise<UpdateInstallResult> {
     return callBackend<UpdateInstallResult>("perform_github_update");
+  },
+
+  async ensureOllamaEngine(): Promise<string> {
+    return callBackend<string>("ensure_ollama_engine");
+  },
+
+  async installAiModel(modelId: string): Promise<ModelInstallResult> {
+    return callBackend<ModelInstallResult>("install_ai_model", {
+      modelId,
+      model_id: modelId,
+    });
+  },
+
+  async deleteAiModel(modelId: string): Promise<boolean> {
+    return callBackend<boolean>("delete_ai_model", {
+      modelId,
+      model_id: modelId,
+    });
+  },
+
+  async searchHuggingfaceGguf(query: string): Promise<HuggingFaceModelEntry[]> {
+    return callBackend<HuggingFaceModelEntry[]>("search_huggingface_gguf", {
+      query,
+    });
   },
 
   async runAgentTask(prompt: string): Promise<string> {

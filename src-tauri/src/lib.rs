@@ -64,6 +64,10 @@ pub fn run() {
             commands::agent::git_sync_action,
             commands::agent::check_github_update,
             commands::agent::perform_github_update,
+            commands::agent::ensure_ollama_engine,
+            commands::agent::install_ai_model,
+            commands::agent::delete_ai_model,
+            commands::agent::search_huggingface_gguf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Tauri application");

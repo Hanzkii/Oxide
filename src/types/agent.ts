@@ -214,3 +214,27 @@ export type AgentStreamEvent =
       type: "task_error";
       message: string;
     };
+
+export interface ModelInstallResult {
+  model_id: string;
+  success: boolean;
+  message: string;
+}
+
+export interface HuggingFaceModelEntry {
+  id: string;
+  install_id: string;
+  name: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  params: string;
+  size_gb: number;
+  min_ram_gb: number;
+  recommended_vram_gb: number;
+  is_coding: boolean;
+  is_uncensored: boolean;
+  is_reasoning: boolean;
+  is_fast_subagent: boolean;
+  summary: string;
+}

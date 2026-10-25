@@ -922,6 +922,210 @@ function createLocalSystemBridgePlugin(): Plugin {
             return;
           }
 
+          if (action === "ensure_ollama_engine") {
+            const ver = await runCommandBounded("ollama --version");
+            if (ver.succeeded) {
+              spawn("ollama", ["serve"], {
+                detached: true,
+                stdio: "ignore",
+                windowsHide: true,
+              }).unref();
+              res.end(
+                JSON.stringify("Ollama engine started in the background.")
+              );
+              return;
+            }
+            const wg = await runCommandBounded(
+              "winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements"
+            );
+            if (wg.succeeded) {
+              res.end(
+                JSON.stringify(
+                  "Ollama installed via Winget! Starting local AI engine..."
+                )
+              );
+              return;
+            }
+            throw new Error(
+              "Could not auto-install Ollama via Winget. Please install from https://ollama.com/download"
+            );
+          }
+
+          if (action === "install_ai_model") {
+            const modelId = String(body.modelId || body.model_id || "").trim();
+            if (!modelId) throw new Error("Missing modelId");
+            const baseUrl = state.providerConfig.ollama_base_url.replace(
+              /\/$/,
+              ""
+            );
+            try {
+              const pullResp = await fetch(`${baseUrl}/api/pull`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: modelId, stream: false }),
+              });
+              if (pullResp.ok) {
+                res.end(
+                  JSON.stringify({
+                    model_id: modelId,
+                    success: true,
+                    message: `Installed ${modelId} successfully!`,
+                  })
+                );
+                return;
+              }
+            } catch {}
+
+            const cliRes = await runCommandBounded(`ollama pull ${modelId}`);
+            if (cliRes.succeeded) {
+              res.end(
+                JSON.stringify({
+                  model_id: modelId,
+                  success: true,
+                  message: `Installed ${modelId} successfully!`,
+                })
+              );
+              return;
+            }
+            throw new Error(
+              cliRes.stderr ||
+                `Failed to pull ${modelId}. Make sure Ollama is running.`
+            );
+          }
+
+          if (action === "delete_ai_model") {
+            const modelId = String(body.modelId || body.model_id || "").trim();
+            const baseUrl = state.providerConfig.ollama_base_url.replace(
+              /\/$/,
+              ""
+            );
+            try {
+              const delResp = await fetch(`${baseUrl}/api/delete`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: modelId }),
+              });
+              if (delResp.ok) {
+                res.end(JSON.stringify(true));
+                return;
+              }
+            } catch {}
+            const cliRes = await runCommandBounded(`ollama rm ${modelId}`);
+            res.end(JSON.stringify(cliRes.succeeded));
+            return;
+          }
+
+          if (action === "search_huggingface_gguf") {
+            const query =
+              String(body.query || "").trim() || "coder abliterated";
+            const hfUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(
+              query
+            )}&filter=gguf&sort=downloads&direction=-1&limit=18`;
+            const hfResp = await fetch(hfUrl, {
+              headers: { "User-Agent": "OxideStudio/0.1" },
+            });
+            const items: any[] = hfResp.ok ? await hfResp.json() : [];
+            const mapped = items.map((item: any) => {
+              const id = String(item.id || "");
+              const [author, name] = id.split("/");
+              const tags: string[] = Array.isArray(item.tags) ? item.tags : [];
+              const lower = `${id} ${tags.join(" ")}`.toLowerCase();
+              const is_uncensored =
+                lower.includes("uncensored") ||
+                lower.includes("abliterated") ||
+                lower.includes("dolphin") ||
+                lower.includes("unfiltered") ||
+                lower.includes("heretic") ||
+                lower.includes("lexi") ||
+                lower.includes("ortho");
+              const is_coding =
+                lower.includes("coder") ||
+                lower.includes("code") ||
+                lower.includes("starcoder") ||
+                lower.includes("codestral");
+              const is_reasoning =
+                lower.includes("deepseek-r1") ||
+                lower.includes("-r1") ||
+                lower.includes("qwq") ||
+                lower.includes("reasoning");
+
+              let params = "7B";
+              let size_gb = 4.7;
+              let min_ram_gb = 8.0;
+              let recommended_vram_gb = 6.0;
+              let is_fast_subagent = true;
+              if (lower.includes("70b") || lower.includes("72b")) {
+                params = "70B";
+                size_gb = 40.0;
+                min_ram_gb = 48.0;
+                recommended_vram_gb = 42.0;
+                is_fast_subagent = false;
+              } else if (lower.includes("32b") || lower.includes("34b")) {
+                params = "32B";
+                size_gb = 19.5;
+                min_ram_gb = 24.0;
+                recommended_vram_gb = 20.0;
+                is_fast_subagent = false;
+              } else if (
+                lower.includes("14b") ||
+                lower.includes("16b") ||
+                lower.includes("13b")
+              ) {
+                params = "14B";
+                size_gb = 9.0;
+                min_ram_gb = 14.0;
+                recommended_vram_gb = 10.0;
+                is_fast_subagent = false;
+              } else if (
+                lower.includes("1.5b") ||
+                lower.includes("1b") ||
+                lower.includes("0.5b")
+              ) {
+                params = "1.5B";
+                size_gb = 1.1;
+                min_ram_gb = 4.0;
+                recommended_vram_gb = 2.0;
+                is_fast_subagent = true;
+              } else if (lower.includes("3b") || lower.includes("2b")) {
+                params = "3B";
+                size_gb = 2.1;
+                min_ram_gb = 6.0;
+                recommended_vram_gb = 3.5;
+                is_fast_subagent = true;
+              } else if (lower.includes("8b")) {
+                params = "8B";
+                size_gb = 4.9;
+                min_ram_gb = 8.0;
+                recommended_vram_gb = 6.0;
+                is_fast_subagent = true;
+              }
+
+              return {
+                id,
+                install_id: `hf.co/${id}`,
+                name: name || id,
+                author: author || "hf",
+                downloads: item.downloads || 0,
+                likes: item.likes || 0,
+                params,
+                size_gb,
+                min_ram_gb,
+                recommended_vram_gb,
+                is_coding,
+                is_uncensored,
+                is_reasoning,
+                is_fast_subagent,
+                summary: `HuggingFace GGUF — ${(
+                  item.downloads || 0
+                ).toLocaleString()} downloads, ♥ ${
+                  item.likes || 0
+                }. 1-Click direct pull via hf.co.`,
+              };
+            });
+            res.end(JSON.stringify(mapped));
+            return;
+          }
+
           res.statusCode = 404;
           res.end(JSON.stringify({ message: `Unknown endpoint: ${action}` }));
         } catch (err: any) {

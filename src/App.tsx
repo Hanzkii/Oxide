@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { oxideBridge } from "./services/tauriBridge";
 import {
+  CURATED_MODEL_CATALOG,
+  CatalogModelEntry,
+  evaluateModelHardwareFit,
+  hfEntryToCatalogEntry,
+} from "./data/modelCatalog";
+import {
   AgentRoleKind,
   CommandExecutionResult,
   GitStatusSummary,
@@ -133,10 +139,30 @@ export const App: React.FC = () => {
 
   // Modals
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showModelHubModal, setShowModelHubModal] = useState<boolean>(false);
   const [showMcpModal, setShowMcpModal] = useState<boolean>(false);
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
+
+  // 1-Click AI Model Hub (Ollama + HuggingFace GGUF) State
+  const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
+  const [modelCategoryFilter, setModelCategoryFilter] = useState<
+    "all" | "coding" | "uncensored" | "coding_uncensored" | "reasoning" | "subagent"
+  >("all");
+  const [modelSourceFilter, setModelSourceFilter] = useState<
+    "all" | "ollama" | "huggingface"
+  >("all");
+  const [onlyFitsMyPc, setOnlyFitsMyPc] = useState<boolean>(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState<string>("");
+  const [hfSearchResults, setHfSearchResults] = useState<CatalogModelEntry[]>(
+    []
+  );
+  const [isSearchingHf, setIsSearchingHf] = useState<boolean>(false);
+  const [installingModelId, setInstallingModelId] = useState<string | null>(
+    null
+  );
+  const [customInstallTag, setCustomInstallTag] = useState<string>("");
 
   // MCP State
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
@@ -180,6 +206,7 @@ export const App: React.FC = () => {
       setGitStatus(git);
       setHwSpecs(hw);
       setMcpServers(mcpList);
+      setOllamaOnline(health.ollama_reachable);
       if (health.ollama_models.length > 0) {
         setOllamaModels(health.ollama_models);
       }
@@ -725,9 +752,24 @@ export const App: React.FC = () => {
           </button>
           <button
             className="ag-nav-item"
+            onClick={() => setShowModelHubModal(true)}
+          >
+            <span>⬇ AI Model Hub (1-Click)</span>
+            <span
+              style={{
+                fontSize: "0.7rem",
+                color: ollamaOnline ? "#4ade80" : "var(--oxide-ember)",
+                fontWeight: 600,
+              }}
+            >
+              {ollamaModels.length} installed
+            </span>
+          </button>
+          <button
+            className="ag-nav-item"
             onClick={() => setShowSettingsModal(true)}
           >
-            <span>⚡ Subagents &amp; Models</span>
+            <span>⚡ Subagents &amp; Routing</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               Max {providerConfig.max_concurrent_subagents}
             </span>
@@ -1144,6 +1186,13 @@ export const App: React.FC = () => {
                     )}
                     <button
                       className="ag-model-picker-inline"
+                      onClick={() => setShowModelHubModal(true)}
+                      title="Open 1-Click AI Model Hub (Ollama & HuggingFace)"
+                    >
+                      ⬇ + Install AI
+                    </button>
+                    <button
+                      className="ag-model-picker-inline"
                       onClick={() => setShowSettingsModal(true)}
                       title="Configure Subagents & PC Governor"
                     >
@@ -1432,6 +1481,626 @@ export const App: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* ==================== 1-CLICK AI MODEL HUB (OLLAMA + HUGGINGFACE) ==================== */}
+      {showModelHubModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowModelHubModal(false)}
+        >
+          <div
+            className="model-hub-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
+                  ⬇ 1-Click AI Model Hub (Ollama &amp; HuggingFace GGUF)
+                </h3>
+                <div
+                  style={{
+                    fontSize: "0.78rem",
+                    color: "var(--text-secondary)",
+                    marginTop: "0.2rem",
+                  }}
+                >
+                  Auto-matched to your PC hardware • Filter by Coding,
+                  Uncensored/Abliterated, Reasoning &amp; Fast Subagents
+                </div>
+              </div>
+              <button
+                className="btn"
+                onClick={() => setShowModelHubModal(false)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* PC Specs & Ollama Runtime Banner */}
+            <div
+              className="hw-spec-box"
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.75rem",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                  🖥 Detected PC Specs:{" "}
+                  <span style={{ color: "var(--oxide-ember)" }}>
+                    {hwSpecs
+                      ? `${hwSpecs.total_ram_gb} GB RAM (${hwSpecs.available_ram_gb} GB free) • ${hwSpecs.gpu_name}${
+                          hwSpecs.gpu_vram_gb > 0
+                            ? ` (${hwSpecs.gpu_vram_gb} GB VRAM)`
+                            : ""
+                        }`
+                      : "Inspecting hardware..."}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.74rem",
+                    color: "var(--text-secondary)",
+                    marginTop: "0.18rem",
+                  }}
+                >
+                  Local Ollama Engine:{" "}
+                  <strong
+                    style={{
+                      color: ollamaOnline ? "#4ade80" : "#fbbf24",
+                    }}
+                  >
+                    {ollamaOnline
+                      ? `Online (${ollamaModels.length} models ready)`
+                      : "Not detected / Offline"}
+                  </strong>
+                  {" • "}
+                  Active Lead AI:{" "}
+                  <code>{providerConfig.task_routing.architect_model}</code>
+                  {" • "}
+                  Subagent:{" "}
+                  <code>{providerConfig.task_routing.coder_subagent_model}</code>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                {!ollamaOnline && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      setStatusBanner(
+                        "Starting / Installing Ollama local AI engine..."
+                      );
+                      try {
+                        const msg = await oxideBridge.ensureOllamaEngine();
+                        setStatusBanner(msg);
+                        await refreshWorkspaceState(currentDir);
+                      } catch (err: any) {
+                        setStatusBanner(
+                          `Ollama setup error: ${err?.message || String(err)}`
+                        );
+                      }
+                    }}
+                  >
+                    ⚡ 1-Click Start / Install Ollama
+                  </button>
+                )}
+                <button
+                  className="btn"
+                  onClick={handleAutoAssignOptimalModels}
+                  title="Auto-assign installed models to Lead Architect and Subagents based on your PC RAM/VRAM"
+                >
+                  ✨ Auto-Assign Best Models for PC
+                </button>
+              </div>
+            </div>
+
+            {/* Category & Uncensored / Coding Filter Bar */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+              }}
+            >
+              <div className="model-filter-bar">
+                {(
+                  [
+                    ["all", "All Models"],
+                    ["coding", "💻 Coding"],
+                    ["uncensored", "🔓 Uncensored"],
+                    ["coding_uncensored", "🔥 Coding + Uncensored"],
+                    ["reasoning", "🧠 Reasoning (R1)"],
+                    ["subagent", "⚡ Fast Subagents"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    className={`model-filter-pill ${
+                      modelCategoryFilter === key ? "active" : ""
+                    }`}
+                    onClick={() => setModelCategoryFilter(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="model-filter-bar">
+                {(
+                  [
+                    ["all", "All Sources"],
+                    ["ollama", "🦙 Ollama"],
+                    ["huggingface", "🤗 HuggingFace"],
+                  ] as const
+                ).map(([srcKey, srcLabel]) => (
+                  <button
+                    key={srcKey}
+                    className={`model-filter-pill ${
+                      modelSourceFilter === srcKey ? "active" : ""
+                    }`}
+                    onClick={() => setModelSourceFilter(srcKey)}
+                  >
+                    {srcLabel}
+                  </button>
+                ))}
+
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    fontSize: "0.76rem",
+                    cursor: "pointer",
+                    marginLeft: "0.35rem",
+                    color: onlyFitsMyPc ? "#4ade80" : "var(--text-secondary)",
+                    fontWeight: onlyFitsMyPc ? 600 : 400,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={onlyFitsMyPc}
+                    onChange={(e) => setOnlyFitsMyPc(e.target.checked)}
+                  />
+                  ✅ Fits My PC Only
+                </label>
+              </div>
+            </div>
+
+            {/* Search & Live HuggingFace GGUF Lookup + Direct Tag Pull */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto auto",
+                gap: "0.5rem",
+              }}
+            >
+              <input
+                className="workspace-input"
+                placeholder="Search models (e.g. 'coder', 'uncensored', 'abliterated', 'dolphin', 'deepseek-r1')..."
+                value={modelSearchQuery}
+                onChange={(e) => setModelSearchQuery(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && modelSearchQuery.trim()) {
+                    setIsSearchingHf(true);
+                    try {
+                      const res = await oxideBridge.searchHuggingfaceGguf(
+                        modelSearchQuery.trim()
+                      );
+                      setHfSearchResults(res.map(hfEntryToCatalogEntry));
+                    } finally {
+                      setIsSearchingHf(false);
+                    }
+                  }
+                }}
+              />
+              <button
+                className="btn"
+                disabled={isSearchingHf}
+                onClick={async () => {
+                  setIsSearchingHf(true);
+                  try {
+                    const q =
+                      modelSearchQuery.trim() ||
+                      (modelCategoryFilter === "uncensored" ||
+                      modelCategoryFilter === "coding_uncensored"
+                        ? "coder abliterated uncensored"
+                        : "qwen2.5-coder gguf");
+                    const res = await oxideBridge.searchHuggingfaceGguf(q);
+                    setHfSearchResults(res.map(hfEntryToCatalogEntry));
+                  } catch (err: any) {
+                    setStatusBanner(
+                      `HuggingFace search error: ${err?.message || String(err)}`
+                    );
+                  } finally {
+                    setIsSearchingHf(false);
+                  }
+                }}
+              >
+                {isSearchingHf
+                  ? "🤗 Searching HF..."
+                  : "🤗 Search HuggingFace Hub Live"}
+              </button>
+              {hfSearchResults.length > 0 && (
+                <button
+                  className="btn"
+                  onClick={() => setHfSearchResults([])}
+                >
+                  Clear HF Results ({hfSearchResults.length})
+                </button>
+              )}
+            </div>
+
+            {/* Direct Custom Ollama / HuggingFace Repo 1-Click Pull */}
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                alignItems: "center",
+              }}
+            >
+              <input
+                className="workspace-input"
+                style={{ flex: 1 }}
+                placeholder="Or paste any Ollama tag or HuggingFace GGUF repo (e.g. hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF)..."
+                value={customInstallTag}
+                onChange={(e) => setCustomInstallTag(e.target.value)}
+              />
+              <button
+                className="btn btn-primary"
+                disabled={
+                  !customInstallTag.trim() || Boolean(installingModelId)
+                }
+                onClick={async () => {
+                  const tag = customInstallTag.trim();
+                  if (!tag) return;
+                  setInstallingModelId(tag);
+                  setStatusBanner(`Downloading & installing ${tag}...`);
+                  try {
+                    const res = await oxideBridge.installAiModel(tag);
+                    setStatusBanner(res.message);
+                    setCustomInstallTag("");
+                    await refreshWorkspaceState(currentDir);
+                  } catch (err: any) {
+                    setStatusBanner(
+                      `Install failed: ${err?.message || String(err)}`
+                    );
+                  } finally {
+                    setInstallingModelId(null);
+                  }
+                }}
+              >
+                {installingModelId === customInstallTag.trim() &&
+                customInstallTag.trim()
+                  ? "⟳ Installing..."
+                  : "⬇ Pull Custom Model"}
+              </button>
+            </div>
+
+            {/* Filtered Model Cards Grid */}
+            <div className="model-grid">
+              {[
+                ...hfSearchResults,
+                ...CURATED_MODEL_CATALOG.filter(
+                  (c) =>
+                    !hfSearchResults.some(
+                      (h) => h.install_id === c.install_id
+                    )
+                ),
+              ]
+                .filter((m) => {
+                  if (
+                    modelSourceFilter !== "all" &&
+                    m.source !== modelSourceFilter
+                  ) {
+                    return false;
+                  }
+                  if (modelCategoryFilter === "coding" && !m.is_coding) {
+                    return false;
+                  }
+                  if (
+                    modelCategoryFilter === "uncensored" &&
+                    !m.is_uncensored
+                  ) {
+                    return false;
+                  }
+                  if (
+                    modelCategoryFilter === "coding_uncensored" &&
+                    (!m.is_coding || !m.is_uncensored)
+                  ) {
+                    return false;
+                  }
+                  if (modelCategoryFilter === "reasoning" && !m.is_reasoning) {
+                    return false;
+                  }
+                  if (
+                    modelCategoryFilter === "subagent" &&
+                    !m.is_fast_subagent
+                  ) {
+                    return false;
+                  }
+                  const fit = evaluateModelHardwareFit(m, hwSpecs);
+                  if (onlyFitsMyPc && !fit.canRun) {
+                    return false;
+                  }
+                  if (modelSearchQuery.trim()) {
+                    const q = modelSearchQuery.toLowerCase();
+                    const hay =
+                      `${m.name} ${m.install_id} ${m.summary} ${m.author} ${
+                        m.is_uncensored ? "uncensored abliterated" : ""
+                      } ${m.is_coding ? "coding coder" : ""}`.toLowerCase();
+                    if (!hay.includes(q)) return false;
+                  }
+                  return true;
+                })
+                .map((model) => {
+                  const fit = evaluateModelHardwareFit(model, hwSpecs);
+                  const isInstalled = ollamaModels.some(
+                    (om) =>
+                      om.toLowerCase() === model.install_id.toLowerCase() ||
+                      om
+                        .toLowerCase()
+                        .startsWith(model.install_id.toLowerCase())
+                  );
+                  const isInstallingThis =
+                    installingModelId === model.install_id;
+                  const isLead =
+                    providerConfig.task_routing.architect_model ===
+                    model.install_id;
+                  const isSubagent =
+                    providerConfig.task_routing.coder_subagent_model ===
+                    model.install_id;
+
+                  return (
+                    <div
+                      key={model.install_id}
+                      className={`model-item-card ${
+                        isInstalled ? "installed" : ""
+                      }`}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.42rem",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: "0.4rem",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                fontSize: "0.86rem",
+                                color: "var(--text-primary)",
+                              }}
+                            >
+                              {model.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.7rem",
+                                color: "var(--text-muted)",
+                              }}
+                            >
+                              {model.source === "huggingface"
+                                ? "🤗 HuggingFace GGUF"
+                                : "🦙 Ollama Registry"}{" "}
+                              • <code>{model.params}</code> • {model.size_gb} GB
+                              download
+                            </div>
+                          </div>
+
+                          <span
+                            className={`hw-fit-badge ${fit.tier}`}
+                            title={fit.detail}
+                          >
+                            {fit.label}
+                          </span>
+                        </div>
+
+                        {/* Capability Badges */}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "0.35rem",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {model.is_coding && (
+                            <span className="model-badge coding">
+                              💻 Coding
+                            </span>
+                          )}
+                          {model.is_uncensored && (
+                            <span className="model-badge uncensored">
+                              🔓 Uncensored
+                            </span>
+                          )}
+                          {model.is_reasoning && (
+                            <span className="model-badge reasoning">
+                              🧠 Reasoning
+                            </span>
+                          )}
+                          {model.is_fast_subagent && (
+                            <span className="model-badge subagent">
+                              ⚡ Fast Subagent
+                            </span>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-secondary)",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {model.summary}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "0.4rem",
+                          paddingTop: "0.35rem",
+                          borderTop: "1px solid var(--border-subtle)",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <code
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--text-muted)",
+                            maxWidth: "180px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={model.install_id}
+                        >
+                          {model.install_id}
+                        </code>
+
+                        <div style={{ display: "flex", gap: "0.35rem" }}>
+                          {!isInstalled ? (
+                            <button
+                              className="btn btn-primary"
+                              disabled={Boolean(installingModelId)}
+                              onClick={async () => {
+                                setInstallingModelId(model.install_id);
+                                setStatusBanner(
+                                  `Downloading & installing ${model.name} (${model.size_gb} GB)...`
+                                );
+                                try {
+                                  const res =
+                                    await oxideBridge.installAiModel(
+                                      model.install_id
+                                    );
+                                  setStatusBanner(res.message);
+                                  setOllamaModels((prev) =>
+                                    prev.includes(model.install_id)
+                                      ? prev
+                                      : [model.install_id, ...prev]
+                                  );
+                                  await refreshWorkspaceState(currentDir);
+                                } catch (err: any) {
+                                  setStatusBanner(
+                                    `Install error: ${
+                                      err?.message || String(err)
+                                    }`
+                                  );
+                                } finally {
+                                  setInstallingModelId(null);
+                                }
+                              }}
+                            >
+                              {isInstallingThis
+                                ? "⟳ Installing..."
+                                : "⬇ 1-Click Install"}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                className={`btn ${
+                                  isLead ? "btn-primary" : ""
+                                }`}
+                                onClick={async () => {
+                                  const next: ProviderConfig = {
+                                    ...providerConfig,
+                                    active_provider: "ollama",
+                                    ollama_model: model.install_id,
+                                    task_routing: {
+                                      ...providerConfig.task_routing,
+                                      architect_model: model.install_id,
+                                    },
+                                  };
+                                  const saved =
+                                    await oxideBridge.updateProviderConfig(
+                                      next
+                                    );
+                                  setProviderConfig(saved);
+                                  setStatusBanner(
+                                    `Set ${model.name} as Lead Architect AI`
+                                  );
+                                }}
+                              >
+                                {isLead ? "✓ Lead AI" : "🧠 Use as Lead"}
+                              </button>
+                              <button
+                                className={`btn ${
+                                  isSubagent ? "btn-primary" : ""
+                                }`}
+                                onClick={async () => {
+                                  const next: ProviderConfig = {
+                                    ...providerConfig,
+                                    task_routing: {
+                                      ...providerConfig.task_routing,
+                                      coder_subagent_model: model.install_id,
+                                      tester_subagent_model: model.install_id,
+                                    },
+                                  };
+                                  const saved =
+                                    await oxideBridge.updateProviderConfig(
+                                      next
+                                    );
+                                  setProviderConfig(saved);
+                                  setStatusBanner(
+                                    `Set ${model.name} as Fast Subagent AI`
+                                  );
+                                }}
+                              >
+                                {isSubagent
+                                  ? "✓ Subagent"
+                                  : "⚡ Use as Subagent"}
+                              </button>
+                              <button
+                                className="btn"
+                                title="Uninstall model from disk"
+                                onClick={async () => {
+                                  await oxideBridge.deleteAiModel(
+                                    model.install_id
+                                  );
+                                  setOllamaModels((prev) =>
+                                    prev.filter((m) => m !== model.install_id)
+                                  );
+                                  await refreshWorkspaceState(currentDir);
+                                }}
+                              >
+                                🗑
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ==================== SETTINGS & SUBAGENTS MODAL ==================== */}
       {showSettingsModal && (
