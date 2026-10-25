@@ -3,12 +3,10 @@ import { oxideBridge } from "./services/tauriBridge";
 import {
   AgentRoleKind,
   CommandExecutionResult,
-  GitCommitRecord,
   GitStatusSummary,
   HardwareSpecs,
   McpServerConfig,
   ProviderConfig,
-  ProviderKind,
   SubagentRunState,
   UpdateStatus,
   WorkflowStepStatus,
@@ -35,18 +33,58 @@ interface SubagentItem {
   max_allowed_workers: number;
 }
 
-interface ChatEntry {
-  role: "user" | "assistant";
-  content: string;
+interface ConversationTurn {
+  id: string;
+  userPrompt: string;
+  thought: string;
+  thoughtSeconds: number;
+  plan: string[];
+  steps: WorkflowCardItem[];
+  assistantReply: string;
+  timestamp: string;
+}
+
+interface SavedConversation {
+  id: string;
+  projectId: string;
+  title: string;
+  updatedAt: string;
+  turns: ConversationTurn[];
+}
+
+interface ProjectWorkspace {
+  id: string;
+  name: string;
+  path: string;
+}
+
+function getBaseName(p: string): string {
+  const cleaned = p.replace(/[\\/]+$/, "");
+  const parts = cleaned.split(/[\\/]/);
+  return parts[parts.length - 1] || p;
 }
 
 export const App: React.FC = () => {
-  const [workspacePath, setWorkspacePath] = useState<string>(".");
+  // Multi-Project & Saved Conversation State
+  const [projects, setProjects] = useState<ProjectWorkspace[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>("default");
+  const [conversations, setConversations] = useState<SavedConversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string>("conv-1");
+  const [expandedThoughts, setExpandedThoughts] = useState<
+    Record<string, boolean>
+  >({});
+
+  // Right Overview & Drawer State ("none" | "files" | "review" | "terminal" | "editor")
+  const [rightDrawer, setRightDrawer] = useState<
+    "overview" | "files" | "review" | "terminal" | "editor"
+  >("overview");
+  const [showRightPanel, setShowRightPanel] = useState<boolean>(true);
+
+  // Workspace Files & Built-in Editor State
   const [files, setFiles] = useState<WorkspaceFileEntry[]>([]);
   const [currentDir, setCurrentDir] = useState<string>(".");
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [activeFileContent, setActiveFileContent] = useState<string>("");
-  const [centerTab, setCenterTab] = useState<"agent" | "editor">("agent");
 
   const [gitStatus, setGitStatus] = useState<GitStatusSummary | null>(null);
   const [hwSpecs, setHwSpecs] = useState<HardwareSpecs | null>(null);
@@ -78,14 +116,20 @@ export const App: React.FC = () => {
     "gemma2:latest",
     "deepseek-r1:latest",
   ]);
-  const [ollamaOnline, setOllamaOnline] = useState<boolean>(false);
 
-  // Live AI Thinking, Plan & Subagents State
-  const [liveThinking, setLiveThinking] = useState<string>(
-    "Lead Architect AI ready. Dispatch a task to watch real-time reasoning (<think>...) and hardware-governed Subagent delegation."
-  );
+  // Live Active Turn State
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [prompt, setPrompt] = useState<string>("");
+  const [liveThinking, setLiveThinking] = useState<string>("");
   const [planChecklist, setPlanChecklist] = useState<string[]>([]);
+  const [streamingBuffer, setStreamingBuffer] = useState<string>("");
+  const [liveSteps, setLiveSteps] = useState<WorkflowCardItem[]>([]);
   const [subagents, setSubagents] = useState<SubagentItem[]>([]);
+  const [terminalLogs, setTerminalLogs] = useState<CommandExecutionResult[]>(
+    []
+  );
+  const [quickCommand, setQuickCommand] = useState<string>("git status");
+  const [statusBanner, setStatusBanner] = useState<string>("");
 
   // Modals
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -96,28 +140,32 @@ export const App: React.FC = () => {
 
   // MCP State
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
-  const [mcpTestOutput, setMcpTestOutput] = useState<string>("");
   const [newMcpId, setNewMcpId] = useState<string>("");
-  const [newMcpName, setNewMcpName] = useState<string>("");
   const [newMcpCommand, setNewMcpCommand] = useState<string>("npx");
-  const [newMcpArgs, setNewMcpArgs] = useState<string>(
-    "-y @modelcontextprotocol/server-memory"
-  );
 
-  // Agent & Terminal State
-  const [prompt, setPrompt] = useState<string>("");
-  const [quickCommand, setQuickCommand] = useState<string>("git status");
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
-  const [streamingBuffer, setStreamingBuffer] = useState<string>("");
-  const [workflowCards, setWorkflowCards] = useState<WorkflowCardItem[]>([]);
-  const [terminalLogs, setTerminalLogs] = useState<CommandExecutionResult[]>(
-    []
-  );
-  const [commits, setCommits] = useState<GitCommitRecord[]>([]);
-  const [statusBanner, setStatusBanner] = useState<string>(
-    "Oxide Studio Ready — Hardware-Governed Subagents & Task Model Routing Active"
-  );
+  const activeProject =
+    projects.find((p) => p.id === activeProjectId) || projects[0];
+  const activeConversation = conversations.find((c) => c.id === activeConvId);
+
+  const persistStudioSessions = async (
+    nextProjects: ProjectWorkspace[],
+    nextConvs: SavedConversation[],
+    nextActiveProjId: string,
+    nextActiveConvId: string
+  ) => {
+    const payload = JSON.stringify({
+      projects: nextProjects,
+      conversations: nextConvs,
+      activeProjectId: nextActiveProjId,
+      activeConvId: nextActiveConvId,
+    });
+    try {
+      localStorage.setItem("oxide_studio_sessions_v1", payload);
+    } catch {}
+    try {
+      await oxideBridge.saveStudioState(payload);
+    } catch {}
+  };
 
   const refreshWorkspaceState = async (dir: string = currentDir) => {
     try {
@@ -132,7 +180,6 @@ export const App: React.FC = () => {
       setGitStatus(git);
       setHwSpecs(hw);
       setMcpServers(mcpList);
-      setOllamaOnline(health.ollama_reachable);
       if (health.ollama_models.length > 0) {
         setOllamaModels(health.ollama_models);
       }
@@ -145,20 +192,66 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    oxideBridge
-      .setWorkspace(".")
-      .then((info) => {
-        setWorkspacePath(info.canonical_path);
-        setGitStatus(info.git);
-      })
-      .catch(() => {});
+    (async () => {
+      // Load saved Projects & Conversations from disk or localStorage
+      let restored = false;
+      try {
+        const rawDisk = await oxideBridge.loadStudioState();
+        const rawLocal = localStorage.getItem("oxide_studio_sessions_v1");
+        const raw = rawDisk || rawLocal;
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (
+            Array.isArray(parsed.projects) &&
+            parsed.projects.length > 0 &&
+            Array.isArray(parsed.conversations)
+          ) {
+            setProjects(parsed.projects);
+            setConversations(parsed.conversations);
+            const projId = parsed.activeProjectId || parsed.projects[0].id;
+            setActiveProjectId(projId);
+            setActiveConvId(
+              parsed.activeConvId || parsed.conversations[0]?.id || "conv-1"
+            );
+            const proj =
+              parsed.projects.find(
+                (p: ProjectWorkspace) => p.id === projId
+              ) || parsed.projects[0];
+            await oxideBridge.setWorkspace(proj.path);
+            restored = true;
+          }
+        }
+      } catch {}
 
-    refreshWorkspaceState(".");
+      if (!restored) {
+        try {
+          const info = await oxideBridge.setWorkspace(".");
+          const defaultProj: ProjectWorkspace = {
+            id: "proj-default",
+            name: getBaseName(info.canonical_path),
+            path: info.canonical_path,
+          };
+          const defaultConv: SavedConversation = {
+            id: "conv-default",
+            projectId: defaultProj.id,
+            title: "Initial Workspace Session",
+            updatedAt: "now",
+            turns: [],
+          };
+          setProjects([defaultProj]);
+          setConversations([defaultConv]);
+          setActiveProjectId(defaultProj.id);
+          setActiveConvId(defaultConv.id);
+          setGitStatus(info.git);
+        } catch {}
+      }
 
-    oxideBridge
-      .checkGithubUpdate()
-      .then((st) => setUpdateStatus(st))
-      .catch(() => {});
+      await refreshWorkspaceState(".");
+      oxideBridge
+        .checkGithubUpdate()
+        .then(setUpdateStatus)
+        .catch(() => {});
+    })();
 
     const hwTimer = setInterval(() => {
       oxideBridge
@@ -201,7 +294,8 @@ export const App: React.FC = () => {
           });
           break;
         case "workflow_card":
-          setWorkflowCards((prev) => [
+          setLiveSteps((prev) => [
+            ...prev,
             {
               id: `${event.step}-${Date.now()}-${Math.random()}`,
               step: event.step,
@@ -209,7 +303,6 @@ export const App: React.FC = () => {
               detail: event.detail,
               status: event.status,
             },
-            ...prev,
           ]);
           break;
         case "file_change":
@@ -219,17 +312,13 @@ export const App: React.FC = () => {
           setTerminalLogs((prev) => [event.result, ...prev]);
           break;
         case "git_milestone":
-          setCommits((prev) => [event.commit, ...prev]);
           refreshWorkspaceState(currentDir);
           break;
         case "task_completed":
-          setStatusBanner(
-            `Completed in ${event.steps_taken} step(s): ${event.summary}`
-          );
           refreshWorkspaceState(currentDir);
           break;
         case "task_error":
-          setStatusBanner(`Agent Error: ${event.message}`);
+          setStatusBanner(`Error: ${event.message}`);
           break;
       }
     });
@@ -240,17 +329,218 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const handleBindWorkspace = async () => {
-    if (!workspacePath.trim()) return;
+  // Open Native Windows Folder Picker to Add/Switch Project Folder!
+  const handlePickProjectFolder = async () => {
     try {
-      const info = await oxideBridge.setWorkspace(workspacePath.trim());
-      setWorkspacePath(info.canonical_path);
+      const picked = await oxideBridge.pickFolderDialog();
+      const targetPath =
+        picked ||
+        window.prompt(
+          "Enter project folder path:",
+          activeProject?.path || "."
+        );
+      if (!targetPath?.trim()) return;
+
+      const info = await oxideBridge.setWorkspace(targetPath.trim());
+      const existingProj = projects.find(
+        (p) => p.path.toLowerCase() === info.canonical_path.toLowerCase()
+      );
+
+      let nextProjects = [...projects];
+      let targetProjId: string;
+
+      if (existingProj) {
+        targetProjId = existingProj.id;
+      } else {
+        const newProj: ProjectWorkspace = {
+          id: `proj-${Date.now()}`,
+          name: getBaseName(info.canonical_path),
+          path: info.canonical_path,
+        };
+        nextProjects = [newProj, ...projects];
+        targetProjId = newProj.id;
+      }
+
+      // Create a fresh conversation inside this project if none exists
+      let projConvs = conversations.filter((c) => c.projectId === targetProjId);
+      let nextConvs = [...conversations];
+      let targetConvId: string;
+
+      if (projConvs.length === 0) {
+        const firstConv: SavedConversation = {
+          id: `conv-${Date.now()}`,
+          projectId: targetProjId,
+          title: "New Workspace Session",
+          updatedAt: "now",
+          turns: [],
+        };
+        nextConvs = [firstConv, ...conversations];
+        targetConvId = firstConv.id;
+      } else {
+        targetConvId = projConvs[0].id;
+      }
+
+      setProjects(nextProjects);
+      setConversations(nextConvs);
+      setActiveProjectId(targetProjId);
+      setActiveConvId(targetConvId);
+      setCurrentDir(".");
+      setGitStatus(info.git);
+      await refreshWorkspaceState(".");
+      await persistStudioSessions(
+        nextProjects,
+        nextConvs,
+        targetProjId,
+        targetConvId
+      );
+      setStatusBanner(`Opened project '${getBaseName(info.canonical_path)}'`);
+    } catch (err: any) {
+      setStatusBanner(`Folder error: ${err?.message || String(err)}`);
+    }
+  };
+
+  const handleSelectConversation = async (
+    proj: ProjectWorkspace,
+    conv: SavedConversation
+  ) => {
+    setActiveProjectId(proj.id);
+    setActiveConvId(conv.id);
+    try {
+      const info = await oxideBridge.setWorkspace(proj.path);
       setGitStatus(info.git);
       setCurrentDir(".");
       await refreshWorkspaceState(".");
-      setStatusBanner(`Bound workspace sandbox to ${info.canonical_path}`);
+      await persistStudioSessions(projects, conversations, proj.id, conv.id);
+    } catch {}
+  };
+
+  const handleNewConversation = async (forProjectId?: string) => {
+    const targetProjId = forProjectId || activeProjectId;
+    const newConv: SavedConversation = {
+      id: `conv-${Date.now()}`,
+      projectId: targetProjId,
+      title: "New Conversation",
+      updatedAt: "now",
+      turns: [],
+    };
+    const nextConvs = [newConv, ...conversations];
+    setConversations(nextConvs);
+    setActiveProjectId(targetProjId);
+    setActiveConvId(newConv.id);
+    setLiveThinking("");
+    setPlanChecklist([]);
+    setLiveSteps([]);
+    setStreamingBuffer("");
+    await persistStudioSessions(
+      projects,
+      nextConvs,
+      targetProjId,
+      newConv.id
+    );
+  };
+
+  const handleDeleteConversation = async (
+    e: React.MouseEvent,
+    convId: string
+  ) => {
+    e.stopPropagation();
+    const remaining = conversations.filter((c) => c.id !== convId);
+    if (remaining.length === 0) {
+      await handleNewConversation();
+      return;
+    }
+    const nextActiveId =
+      activeConvId === convId ? remaining[0].id : activeConvId;
+    setConversations(remaining);
+    setActiveConvId(nextActiveId);
+    await persistStudioSessions(
+      projects,
+      remaining,
+      activeProjectId,
+      nextActiveId
+    );
+  };
+
+  const handleRunTask = async (customPrompt?: string) => {
+    const taskPrompt = (customPrompt ?? prompt).trim();
+    if (!taskPrompt || isRunning) return;
+    if (!customPrompt) setPrompt("");
+
+    const startTime = Date.now();
+    setIsRunning(true);
+    setStreamingBuffer("");
+    setLiveThinking(`Analyzing request and planning next actions...`);
+    setPlanChecklist([]);
+    setLiveSteps([]);
+
+    let currentThought = "Analyzed request and executed workspace actions.";
+    let currentPlan: string[] = [];
+    const collectedSteps: WorkflowCardItem[] = [];
+
+    const tempUnlisten = await oxideBridge.onAgentEvent((evt) => {
+      if (evt.type === "thinking_update") {
+        currentThought = evt.thought;
+      } else if (evt.type === "plan_update") {
+        currentPlan = evt.items;
+      } else if (evt.type === "workflow_card") {
+        collectedSteps.push({
+          id: `${evt.step}-${Date.now()}-${Math.random()}`,
+          step: evt.step,
+          title: evt.title,
+          detail: evt.detail,
+          status: evt.status,
+        });
+      }
+    });
+
+    try {
+      const finalReply = await oxideBridge.runAgentTask(taskPrompt);
+      const elapsedSecs = Math.max(
+        1,
+        Math.round((Date.now() - startTime) / 1000)
+      );
+
+      const newTurn: ConversationTurn = {
+        id: `turn-${Date.now()}`,
+        userPrompt: taskPrompt,
+        thought: currentThought,
+        thoughtSeconds: elapsedSecs,
+        plan: currentPlan,
+        steps: collectedSteps,
+        assistantReply: finalReply,
+        timestamp: "just now",
+      };
+
+      const nextConvs = conversations.map((c) => {
+        if (c.id !== activeConvId) return c;
+        const autoTitle =
+          c.turns.length === 0
+            ? taskPrompt.slice(0, 38) + (taskPrompt.length > 38 ? "..." : "")
+            : c.title;
+        return {
+          ...c,
+          title: autoTitle,
+          updatedAt: "just now",
+          turns: [...c.turns, newTurn],
+        };
+      });
+
+      setConversations(nextConvs);
+      setStreamingBuffer("");
+      setLiveThinking("");
+      setLiveSteps([]);
+      await persistStudioSessions(
+        projects,
+        nextConvs,
+        activeProjectId,
+        activeConvId
+      );
+      await refreshWorkspaceState(currentDir);
     } catch (err: any) {
-      setStatusBanner(`Workspace error: ${err?.message || String(err)}`);
+      setStatusBanner(`Agent error: ${err?.message || String(err)}`);
+    } finally {
+      tempUnlisten();
+      setIsRunning(false);
     }
   };
 
@@ -263,65 +553,28 @@ export const App: React.FC = () => {
       const content = await oxideBridge.readWorkspaceFile(entry.relative_path);
       setActiveFile(entry.relative_path);
       setActiveFileContent(content);
-      setCenterTab("editor");
-      setStatusBanner(`Opened ${entry.relative_path} in GUI Editor`);
+      setRightDrawer("editor");
+      setShowRightPanel(true);
     }
   };
 
   const handleSaveActiveFile = async () => {
     if (!activeFile) return;
-    try {
-      await oxideBridge.saveWorkspaceFile(activeFile, activeFileContent);
-      await refreshWorkspaceState(currentDir);
-      setStatusBanner(`Saved changes to ${activeFile}`);
-    } catch (err: any) {
-      setStatusBanner(`Save failed: ${err?.message}`);
-    }
+    await oxideBridge.saveWorkspaceFile(activeFile, activeFileContent);
+    await refreshWorkspaceState(currentDir);
+    setStatusBanner(`Saved ${activeFile}`);
   };
 
   const handleCreateNewFile = async () => {
     const name = window.prompt(
-      "Enter new file path relative to workspace (e.g. src/newComponent.tsx):"
+      "New file path relative to project folder (e.g. src/utils.ts):"
     );
     if (!name?.trim()) return;
-    try {
-      await oxideBridge.saveWorkspaceFile(name.trim(), "");
-      await refreshWorkspaceState(currentDir);
-      setActiveFile(name.trim());
-      setActiveFileContent("");
-      setCenterTab("editor");
-      setStatusBanner(`Created file ${name.trim()}`);
-    } catch (err: any) {
-      setStatusBanner(`Create file error: ${err?.message}`);
-    }
-  };
-
-  const handleMoveActiveFile = async () => {
-    if (!activeFile) return;
-    const dst = window.prompt(`Move/Rename '${activeFile}' to:`, activeFile);
-    if (!dst?.trim() || dst.trim() === activeFile) return;
-    try {
-      await oxideBridge.moveWorkspaceFile(activeFile, dst.trim());
-      setActiveFile(dst.trim());
-      await refreshWorkspaceState(currentDir);
-      setStatusBanner(`Moved ${activeFile} -> ${dst.trim()}`);
-    } catch (err: any) {
-      setStatusBanner(`Move failed: ${err?.message}`);
-    }
-  };
-
-  const handleDeleteActiveFile = async () => {
-    if (!activeFile) return;
-    if (!window.confirm(`Delete '${activeFile}' from workspace?`)) return;
-    try {
-      await oxideBridge.deleteWorkspaceFile(activeFile);
-      setActiveFile(null);
-      setCenterTab("agent");
-      await refreshWorkspaceState(currentDir);
-      setStatusBanner(`Deleted ${activeFile}`);
-    } catch (err: any) {
-      setStatusBanner(`Delete failed: ${err?.message}`);
-    }
+    await oxideBridge.saveWorkspaceFile(name.trim(), "");
+    await refreshWorkspaceState(currentDir);
+    setActiveFile(name.trim());
+    setActiveFileContent("");
+    setRightDrawer("editor");
   };
 
   const handleGitAction = async (op: "pull" | "push" | "commit") => {
@@ -329,63 +582,29 @@ export const App: React.FC = () => {
       setStatusBanner(`Running git ${op}...`);
       if (op === "commit") {
         const msg =
-          window.prompt(
-            "Commit message (leave blank for AI auto-generated milestone message):"
-          ) || "feat: update workspace milestone";
+          window.prompt("Commit message:") || "feat: update project milestone";
         const rec = await oxideBridge.triggerGitMilestone(msg);
         if (rec) {
-          setCommits((prev) => [rec, ...prev]);
           setStatusBanner(`Committed [${rec.commit_hash}] ${rec.message}`);
         } else {
-          setStatusBanner("Working tree is clean — nothing to commit.");
+          setStatusBanner("Working tree clean");
         }
       } else {
         const res = await oxideBridge.gitSyncAction(op);
         setTerminalLogs((prev) => [res, ...prev]);
-        setStatusBanner(
-          `git ${op} finished (exit=${res.exit_code}): ${
-            res.stdout.trim() || res.stderr.trim() || "OK"
-          }`
-        );
+        setStatusBanner(`git ${op} exit=${res.exit_code}`);
       }
       await refreshWorkspaceState(currentDir);
     } catch (err: any) {
-      setStatusBanner(`Git ${op} error: ${err?.message}`);
-    }
-  };
-
-  const handleCheckUpdateModal = async () => {
-    setShowUpdateModal(true);
-    try {
-      const latest = await oxideBridge.checkGithubUpdate();
-      setUpdateStatus(latest);
-    } catch (err: any) {
-      setStatusBanner(`Update check failed: ${err?.message}`);
-    }
-  };
-
-  const handlePerformUpdate = async () => {
-    setIsUpdating(true);
-    try {
-      const res = await oxideBridge.performGithubUpdate();
-      setStatusBanner(res.message);
-      const refreshed = await oxideBridge.checkGithubUpdate();
-      setUpdateStatus(refreshed);
-    } catch (err: any) {
-      setStatusBanner(`Update failed: ${err?.message}`);
-    } finally {
-      setIsUpdating(false);
+      setStatusBanner(`Git error: ${err?.message}`);
     }
   };
 
   const handleAutoAssignOptimalModels = async () => {
     const hw = await oxideBridge.getHardwareSpecs();
     setHwSpecs(hw);
-
-    // Choose optimal models based on PC RAM & VRAM
     const isHighSpec = hw.total_ram_gb >= 28 || hw.gpu_vram_gb >= 12;
     const isMidSpec = hw.total_ram_gb >= 14;
-
     const firstAvailable = (candidates: string[], fallback: string) =>
       candidates.find((c) => ollamaModels.includes(c)) ||
       ollamaModels[0] ||
@@ -400,7 +619,6 @@ export const App: React.FC = () => {
           ["qwen2.5-coder:latest", "qwen2.5-coder:7b"],
           "qwen2.5-coder:latest"
         );
-
     const coder = isMidSpec
       ? firstAvailable(
           ["qwen2.5-coder:7b", "qwen2.5-coder:latest"],
@@ -410,9 +628,8 @@ export const App: React.FC = () => {
           ["qwen2.5-coder:3b", "gemma2:latest"],
           "qwen2.5-coder:3b"
         );
-
     const research = firstAvailable(
-      ["gemma2:latest", "qwen2.5-coder:3b", "qwen2.5-coder:7b"],
+      ["gemma2:latest", "qwen2.5-coder:3b"],
       "gemma2:latest"
     );
 
@@ -428,656 +645,795 @@ export const App: React.FC = () => {
         tester_subagent_model: coder,
       },
     };
-
-    setProviderConfig(updated);
-    setStatusBanner(
-      `Auto-configured for ${hw.governor_tier}: Architect=${architect}, Subagents=${coder}/${research} (Max ${hw.recommended_max_subagents} concurrent)`
-    );
-  };
-
-  const handleRunTask = async (customPrompt?: string) => {
-    const taskPrompt = (customPrompt ?? prompt).trim();
-    if (!taskPrompt || isRunning) return;
-    if (!customPrompt) setPrompt("");
-    setCenterTab("agent");
-    setStreamingBuffer("");
-    setLiveThinking(
-      `Lead Architect (${providerConfig.task_routing.architect_model}) is analyzing "${taskPrompt}" and planning Subagent delegation...`
-    );
-    setIsRunning(true);
-    setChatHistory((prev) => [...prev, { role: "user", content: taskPrompt }]);
-
-    try {
-      const finalReply = await oxideBridge.runAgentTask(taskPrompt);
-      setChatHistory((prev) => [
-        ...prev,
-        { role: "assistant", content: finalReply },
-      ]);
-      setStreamingBuffer("");
-      await refreshWorkspaceState(currentDir);
-    } catch (err: any) {
-      setStatusBanner(
-        `Agent execution halted: ${err?.message || String(err)}`
-      );
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const handleQuickCommand = async () => {
-    if (!quickCommand.trim()) return;
-    try {
-      const res = await oxideBridge.executeBoundedCommand(quickCommand.trim());
-      setTerminalLogs((prev) => [res, ...prev]);
-      await refreshWorkspaceState(currentDir);
-      setStatusBanner(
-        `Command '${res.program}' exited with code ${res.exit_code} (${res.duration_ms} ms)`
-      );
-    } catch (err: any) {
-      setStatusBanner(`Command error: ${err?.message}`);
-    }
-  };
-
-  const handleSaveSettings = async (updated: ProviderConfig) => {
     const saved = await oxideBridge.updateProviderConfig(updated);
     setProviderConfig(saved);
-    setShowSettingsModal(false);
-    setStatusBanner(
-      `Saved Task Routing: Architect=${saved.task_routing.architect_model} | Max Concurrent Subagents=${saved.max_concurrent_subagents}`
-    );
-  };
-
-  const handleToggleMcpServer = async (srv: McpServerConfig) => {
-    const updated: McpServerConfig = { ...srv, enabled: !srv.enabled };
-    const list = await oxideBridge.saveMcpServer(updated);
-    setMcpServers(list);
-  };
-
-  const handleDiscoverMcpTools = async (serverId: string) => {
-    setMcpTestOutput(`Probing MCP server '${serverId}' via JSON-RPC 2.0 (initialize -> tools/list)...`);
-    try {
-      const updated = await oxideBridge.discoverMcpTools(serverId);
-      const list = await oxideBridge.listMcpServers();
-      setMcpServers(list);
-      setMcpTestOutput(
-        `Discovered ${updated.discovered_tools.length} tool(s) on '${serverId}': ${updated.discovered_tools
-          .map((t) => t.name)
-          .join(", ")}`
-      );
-    } catch (err: any) {
-      setMcpTestOutput(`MCP Discovery Error (${serverId}): ${err?.message}`);
-    }
-  };
-
-  const handleTestMcpTool = async (serverId: string, toolName: string) => {
-    const defaultArgs =
-      toolName === "store_memory"
-        ? '{"key":"architecture_note","value":"Verified MCP JSON-RPC 2.0 tool execution"}'
-        : '{}';
-    const rawArgs = window.prompt(
-      `Enter JSON arguments for MCP tool '${serverId}/${toolName}':`,
-      defaultArgs
-    );
-    if (rawArgs === null) return;
-    try {
-      const parsed = rawArgs.trim() ? JSON.parse(rawArgs) : {};
-      const res = await oxideBridge.callMcpTool(serverId, toolName, parsed);
-      setMcpTestOutput(
-        `[${res.server_id}/${res.tool_name}] (${
-          res.succeeded ? "SUCCESS" : "ERROR"
-        }):\n${res.content}`
-      );
-    } catch (err: any) {
-      setMcpTestOutput(`MCP Tool Call Error: ${err?.message}`);
-    }
-  };
-
-  const handleAddMcpServer = async () => {
-    if (!newMcpId.trim() || !newMcpCommand.trim()) return;
-    const srv: McpServerConfig = {
-      id: newMcpId.trim(),
-      name: newMcpName.trim() || newMcpId.trim(),
-      transport: newMcpCommand.startsWith("http") ? "http" : "stdio",
-      command: newMcpCommand.trim(),
-      args: newMcpArgs
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean),
-      env: {},
-      url: newMcpCommand.startsWith("http") ? newMcpCommand.trim() : null,
-      enabled: true,
-      status: "configured",
-      discovered_tools: [],
-    };
-    const list = await oxideBridge.saveMcpServer(srv);
-    setMcpServers(list);
-    setNewMcpId("");
-    setNewMcpName("");
-    setMcpTestOutput(`Added MCP server '${srv.id}'. Click 'Discover Tools' to probe its tools/list.`);
   };
 
   return (
-    <div className="app-shell">
-      {/* Top GUI Command Bar */}
-      <header className="command-header">
-        <div className="brand-group">
-          <span className="brand-badge">OXIDE STUDIO</span>
-          <span className="status-pill">
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                backgroundColor: ollamaOnline ? "#10b981" : "#f59e0b",
-              }}
-            />
-            Arch: {providerConfig.task_routing.architect_model}
-          </span>
-
-          {hwSpecs && (
-            <span
-              className={`status-pill hw-pill ${
-                hwSpecs.throttled_by_load ? "throttled" : ""
-              }`}
-              onClick={() => setShowSettingsModal(true)}
-              title={`${hwSpecs.governor_tier}: ${hwSpecs.governor_advice}`}
-            >
-              🖥 RAM {hwSpecs.available_ram_gb}GB free / {hwSpecs.total_ram_gb}GB
-              • CPU {hwSpecs.cpu_usage_percent}% • Max{" "}
-              {Math.min(
-                providerConfig.max_concurrent_subagents,
-                hwSpecs.hard_limit_subagents
-              )}{" "}
-              Subagent(s)
-            </span>
-          )}
-
-          {gitStatus && (
-            <span className="status-pill">
-              🌿 {gitStatus.branch}{" "}
-              {gitStatus.is_clean
-                ? "(clean)"
-                : `(${gitStatus.changed_files.length} changed)`}
-            </span>
-          )}
-        </div>
-
-        <div className="workspace-bar">
-          <input
-            className="workspace-input"
-            type="text"
-            value={workspacePath}
-            onChange={(e) => setWorkspacePath(e.target.value)}
-            placeholder="Workspace path..."
-          />
-          <button className="btn" onClick={handleBindWorkspace}>
-            Set Folder
-          </button>
-        </div>
-
-        <div className="header-actions">
-          <button
-            className="btn"
-            onClick={() => handleGitAction("pull")}
-            title="Pull latest changes from Git remote"
-          >
-            ⬇ Git Pull
-          </button>
-          <button
-            className="btn"
-            onClick={() => handleGitAction("commit")}
-            title="Stage all & commit milestone"
-          >
-            ✔ Commit
-          </button>
-          <button
-            className="btn"
-            onClick={() => handleGitAction("push")}
-            title="Push commits to Git remote"
-          >
-            ⬆ Git Push
-          </button>
-
-          <button
-            className="btn"
-            onClick={() => setShowMcpModal(true)}
-            title="Manage Model Context Protocol (MCP) Servers & Tools"
-          >
-            🔌 MCP ({mcpServers.filter((s) => s.enabled).length})
-          </button>
-
-          <button
-            className="btn"
-            onClick={() => setShowSettingsModal(true)}
-            title="Configure Lead Architect AI, Subagent Task Models & PC Hardware Limits"
-          >
-            ⚙ Subagents &amp; Models
-          </button>
-
-          <button
-            className={`btn btn-update ${
-              updateStatus?.update_available ? "has-update" : ""
-            }`}
-            onClick={handleCheckUpdateModal}
-            title="Check & install updates from GitHub (Hanzkii/Oxide)"
-          >
-            ↻ {updateStatus?.update_available ? "Update Available!" : "Update"}
-          </button>
-
-          <button
-            className="btn btn-vscode"
-            onClick={() => oxideBridge.openInVsCode(activeFile || undefined)}
-            title="Open workspace or active file in Visual Studio Code"
-          >
-            Open in VS Code
-          </button>
-        </div>
-      </header>
-
-      {/* Main 3-Pane GUI Studio */}
-      <div className="studio-grid">
-        {/* Left Sidebar: Interactive Workspace File Explorer */}
-        <aside className="sidebar-explorer">
-          <div className="sidebar-header">
-            <span>Files ({currentDir})</span>
-            <div style={{ display: "flex", gap: "0.3rem" }}>
-              {currentDir !== "." && (
-                <button
-                  className="btn"
-                  style={{ padding: "0.15rem 0.4rem", fontSize: "0.7rem" }}
-                  onClick={() => {
-                    const parent =
-                      currentDir.split("/").slice(0, -1).join("/") || ".";
-                    setCurrentDir(parent);
-                    oxideBridge.listWorkspaceFiles(parent).then(setFiles);
-                  }}
-                >
-                  ↑ Up
-                </button>
-              )}
-              <button
-                className="btn"
-                style={{ padding: "0.15rem 0.4rem", fontSize: "0.7rem" }}
-                onClick={handleCreateNewFile}
-                title="Create new file"
-              >
-                + File
-              </button>
-            </div>
-          </div>
-
-          <div className="file-list">
-            {files.map((f) => (
-              <div
-                key={f.relative_path}
-                className={`file-item ${
-                  activeFile === f.relative_path ? "active" : ""
-                }`}
-                onClick={() => handleOpenFileOrDir(f)}
-              >
-                <span>
-                  {f.is_dir ? "📁 " : "📄 "}
-                  {f.name}
-                </span>
-                {!f.is_dir && (
-                  <span style={{ fontSize: "0.68rem", color: "#64748b" }}>
-                    {Math.max(1, Math.round(f.size_bytes / 1024))}KB
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </aside>
-
-        {/* Center Pane: AI Thinking Box + Autonomous Chat / File Editor */}
-        <section className="center-pane">
-          <div className="center-tabs">
-            <button
-              className={`tab-btn ${centerTab === "agent" ? "active" : ""}`}
-              onClick={() => setCenterTab("agent")}
-            >
-              🤖 Architect &amp; Subagents Studio
-            </button>
-            <button
-              className={`tab-btn ${centerTab === "editor" ? "active" : ""}`}
-              onClick={() => setCenterTab("editor")}
-            >
-              📝 File Editor {activeFile ? `(${activeFile})` : ""}
-            </button>
-          </div>
-
-          {/* Real-Time AI Thinking & Task Plan Panel (Always Visible) */}
-          <div className="thinking-box">
-            <div className="thinking-header">
-              <span>
-                🧠 Lead Architect Live Thinking{" "}
-                {isRunning ? "(ACTIVE...)" : "(IDLE)"}
-              </span>
-              <span style={{ fontSize: "0.7rem", opacity: 0.85 }}>
-                Architect: {providerConfig.task_routing.architect_model} • Coder
-                Sub: {providerConfig.task_routing.coder_subagent_model} •
-                Research Sub:{" "}
-                {providerConfig.task_routing.research_subagent_model}
-              </span>
-            </div>
-            <div className="thinking-content">{liveThinking}</div>
-            {planChecklist.length > 0 && (
-              <div className="plan-checklist">
-                {planChecklist.map((item, i) => (
-                  <span key={i} className="plan-chip">
-                    {i + 1}. {item}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {centerTab === "agent" ? (
-            <>
-              <div className="stream-viewport">
-                {chatHistory.length === 0 && !streamingBuffer && (
-                  <div className="message-card">
-                    <strong>
-                      Oxide Hierarchical AI Orchestrator + Hardware-Governed
-                      Subagents
-                    </strong>
-                    {"\n"}• <strong>Lead Architect AI</strong> (
-                    <code>{providerConfig.task_routing.architect_model}</code>)
-                    handles complex thinking and instructs specialized{" "}
-                    <strong>Subagents</strong>.
-                    {"\n"}• <strong>Task-Specific Models</strong>: Coder
-                    Subagent (
-                    <code>
-                      {providerConfig.task_routing.coder_subagent_model}
-                    </code>
-                    ), Research Subagent (
-                    <code>
-                      {providerConfig.task_routing.research_subagent_model}
-                    </code>
-                    ), Tester Subagent (
-                    <code>
-                      {providerConfig.task_routing.tester_subagent_model}
-                    </code>
-                    ).
-                    {"\n"}• <strong>PC Hardware Governor</strong>:{" "}
-                    {hwSpecs
-                      ? `${hwSpecs.governor_tier} — Caps concurrent subagents to ${hwSpecs.hard_limit_subagents} based on your ${hwSpecs.total_ram_gb} GB RAM & ${hwSpecs.cpu_cores} CPU cores.`
-                      : "Inspecting PC specs..."}
-                  </div>
-                )}
-
-                {chatHistory.map((msg, idx) => (
-                  <div key={idx} className={`message-card ${msg.role}`}>
-                    {msg.content}
-                  </div>
-                ))}
-
-                {streamingBuffer && (
-                  <div className="message-card assistant">
-                    {streamingBuffer}
-                  </div>
-                )}
-              </div>
-
-              <div className="composer-bar">
-                <div className="preset-row">
-                  <button
-                    className="preset-chip"
-                    onClick={() =>
-                      handleRunTask(
-                        "Use delegate_subagents to have research_subagent inspect package.json and coder_subagent review src/App.tsx, then summarize findings."
-                      )
-                    }
-                  >
-                    ⚡ Dispatch Subagent Team (Research + Coder)
-                  </button>
-                  <button
-                    className="preset-chip"
-                    onClick={() =>
-                      handleRunTask(
-                        "Run npm run build in the terminal, check if there are any errors, and fix them if needed."
-                      )
-                    }
-                  >
-                    🛠 Run Build &amp; Auto-Fix Errors
-                  </button>
-                  <button
-                    className="preset-chip"
-                    onClick={() =>
-                      handleRunTask(
-                        "Check git status, commit any modified files with a clean message, and push to origin."
-                      )
-                    }
-                  >
-                    🚀 Auto-Commit &amp; Push to Git
-                  </button>
-                </div>
-
-                <div className="composer-row">
-                  <textarea
-                    className="prompt-textarea"
-                    placeholder="Ask the Lead Architect AI to plan a task, delegate to Subagents, edit/move files, run terminal commands, or push/pull Git..."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                        handleRunTask();
-                      }
-                    }}
-                  />
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => handleRunTask()}
-                    disabled={isRunning}
-                  >
-                    {isRunning ? "Running..." : "Run Agent"}
-                  </button>
-                </div>
-                <div style={{ fontSize: "0.73rem", color: "#94a3b8" }}>
-                  {statusBanner}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                flex: 1,
-                overflow: "hidden",
-                marginTop: "0.6rem",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "0.45rem 1rem",
-                  background: "var(--bg-panel)",
-                  borderBottom: "1px solid var(--border-subtle)",
-                }}
-              >
-                <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-                  {activeFile || "Select a file from the left sidebar"}
-                </span>
-                {activeFile && (
-                  <div style={{ display: "flex", gap: "0.4rem" }}>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleSaveActiveFile}
-                    >
-                      💾 Save File
-                    </button>
-                    <button className="btn" onClick={handleMoveActiveFile}>
-                      ✏ Move / Rename
-                    </button>
-                    <button className="btn" onClick={handleDeleteActiveFile}>
-                      🗑 Delete
-                    </button>
-                  </div>
-                )}
-              </div>
-              <textarea
-                className="code-editor"
-                value={activeFileContent}
-                onChange={(e) => setActiveFileContent(e.target.value)}
-                placeholder="Click any file in the left File Explorer to view or edit its contents..."
+    <div className="ag-shell">
+      {/* ==================== LEFT SIDEBAR (Antigravity Style) ==================== */}
+      <aside className="ag-sidebar">
+        <div className="ag-sidebar-top">
+          <div className="ag-brand">
+            {/* Rusted Pipe Flange Mini SVG Emblem */}
+            <svg width="20" height="20" viewBox="0 0 64 64">
+              <polygon
+                points="18,4 46,4 60,18 60,46 46,60 18,60 4,46 4,18"
+                fill="#1d1512"
+                stroke="#d45b2c"
+                strokeWidth="4"
               />
-            </div>
-          )}
-        </section>
+              <rect x="6" y="22" width="52" height="20" fill="#9e3d1a" />
+              <rect x="22" y="6" width="20" height="52" fill="#7a280e" />
+              <circle
+                cx="32"
+                cy="32"
+                r="17"
+                fill="#14100e"
+                stroke="#e06336"
+                strokeWidth="4"
+              />
+              <circle cx="32" cy="32" r="7" fill="#090706" />
+            </svg>
+            <span>Oxide</span>
+          </div>
+          <div style={{ display: "flex", gap: "0.2rem" }}>
+            <button
+              className="ag-icon-btn"
+              onClick={handlePickProjectFolder}
+              title="Open Project Folder (Native Folder Picker)"
+            >
+              📁+
+            </button>
+            <button
+              className="ag-icon-btn"
+              onClick={() => {
+                setRightDrawer("files");
+                setShowRightPanel(true);
+              }}
+              title="Browse Project Files"
+            >
+              🔍
+            </button>
+          </div>
+        </div>
 
-        {/* Right Pane: Subagent Pool, Workflow Status Cards & Interactive Terminal */}
-        <aside className="right-pane">
-          <div className="telemetry-section">
-            <div className="section-title">
-              Subagent Worker Pool{" "}
-              {hwSpecs &&
-                `(PC Safe Limit: Max ${Math.min(
-                  providerConfig.max_concurrent_subagents,
-                  hwSpecs.hard_limit_subagents
-                )} Concurrent)`}
-            </div>
-            {subagents.length === 0 ? (
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  color: "#64748b",
-                  background: "var(--bg-panel)",
-                  padding: "0.55rem 0.75rem",
-                  borderRadius: 6,
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                No subagents active. When the Lead Architect delegates tasks,
-                specialized subagent workers and their live thoughts appear here.
-              </div>
-            ) : (
-              subagents.map((sub) => (
+        <div className="ag-new-conv-wrap">
+          <button
+            className="ag-new-conv-btn"
+            onClick={() => handleNewConversation()}
+          >
+            <span>+</span>
+            <span>New Conversation</span>
+          </button>
+        </div>
+
+        <div className="ag-nav-list">
+          <button
+            className={`ag-nav-item ${
+              rightDrawer === "files" && showRightPanel ? "active" : ""
+            }`}
+            onClick={() => {
+              setRightDrawer("files");
+              setShowRightPanel(true);
+            }}
+          >
+            <span>📁 Project Files &amp; Editor</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              {files.length}
+            </span>
+          </button>
+          <button
+            className="ag-nav-item"
+            onClick={() => setShowSettingsModal(true)}
+          >
+            <span>⚡ Subagents &amp; Models</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              Max {providerConfig.max_concurrent_subagents}
+            </span>
+          </button>
+          <button
+            className="ag-nav-item"
+            onClick={() => setShowMcpModal(true)}
+          >
+            <span>🔌 Customizations (MCP)</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              {mcpServers.filter((s) => s.enabled).length} active
+            </span>
+          </button>
+        </div>
+
+        {/* Multi-Project & Saved Conversations Tree */}
+        <div className="ag-projects-header">
+          <span>Projects</span>
+          <button
+            className="ag-icon-btn"
+            onClick={handlePickProjectFolder}
+            title="Add / Open Another Project Folder"
+            style={{ padding: "0.1rem 0.35rem", fontSize: "0.78rem" }}
+          >
+            + Folder
+          </button>
+        </div>
+
+        <div className="ag-projects-scroll">
+          {projects.map((proj) => {
+            const projConvs = conversations.filter(
+              (c) => c.projectId === proj.id
+            );
+            return (
+              <div key={proj.id} className="ag-project-group">
                 <div
-                  key={sub.id}
-                  className={`subagent-card ${sub.state}`}
+                  className="ag-project-title"
+                  onClick={() => handleNewConversation(proj.id)}
+                  title={`${proj.path}\nClick to start a new conversation in ${proj.name}`}
                 >
+                  <span>📁 {proj.name}</span>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>+</span>
+                </div>
+
+                {projConvs.map((conv) => {
+                  const isActive = conv.id === activeConvId;
+                  return (
+                    <div
+                      key={conv.id}
+                      className={`ag-conv-item ${isActive ? "active" : ""}`}
+                      onClick={() => handleSelectConversation(proj, conv)}
+                    >
+                      <span className="ag-conv-title">{conv.title}</span>
+                      <span
+                        className="ag-conv-meta"
+                        onClick={(e) => handleDeleteConversation(e, conv.id)}
+                        title="Delete conversation"
+                      >
+                        {isActive && isRunning ? "⟳" : conv.updatedAt}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="ag-sidebar-footer">
+          <button
+            className="ag-icon-btn"
+            onClick={() => setShowSettingsModal(true)}
+          >
+            ⚙ Settings
+          </button>
+          <button
+            className="ag-pill-btn"
+            style={{
+              borderColor: updateStatus?.update_available
+                ? "#22c55e"
+                : undefined,
+              color: updateStatus?.update_available ? "#4ade80" : undefined,
+            }}
+            onClick={async () => {
+              setShowUpdateModal(true);
+              oxideBridge
+                .checkGithubUpdate()
+                .then(setUpdateStatus)
+                .catch(() => {});
+            }}
+          >
+            ↻ {updateStatus?.update_available ? "Update!" : "Update"}
+          </button>
+        </div>
+      </aside>
+
+      {/* ==================== CENTER MAIN WORKSPACE ==================== */}
+      <main className="ag-main">
+        {/* Top Breadcrumb Bar */}
+        <header className="ag-topbar">
+          <div className="ag-breadcrumbs">
+            <span
+              className="ag-breadcrumb-project"
+              onClick={handlePickProjectFolder}
+              title={`Current folder: ${activeProject?.path}\nClick to switch project folder`}
+            >
+              {activeProject?.name || "Workspace"}
+            </span>
+            <span>/</span>
+            <span className="ag-breadcrumb-conv">
+              {activeConversation?.title || "Session"}
+            </span>
+          </div>
+
+          <div className="ag-topbar-right">
+            {hwSpecs && (
+              <button
+                className="ag-pill-btn"
+                onClick={() => setShowSettingsModal(true)}
+                title={`${hwSpecs.governor_tier}: ${hwSpecs.governor_advice}`}
+              >
+                <span>🖥 {hwSpecs.available_ram_gb}GB free</span>
+                <span>•</span>
+                <span>
+                  Max{" "}
+                  {Math.min(
+                    providerConfig.max_concurrent_subagents,
+                    hwSpecs.hard_limit_subagents
+                  )}{" "}
+                  Subagents
+                </span>
+              </button>
+            )}
+
+            <button
+              className="ag-pill-btn"
+              onClick={() =>
+                oxideBridge.openInVsCode(activeFile || activeProject?.path)
+              }
+              title="Open current project or file in Visual Studio Code"
+            >
+              Open IDE
+            </button>
+
+            <button
+              className={`ag-pill-btn ${showRightPanel ? "active" : ""}`}
+              onClick={() => setShowRightPanel((v) => !v)}
+              title="Toggle Overview & Files Panel"
+            >
+              ▤
+            </button>
+          </div>
+        </header>
+
+        <div className="ag-workspace-body">
+          {/* Center Conversation Column */}
+          <div className="ag-center-column">
+            <div className="ag-chat-scroll">
+              <div className="ag-chat-container">
+                {(!activeConversation ||
+                  activeConversation.turns.length === 0) &&
+                  !isRunning && (
+                    <div
+                      style={{
+                        marginTop: "12vh",
+                        textAlign: "center",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "0.85rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "1.35rem",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        {activeProject?.name || "Oxide Studio"}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.82rem",
+                          color: "var(--text-secondary)",
+                          maxWidth: "460px",
+                        }}
+                      >
+                        Folder: <code>{activeProject?.path}</code>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "0.5rem",
+                          flexWrap: "wrap",
+                          justifyContent: "center",
+                          marginTop: "0.4rem",
+                        }}
+                      >
+                        <button
+                          className="ag-pill-btn"
+                          onClick={handlePickProjectFolder}
+                        >
+                          📁 Open Project Folder...
+                        </button>
+                        <button
+                          className="ag-pill-btn"
+                          onClick={() => {
+                            setRightDrawer("files");
+                            setShowRightPanel(true);
+                          }}
+                        >
+                          📄 Browse Files ({files.length})
+                        </button>
+                        <button
+                          className="ag-pill-btn"
+                          onClick={() =>
+                            handleRunTask(
+                              "List the files in this project folder and give me a concise overview of its structure."
+                            )
+                          }
+                        >
+                          🔍 Analyze This Folder
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                {/* Saved Conversation Turns */}
+                {activeConversation?.turns.map((turn) => {
+                  const isExpanded = Boolean(expandedThoughts[turn.id]);
+                  return (
+                    <div
+                      key={turn.id}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div className="ag-user-bubble">{turn.userPrompt}</div>
+
+                      <div className="ag-trace-group">
+                        <button
+                          className="ag-thought-toggle"
+                          onClick={() =>
+                            setExpandedThoughts((prev) => ({
+                              ...prev,
+                              [turn.id]: !prev[turn.id],
+                            }))
+                          }
+                        >
+                          <span>
+                            Thought for {turn.thoughtSeconds}s{" "}
+                            {isExpanded ? "▾" : "›"}
+                          </span>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="ag-thought-box">{turn.thought}</div>
+                        )}
+
+                        {turn.steps.map((st) => (
+                          <div key={st.id} className="ag-inline-step">
+                            <span>
+                              {st.status === "succeeded"
+                                ? "✔"
+                                : st.status === "self_correcting"
+                                ? "⚠"
+                                : "•"}
+                            </span>
+                            <span>{st.title}</span>
+                            {st.detail && (
+                              <span style={{ color: "var(--text-muted)" }}>
+                                — {st.detail}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="ag-assistant-reply">
+                        {turn.assistantReply}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Active Streaming Turn */}
+                {isRunning && (
                   <div
                     style={{
                       display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "0.78rem",
-                      fontWeight: 700,
+                      flexDirection: "column",
+                      gap: "0.75rem",
                     }}
                   >
-                    <span>
-                      🤖 {sub.title} ({sub.role})
-                    </span>
-                    <span style={{ color: "#38bdf8", fontSize: "0.7rem" }}>
-                      {sub.model} • {sub.state.toUpperCase()}
-                    </span>
+                    <div className="ag-trace-group">
+                      <div className="ag-thought-toggle">
+                        <span style={{ color: "var(--oxide-rust)" }}>
+                          ⟳ Thinking ({providerConfig.task_routing.architect_model})...
+                        </span>
+                      </div>
+                      {liveThinking && (
+                        <div className="ag-thought-box">{liveThinking}</div>
+                      )}
+                      {planChecklist.length > 0 && (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "0.35rem",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {planChecklist.map((p, i) => (
+                            <span
+                              key={i}
+                              style={{
+                                fontSize: "0.72rem",
+                                background: "var(--bg-elevated)",
+                                padding: "0.15rem 0.5rem",
+                                borderRadius: 5,
+                                color: "var(--text-secondary)",
+                              }}
+                            >
+                              {i + 1}. {p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {liveSteps.map((st) => (
+                        <div key={st.id} className="ag-inline-step">
+                          <span>•</span>
+                          <span>{st.title}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {streamingBuffer && (
+                      <div className="ag-assistant-reply">
+                        {streamingBuffer}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: "0.74rem", color: "#d8b4fe" }}>
-                    💭 {sub.thought}
-                  </div>
-                  {sub.output_preview && (
-                    <div
-                      style={{
-                        fontSize: "0.72rem",
-                        color: "#94a3b8",
-                        fontFamily: "monospace",
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Floating Antigravity Composer Card */}
+            <div className="ag-composer-wrap">
+              <div className="ag-composer-card">
+                <textarea
+                  className="ag-composer-input"
+                  placeholder="Ask Oxide anything, edit files, run terminal commands, or delegate to subagents..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleRunTask();
+                    }
+                  }}
+                />
+
+                <div className="ag-composer-toolbar">
+                  <div className="ag-toolbar-left">
+                    <button
+                      className="ag-icon-btn"
+                      onClick={handlePickProjectFolder}
+                      title="Open / Switch Project Folder"
+                    >
+                      +
+                    </button>
+
+                    <select
+                      className="ag-model-picker-inline"
+                      value={providerConfig.task_routing.architect_model}
+                      onChange={async (e) => {
+                        const model = e.target.value;
+                        const updated: ProviderConfig = {
+                          ...providerConfig,
+                          ollama_model: model,
+                          task_routing: {
+                            ...providerConfig.task_routing,
+                            architect_model: model,
+                          },
+                        };
+                        setProviderConfig(updated);
+                        await oxideBridge.updateProviderConfig(updated);
                       }}
                     >
-                      {sub.output_preview}
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-
-            <div className="section-title" style={{ marginTop: "0.35rem" }}>
-              Interactive Terminal Runner
-            </div>
-            <div className="composer-row">
-              <input
-                className="workspace-input"
-                type="text"
-                value={quickCommand}
-                onChange={(e) => setQuickCommand(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleQuickCommand();
-                }}
-                placeholder="Run terminal command (e.g. git status, npm run build)..."
-              />
-              <button className="btn" onClick={handleQuickCommand}>
-                Run Cmd
-              </button>
-            </div>
-
-            <div className="section-title" style={{ marginTop: "0.35rem" }}>
-              Live Agent Activity &amp; Self-Correction Steps
-            </div>
-            {workflowCards.map((card) => (
-              <div key={card.id} className={`workflow-card ${card.status}`}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "0.79rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  <span>{card.title}</span>
-                  <span style={{ fontSize: "0.69rem", opacity: 0.8 }}>
-                    #{card.step} • {card.status.toUpperCase()}
-                  </span>
-                </div>
-                <div style={{ fontSize: "0.74rem", color: "#94a3b8" }}>
-                  {card.detail}
-                </div>
-              </div>
-            ))}
-
-            {commits.length > 0 && (
-              <>
-                <div className="section-title" style={{ marginTop: "0.35rem" }}>
-                  Git Milestones
-                </div>
-                {commits.map((c, i) => (
-                  <div key={i} className="workflow-card succeeded">
-                    <strong>
-                      [{c.commit_hash}] {c.message}
-                    </strong>
+                      {ollamaModels.map((m) => (
+                        <option
+                          key={m}
+                          value={m}
+                          style={{ background: "#1a1a1e", color: "#ececef" }}
+                        >
+                          {m}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ))}
-              </>
-            )}
 
-            <div className="section-title" style={{ marginTop: "0.35rem" }}>
-              Terminal Output Stream (stdout / stderr)
+                  <div className="ag-toolbar-right">
+                    {statusBanner && (
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {statusBanner}
+                      </span>
+                    )}
+                    <button
+                      className="ag-model-picker-inline"
+                      onClick={() => setShowSettingsModal(true)}
+                      title="Configure Subagents & PC Governor"
+                    >
+                      ⚡ Turbo ({providerConfig.max_concurrent_subagents} Sub)
+                    </button>
+
+                    <button
+                      className="ag-send-btn"
+                      disabled={isRunning || !prompt.trim()}
+                      onClick={() => handleRunTask()}
+                      title="Send (Enter)"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            {terminalLogs.map((log, index) => (
-              <div key={index} className="terminal-log">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: "0.28rem",
-                    color: log.succeeded ? "#10b981" : "#f59e0b",
-                  }}
-                >
-                  <span>
-                    $ {log.program} {log.args.join(" ")}
-                  </span>
-                  <span>
-                    exit={log.exit_code} ({log.duration_ms}ms)
+          </div>
+
+          {/* ==================== RIGHT FLOATING OVERVIEW CARD & DRAWER ==================== */}
+          {showRightPanel && (
+            <aside className="ag-right-dock">
+              <div className="ag-overview-card">
+                <div className="ag-overview-header">
+                  <span>Overview</span>
+                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                    {gitStatus?.branch || "local"}
                   </span>
                 </div>
-                {log.stdout && <div>{log.stdout}</div>}
-                {log.stderr && <div className="stderr-text">{log.stderr}</div>}
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
 
-      {/* Subagents, Task-to-Model Routing & Hardware Governor Modal */}
+                <div className="ag-overview-nav">
+                  <button
+                    className={`ag-overview-row ${
+                      rightDrawer === "review" ? "active" : ""
+                    }`}
+                    onClick={() => setRightDrawer("review")}
+                  >
+                    <span>📋 Review &amp; Git</span>
+                    <span style={{ fontSize: "0.72rem" }}>
+                      {gitStatus?.changed_files.length || 0} changed
+                    </span>
+                  </button>
+
+                  <button
+                    className={`ag-overview-row ${
+                      rightDrawer === "files" || rightDrawer === "editor"
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() => setRightDrawer("files")}
+                  >
+                    <span>📁 Files</span>
+                    <span style={{ fontSize: "0.72rem" }}>{files.length}</span>
+                  </button>
+
+                  <button
+                    className={`ag-overview-row ${
+                      rightDrawer === "terminal" ? "active" : ""
+                    }`}
+                    onClick={() => setRightDrawer("terminal")}
+                  >
+                    <span>&gt;_ Terminal</span>
+                    <span style={{ fontSize: "0.72rem" }}>
+                      {terminalLogs.length}
+                    </span>
+                  </button>
+
+                  <button
+                    className="ag-overview-row"
+                    onClick={() => setShowMcpModal(true)}
+                  >
+                    <span>🔌 Extensions (MCP)</span>
+                    <span style={{ fontSize: "0.72rem" }}>›</span>
+                  </button>
+                </div>
+
+                {/* Subagents & Background Tasks */}
+                <div className="ag-overview-section">
+                  <div
+                    style={{
+                      fontSize: "0.72rem",
+                      fontWeight: 600,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    Background Tasks &amp; Subagents ({subagents.length})
+                  </div>
+                  {subagents.slice(0, 3).map((s) => (
+                    <div
+                      key={s.id}
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "var(--text-secondary)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span>🤖 {s.title}</span>
+                      <span style={{ color: "var(--oxide-rust)" }}>
+                        {s.state}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contextual Side Drawer Content (Files / Editor / Git Review / Terminal) */}
+              {rightDrawer === "files" && (
+                <div className="ag-drawer-panel">
+                  <div className="ag-overview-header">
+                    <span>Files ({currentDir})</span>
+                    <div style={{ display: "flex", gap: "0.25rem" }}>
+                      {currentDir !== "." && (
+                        <button
+                          className="ag-icon-btn"
+                          onClick={() => {
+                            const parent =
+                              currentDir.split("/").slice(0, -1).join("/") ||
+                              ".";
+                            setCurrentDir(parent);
+                            oxideBridge
+                              .listWorkspaceFiles(parent)
+                              .then(setFiles);
+                          }}
+                        >
+                          ↑
+                        </button>
+                      )}
+                      <button
+                        className="ag-icon-btn"
+                        onClick={handleCreateNewFile}
+                        title="New File"
+                      >
+                        + File
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      overflowY: "auto",
+                      padding: "0.4rem",
+                    }}
+                  >
+                    {files.map((f) => (
+                      <div
+                        key={f.relative_path}
+                        className={`file-item ${
+                          activeFile === f.relative_path ? "active" : ""
+                        }`}
+                        onClick={() => handleOpenFileOrDir(f)}
+                      >
+                        <span>
+                          {f.is_dir ? "📁 " : "📄 "}
+                          {f.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {rightDrawer === "editor" && activeFile && (
+                <div className="ag-drawer-panel">
+                  <div className="ag-overview-header">
+                    <span>📄 {activeFile}</span>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
+                      <button
+                        className="ag-icon-btn"
+                        onClick={handleSaveActiveFile}
+                        title="Save File"
+                      >
+                        💾
+                      </button>
+                      <button
+                        className="ag-icon-btn"
+                        onClick={() => setRightDrawer("files")}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    className="code-editor"
+                    value={activeFileContent}
+                    onChange={(e) => setActiveFileContent(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {rightDrawer === "review" && (
+                <div className="ag-drawer-panel" style={{ padding: "0.75rem" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "0.4rem",
+                      marginBottom: "0.75rem",
+                    }}
+                  >
+                    <button
+                      className="btn"
+                      onClick={() => handleGitAction("pull")}
+                    >
+                      ⬇ Pull
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => handleGitAction("commit")}
+                    >
+                      ✔ Commit
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => handleGitAction("push")}
+                    >
+                      ⬆ Push
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "var(--text-secondary)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.3rem",
+                    }}
+                  >
+                    {gitStatus?.changed_files.length ? (
+                      gitStatus.changed_files.map((f, i) => (
+                        <div key={i}>• {f}</div>
+                      ))
+                    ) : (
+                      <div>Working tree is clean.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {rightDrawer === "terminal" && (
+                <div
+                  className="ag-drawer-panel"
+                  style={{ padding: "0.75rem", gap: "0.6rem" }}
+                >
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    <input
+                      className="workspace-input"
+                      style={{ flex: 1 }}
+                      value={quickCommand}
+                      onChange={(e) => setQuickCommand(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter" && quickCommand.trim()) {
+                          const res = await oxideBridge.executeBoundedCommand(
+                            quickCommand.trim()
+                          );
+                          setTerminalLogs((prev) => [res, ...prev]);
+                        }
+                      }}
+                      placeholder="Command..."
+                    />
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      overflowY: "auto",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    {terminalLogs.map((l, i) => (
+                      <div key={i} className="terminal-log">
+                        <div>
+                          $ {l.program} {l.args.join(" ")} ({l.exit_code})
+                        </div>
+                        {l.stdout && <div>{l.stdout}</div>}
+                        {l.stderr && (
+                          <div className="stderr-text">{l.stderr}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </aside>
+          )}
+        </div>
+      </main>
+
+      {/* ==================== SETTINGS & SUBAGENTS MODAL ==================== */}
       {showSettingsModal && (
         <div
           className="modal-backdrop"
@@ -1091,7 +1447,7 @@ export const App: React.FC = () => {
                 alignItems: "center",
               }}
             >
-              <h3>⚙ Subagents, Task Model Routing &amp; Hardware Governor</h3>
+              <h3>⚙ Subagents, Task Model Routing &amp; PC Governor</h3>
               <button
                 className="btn btn-primary"
                 onClick={handleAutoAssignOptimalModels}
@@ -1102,44 +1458,21 @@ export const App: React.FC = () => {
 
             {hwSpecs && (
               <div className="hw-spec-box">
-                <div style={{ fontWeight: 700, color: "#38bdf8" }}>
-                  🖥 Detected PC Specs &amp; Live Resource Governor:{" "}
-                  {hwSpecs.governor_tier}
-                </div>
-                <div>
-                  • <strong>CPU:</strong> {hwSpecs.cpu_brand} (
-                  {hwSpecs.cpu_cores} logical cores • Load:{" "}
-                  {hwSpecs.cpu_usage_percent}%)
-                </div>
-                <div>
-                  • <strong>System RAM:</strong> {hwSpecs.available_ram_gb} GB
-                  Free / {hwSpecs.total_ram_gb} GB Total (
-                  {hwSpecs.used_ram_percent}% used)
-                </div>
-                <div>
-                  • <strong>GPU:</strong> {hwSpecs.gpu_name}{" "}
-                  {hwSpecs.gpu_vram_gb > 0
-                    ? `(${hwSpecs.gpu_vram_gb} GB VRAM)`
-                    : ""}
-                </div>
-                <div style={{ color: "#fde68a", marginTop: "0.2rem" }}>
-                  💡 <strong>Governor Advice:</strong> {hwSpecs.governor_advice}
+                <strong>
+                  🖥 {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb} GB Free
+                  / {hwSpecs.total_ram_gb} GB RAM • {hwSpecs.cpu_cores} Cores)
+                </strong>
+                <div style={{ color: "var(--text-secondary)" }}>
+                  {hwSpecs.governor_advice}
                 </div>
               </div>
             )}
 
-            <div className="section-title">
-              Choose Which AI Model Runs Each Task Role
-            </div>
-
             <div className="routing-grid">
               <div className="form-group">
-                <label>
-                  🧠 Lead Architect AI (Complex Thinking &amp; Planning)
-                </label>
+                <label>🧠 Lead Architect AI (Complex Thinking)</label>
                 <input
                   className="workspace-input"
-                  list="ollama-models-list"
                   value={providerConfig.task_routing.architect_model}
                   onChange={(e) =>
                     setProviderConfig({
@@ -1155,10 +1488,9 @@ export const App: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label>💻 Coder Subagent (Fast Code Writing &amp; Edits)</label>
+                <label>💻 Coder Subagent (Fast File Edits)</label>
                 <input
                   className="workspace-input"
-                  list="ollama-models-list"
                   value={providerConfig.task_routing.coder_subagent_model}
                   onChange={(e) =>
                     setProviderConfig({
@@ -1173,12 +1505,9 @@ export const App: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label>
-                  🔍 Research Subagent (Fast File Search &amp; Reading)
-                </label>
+                <label>🔍 Research Subagent (Fast Search)</label>
                 <input
                   className="workspace-input"
-                  list="ollama-models-list"
                   value={providerConfig.task_routing.research_subagent_model}
                   onChange={(e) =>
                     setProviderConfig({
@@ -1194,115 +1523,19 @@ export const App: React.FC = () => {
 
               <div className="form-group">
                 <label>
-                  🧪 Tester Subagent (Terminal Verification &amp; Fixes)
-                </label>
-                <input
-                  className="workspace-input"
-                  list="ollama-models-list"
-                  value={providerConfig.task_routing.tester_subagent_model}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      task_routing: {
-                        ...providerConfig.task_routing,
-                        tester_subagent_model: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <datalist id="ollama-models-list">
-              {ollamaModels.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-
-            <div className="section-title">
-              Hardware Concurrency Limits (Prevents PC Overload)
-            </div>
-
-            <div className="routing-grid">
-              <div className="form-group">
-                <label>
                   Max Concurrent Subagents (
-                  {providerConfig.max_concurrent_subagents} / Hard PC Limit:{" "}
+                  {providerConfig.max_concurrent_subagents} / Hard Limit:{" "}
                   {hwSpecs?.hard_limit_subagents ?? 2})
                 </label>
                 <input
                   type="range"
                   min="1"
                   max={hwSpecs?.hard_limit_subagents ?? 4}
-                  step="1"
-                  value={Math.min(
-                    providerConfig.max_concurrent_subagents,
-                    hwSpecs?.hard_limit_subagents ?? 4
-                  )}
+                  value={providerConfig.max_concurrent_subagents}
                   onChange={(e) =>
                     setProviderConfig({
                       ...providerConfig,
                       max_concurrent_subagents: parseInt(e.target.value, 10),
-                    })
-                  }
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Auto-Throttle When RAM &gt; 85% or CPU &gt; 88%</label>
-                <select
-                  className="select-control"
-                  value={
-                    providerConfig.auto_throttle_on_high_load ? "true" : "false"
-                  }
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      auto_throttle_on_high_load: e.target.value === "true",
-                    })
-                  }
-                >
-                  <option value="true">
-                    Enabled (Queue subagents 1-by-1 under high load)
-                  </option>
-                  <option value="false">Disabled</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="routing-grid">
-              <div className="form-group">
-                <label>Primary Backend Provider</label>
-                <select
-                  className="select-control"
-                  value={providerConfig.active_provider}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      active_provider: e.target.value as ProviderKind,
-                    })
-                  }
-                >
-                  <option value="ollama">
-                    Local Ollama (Offline-First Default)
-                  </option>
-                  <option value="anthropic">
-                    Anthropic Claude (ANTHROPIC_API_KEY)
-                  </option>
-                  <option value="openai">OpenAI (OPENAI_API_KEY)</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Ollama Endpoint URL</label>
-                <input
-                  className="workspace-input"
-                  type="text"
-                  value={providerConfig.ollama_base_url}
-                  onChange={(e) =>
-                    setProviderConfig({
-                      ...providerConfig,
-                      ollama_base_url: e.target.value,
                     })
                   }
                 />
@@ -1314,7 +1547,6 @@ export const App: React.FC = () => {
                 display: "flex",
                 justifyContent: "flex-end",
                 gap: "0.5rem",
-                marginTop: "0.3rem",
               }}
             >
               <button
@@ -1325,173 +1557,83 @@ export const App: React.FC = () => {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => handleSaveSettings(providerConfig)}
+                onClick={async () => {
+                  const saved = await oxideBridge.updateProviderConfig(
+                    providerConfig
+                  );
+                  setProviderConfig(saved);
+                  setShowSettingsModal(false);
+                }}
               >
-                Save Subagent &amp; Model Settings
+                Save Settings
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Model Context Protocol (MCP) Hub Modal */}
+      {/* ==================== MCP HUB MODAL ==================== */}
       {showMcpModal && (
         <div
           className="modal-backdrop"
           onClick={() => setShowMcpModal(false)}
         >
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <h3>🔌 Model Context Protocol (MCP) Server Hub</h3>
-              <span style={{ fontSize: "0.75rem", color: "#38bdf8" }}>
-                JSON-RPC 2.0 (Stdio &amp; HTTP)
-              </span>
-            </div>
-
-            <p style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
-              Enabled MCP servers automatically expose their tools to the Lead
-              Architect AI and Subagents via <code>call_mcp_tool</code>.
-            </p>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.6rem",
-                maxHeight: "280px",
-                overflowY: "auto",
-              }}
-            >
-              {mcpServers.map((srv) => (
-                <div
-                  key={srv.id}
-                  style={{
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 8,
-                    padding: "0.7rem 0.85rem",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.4rem",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
+            <h3>🔌 Model Context Protocol (MCP) Servers</h3>
+            {mcpServers.map((srv) => (
+              <div
+                key={srv.id}
+                style={{
+                  background: "var(--bg-elevated)",
+                  padding: "0.7rem",
+                  borderRadius: 8,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong>{srv.name}</strong>{" "}
+                  <code style={{ fontSize: "0.72rem" }}>({srv.id})</code>
+                </div>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <button
+                    className="btn"
+                    onClick={async () => {
+                      await oxideBridge.discoverMcpTools(srv.id);
+                      setMcpServers(await oxideBridge.listMcpServers());
                     }}
                   >
-                    <div>
-                      <strong style={{ fontSize: "0.82rem" }}>
-                        {srv.name}
-                      </strong>{" "}
-                      <code style={{ fontSize: "0.72rem", color: "#38bdf8" }}>
-                        ({srv.id} • {srv.transport})
-                      </code>
-                    </div>
-                    <div style={{ display: "flex", gap: "0.35rem" }}>
-                      <button
-                        className="btn"
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
-                        onClick={() => handleDiscoverMcpTools(srv.id)}
-                      >
-                        🔍 Discover Tools
-                      </button>
-                      <button
-                        className={`btn ${srv.enabled ? "btn-primary" : ""}`}
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
-                        onClick={() => handleToggleMcpServer(srv)}
-                      >
-                        {srv.enabled ? "Enabled" : "Disabled"}
-                      </button>
-                      {srv.transport !== "builtin" && (
-                        <button
-                          className="btn"
-                          style={{
-                            padding: "0.2rem 0.5rem",
-                            fontSize: "0.72rem",
-                          }}
-                          onClick={async () => {
-                            const list = await oxideBridge.removeMcpServer(
-                              srv.id
-                            );
-                            setMcpServers(list);
-                          }}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
-                    Command: <code>{srv.command} {srv.args.join(" ")}</code> •
-                    Status: <strong>{srv.status}</strong>
-                  </div>
-
-                  {srv.discovered_tools.length > 0 && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "0.35rem",
-                        marginTop: "0.2rem",
-                      }}
-                    >
-                      {srv.discovered_tools.map((t) => (
-                        <button
-                          key={t.name}
-                          className="preset-chip"
-                          onClick={() => handleTestMcpTool(srv.id, t.name)}
-                          title={`${t.description} (Click to test tool call)`}
-                        >
-                          ▶ {t.name}()
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    Discover Tools
+                  </button>
+                  <button
+                    className={`btn ${srv.enabled ? "btn-primary" : ""}`}
+                    onClick={async () => {
+                      const list = await oxideBridge.saveMcpServer({
+                        ...srv,
+                        enabled: !srv.enabled,
+                      });
+                      setMcpServers(list);
+                    }}
+                  >
+                    {srv.enabled ? "Enabled" : "Disabled"}
+                  </button>
                 </div>
-              ))}
-            </div>
-
-            {mcpTestOutput && (
-              <div className="terminal-log" style={{ maxHeight: "110px" }}>
-                {mcpTestOutput}
               </div>
-            )}
+            ))}
 
-            <div className="section-title">Add Custom MCP Server</div>
             <div className="routing-grid">
               <input
                 className="workspace-input"
-                placeholder="Server ID (e.g. git-mcp)"
+                placeholder="Server ID"
                 value={newMcpId}
                 onChange={(e) => setNewMcpId(e.target.value)}
               />
               <input
                 className="workspace-input"
-                placeholder="Display Name"
-                value={newMcpName}
-                onChange={(e) => setNewMcpName(e.target.value)}
-              />
-              <input
-                className="workspace-input"
-                placeholder="Command (npx, uvx, node) or HTTP URL"
+                placeholder="Command (e.g. npx)"
                 value={newMcpCommand}
                 onChange={(e) => setNewMcpCommand(e.target.value)}
-              />
-              <input
-                className="workspace-input"
-                placeholder="Arguments (e.g. -y @modelcontextprotocol/server-memory)"
-                value={newMcpArgs}
-                onChange={(e) => setNewMcpArgs(e.target.value)}
               />
             </div>
 
@@ -1499,11 +1641,29 @@ export const App: React.FC = () => {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "0.3rem",
               }}
             >
-              <button className="btn" onClick={handleAddMcpServer}>
-                + Add MCP Server
+              <button
+                className="btn"
+                onClick={async () => {
+                  if (!newMcpId.trim()) return;
+                  const list = await oxideBridge.saveMcpServer({
+                    id: newMcpId.trim(),
+                    name: newMcpId.trim(),
+                    transport: "stdio",
+                    command: newMcpCommand.trim(),
+                    args: ["-y", "@modelcontextprotocol/server-memory"],
+                    env: {},
+                    url: null,
+                    enabled: true,
+                    status: "configured",
+                    discovered_tools: [],
+                  });
+                  setMcpServers(list);
+                  setNewMcpId("");
+                }}
+              >
+                + Add Server
               </button>
               <button
                 className="btn btn-primary"
@@ -1516,7 +1676,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* GitHub Self-Updater Modal */}
+      {/* ==================== GITHUB SELF-UPDATER MODAL ==================== */}
       {showUpdateModal && (
         <div
           className="modal-backdrop"
@@ -1524,87 +1684,45 @@ export const App: React.FC = () => {
         >
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>↻ Update Oxide from GitHub</h3>
-            <p style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
-              Repository: <code>https://github.com/Hanzkii/Oxide</code>
-            </p>
-
-            {updateStatus ? (
-              <div
-                style={{
-                  background: "var(--bg-card)",
-                  padding: "0.85rem",
-                  borderRadius: 8,
-                  fontSize: "0.82rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.4rem",
-                }}
-              >
+            {updateStatus && (
+              <div className="hw-spec-box">
                 <div>
-                  <strong>Installed Version:</strong>{" "}
-                  <code>{updateStatus.current_version}</code>
+                  Installed: <code>{updateStatus.current_version}</code>
                 </div>
                 <div>
-                  <strong>Latest on GitHub:</strong>{" "}
-                  <code>{updateStatus.latest_version}</code>
+                  Latest on GitHub: <code>{updateStatus.latest_version}</code>
                 </div>
-                <div>
-                  <strong>Latest Commit:</strong>{" "}
-                  {updateStatus.latest_commit_message}
-                </div>
-                <div>
-                  <strong>Status:</strong>{" "}
-                  {updateStatus.update_available ? (
-                    <span style={{ color: "#10b981", fontWeight: 700 }}>
-                      New update available on GitHub!
-                    </span>
-                  ) : (
-                    <span style={{ color: "#38bdf8" }}>
-                      You are running the latest version.
-                    </span>
-                  )}
-                </div>
+                <div>Latest Commit: {updateStatus.latest_commit_message}</div>
               </div>
-            ) : (
-              <div>Checking GitHub for updates...</div>
             )}
-
             <div
               style={{
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginTop: "0.5rem",
+                justifyContent: "flex-end",
+                gap: "0.5rem",
               }}
             >
-              <a
-                href={
-                  updateStatus?.release_url ||
-                  "https://github.com/Hanzkii/Oxide/releases"
-                }
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: "0.8rem", color: "#38bdf8" }}
+              <button
+                className="btn"
+                onClick={() => setShowUpdateModal(false)}
               >
-                Open GitHub Releases Page ↗
-              </a>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  className="btn"
-                  onClick={() => setShowUpdateModal(false)}
-                >
-                  Close
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handlePerformUpdate}
-                  disabled={isUpdating}
-                >
-                  {isUpdating
-                    ? "Updating from GitHub..."
-                    : "Pull & Install Latest Update"}
-                </button>
-              </div>
+                Close
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={isUpdating}
+                onClick={async () => {
+                  setIsUpdating(true);
+                  try {
+                    const res = await oxideBridge.performGithubUpdate();
+                    setStatusBanner(res.message);
+                  } finally {
+                    setIsUpdating(false);
+                  }
+                }}
+              >
+                {isUpdating ? "Updating..." : "Install Latest Update"}
+              </button>
             </div>
           </div>
         </div>

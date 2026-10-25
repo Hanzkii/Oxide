@@ -40,6 +40,9 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::workspace::set_workspace,
+            commands::workspace::pick_folder_dialog,
+            commands::workspace::load_studio_state,
+            commands::workspace::save_studio_state,
             commands::workspace::list_workspace_files,
             commands::workspace::read_workspace_file,
             commands::workspace::save_workspace_file,

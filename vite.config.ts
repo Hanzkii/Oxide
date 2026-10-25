@@ -476,6 +476,39 @@ function createLocalSystemBridgePlugin(): Plugin {
             return;
           }
 
+          if (action === "pick_folder_dialog") {
+            const out = await runCommandBounded(
+              `powershell -NoProfile -Sta -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Oxide Studio'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"`
+            );
+            const selected = out.stdout.trim();
+            res.end(JSON.stringify(selected || null));
+            return;
+          }
+
+          if (action === "load_studio_state") {
+            const base = process.env.LOCALAPPDATA || os.tmpdir();
+            const file = path.join(base, "OxideStudio", "studio_sessions.json");
+            if (fs.existsSync(file)) {
+              res.end(JSON.stringify(fs.readFileSync(file, "utf-8")));
+            } else {
+              res.end(JSON.stringify(null));
+            }
+            return;
+          }
+
+          if (action === "save_studio_state") {
+            const base = process.env.LOCALAPPDATA || os.tmpdir();
+            const dir = path.join(base, "OxideStudio");
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(
+              path.join(dir, "studio_sessions.json"),
+              args.stateJson || "{}",
+              "utf-8"
+            );
+            res.end(JSON.stringify(true));
+            return;
+          }
+
           if (action === "list_mcp_servers") {
             res.end(JSON.stringify(state.mcpServers));
             return;

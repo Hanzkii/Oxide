@@ -24,6 +24,64 @@ pub struct WorkspaceFileEntry {
     pub size_bytes: u64,
 }
 
+/// Opens a native OS folder selection dialog and returns the chosen directory path.
+#[tauri::command]
+pub async fn pick_folder_dialog() -> OxideResult<Option<String>> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-Sta",
+            "-Command",
+            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Oxide Studio'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
+        ])
+        .stdin(Stdio::null());
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let out = cmd.output().await?;
+        let selected = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if selected.is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(selected));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(None)
+    }
+}
+
+fn studio_state_file_path() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = base.join("OxideStudio");
+    let _ = fs::create_dir_all(&dir);
+    dir.join("studio_sessions.json")
+}
+
+/// Loads persisted Projects and Conversation History from disk (`%LOCALAPPDATA%/OxideStudio/studio_sessions.json`).
+#[tauri::command]
+pub async fn load_studio_state() -> OxideResult<Option<String>> {
+    let path = studio_state_file_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(fs::read_to_string(path)?))
+}
+
+/// Saves Projects and Conversation History to disk so conversations persist across restarts and updates.
+#[tauri::command]
+pub async fn save_studio_state(state_json: String) -> OxideResult<bool> {
+    let path = studio_state_file_path();
+    fs::write(path, state_json)?;
+    Ok(true)
+}
+
 /// Sets and validates the active target workspace directory, locking in the `WorkspaceSandbox`.
 #[tauri::command]
 pub async fn set_workspace(

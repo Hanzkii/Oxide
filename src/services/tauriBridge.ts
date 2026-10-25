@@ -129,6 +129,18 @@ export const oxideBridge = {
     return callBackend<WorkspaceInfo>("set_workspace", { workspacePath });
   },
 
+  async pickFolderDialog(): Promise<string | null> {
+    return callBackend<string | null>("pick_folder_dialog");
+  },
+
+  async loadStudioState(): Promise<string | null> {
+    return callBackend<string | null>("load_studio_state");
+  },
+
+  async saveStudioState(stateJson: string): Promise<boolean> {
+    return callBackend<boolean>("save_studio_state", { stateJson });
+  },
+
   async listWorkspaceFiles(subPath?: string): Promise<WorkspaceFileEntry[]> {
     return callBackend<WorkspaceFileEntry[]>("list_workspace_files", {
       subPath: subPath ?? ".",
