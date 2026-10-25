@@ -16,6 +16,7 @@ import {
   UpdateDownloadProgress,
   HardwareAccelerationMode,
   GpuOffloadPolicy,
+  SecurityReviewMode,
   ProviderConfig,
   ProviderKind,
   SubagentRunState,
@@ -263,7 +264,13 @@ export const App: React.FC = () => {
   // Modals & Tabbed Settings State
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [settingsTab, setSettingsTab] = useState<
-    "general" | "hardware" | "providers" | "agents" | "mcp" | "updates"
+    | "general"
+    | "hardware"
+    | "security"
+    | "providers"
+    | "agents"
+    | "mcp"
+    | "updates"
   >("general");
   const [showModelHubModal, setShowModelHubModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -298,6 +305,9 @@ export const App: React.FC = () => {
     useState<UpdateDownloadProgress | null>(null);
   const [liveThoughtExpanded, setLiveThoughtExpanded] = useState<boolean>(true);
   const [showSubagentsGuide, setShowSubagentsGuide] = useState<boolean>(false);
+  const [showSecurityMenu, setShowSecurityMenu] = useState<boolean>(false);
+  const [isInstallingOllama, setIsInstallingOllama] = useState<boolean>(false);
+  const [ollamaInstallStep, setOllamaInstallStep] = useState<string>("");
   const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>(0);
   const [liveMetrics, setLiveMetrics] = useState<{
     step: number;
@@ -991,8 +1001,39 @@ export const App: React.FC = () => {
     const saved = await oxideBridge.updateProviderConfig(updated);
     setProviderConfig(saved);
     setStatusBanner(
-      `Assigned Agent: ${mainModel} â€¢ Subagent: ${subModel}`
+      `Assigned Agent: ${mainModel} • Subagent: ${subModel}`
     );
+  };
+
+  const handleInstallOllama = async () => {
+    setIsInstallingOllama(true);
+    setOllamaInstallStep("Step 1/3: Checking local system & Winget repository...");
+    setStatusBanner("Installing Ollama local AI engine...");
+
+    const t1 = setTimeout(() => {
+      setOllamaInstallStep("Step 2/3: Downloading & installing Ollama background service...");
+    }, 2500);
+
+    const t2 = setTimeout(() => {
+      setOllamaInstallStep("Step 3/3: Waiting for Ollama daemon on http://localhost:11434...");
+    }, 7000);
+
+    try {
+      const msg = await oxideBridge.ensureOllamaEngine();
+      setOllamaInstallStep("✓ Ollama installed and running!");
+      setStatusBanner(msg);
+      await refreshWorkspaceState(currentDir);
+    } catch (err: any) {
+      setOllamaInstallStep(`Installation error: ${err?.message || String(err)}`);
+      setStatusBanner(`Ollama setup error: ${err?.message || String(err)}`);
+    } finally {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      setTimeout(() => {
+        setIsInstallingOllama(false);
+        setOllamaInstallStep("");
+      }, 4000);
+    }
   };
 
   return (
@@ -1860,6 +1901,160 @@ export const App: React.FC = () => {
                       </span>
                     )}
 
+                    {/* Security Review Mode Dropdown (Antigravity Style) */}
+                    <div className="oxide-security-wrapper">
+                      <button
+                        type="button"
+                        className="oxide-security-btn"
+                        onClick={() => setShowSecurityMenu((v) => !v)}
+                        title="AI Execution Security Mode"
+                      >
+                        <span style={{ fontSize: "0.85rem" }}>
+                          {providerConfig.security_mode === "request_review"
+                            ? "🛡️"
+                            : providerConfig.security_mode === "default"
+                            ? "🔒"
+                            : providerConfig.security_mode === "auto"
+                            ? "✨"
+                            : "⚡"}
+                        </span>
+                        <span>
+                          {providerConfig.security_mode === "request_review"
+                            ? "Request Review"
+                            : providerConfig.security_mode === "default"
+                            ? "Default"
+                            : providerConfig.security_mode === "auto"
+                            ? "Auto"
+                            : "Turbo"}
+                        </span>
+                        <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>
+                          {showSecurityMenu ? "▴" : "▾"}
+                        </span>
+                      </button>
+
+                      {showSecurityMenu && (
+                        <div
+                          className="oxide-security-menu"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className={`oxide-security-item ${
+                              providerConfig.security_mode === "request_review" ? "active" : ""
+                            }`}
+                            onClick={async () => {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                security_mode: "request_review",
+                              };
+                              setProviderConfig(updated);
+                              setShowSecurityMenu(false);
+                              await oxideBridge.updateProviderConfig(updated);
+                              setStatusBanner("Execution mode set to Request Review.");
+                            }}
+                          >
+                            <span className="oxide-security-item-icon">🛡️</span>
+                            <div className="oxide-security-item-body">
+                              <span className="oxide-security-item-title">Request Review</span>
+                              <span className="oxide-security-item-desc">
+                                Every command requires approval.
+                              </span>
+                            </div>
+                            {providerConfig.security_mode === "request_review" && (
+                              <span className="oxide-security-item-check">✓</span>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`oxide-security-item ${
+                              providerConfig.security_mode === "default" ? "active" : ""
+                            }`}
+                            onClick={async () => {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                security_mode: "default",
+                              };
+                              setProviderConfig(updated);
+                              setShowSecurityMenu(false);
+                              await oxideBridge.updateProviderConfig(updated);
+                              setStatusBanner("Execution mode set to Default.");
+                            }}
+                          >
+                            <span className="oxide-security-item-icon">🔒</span>
+                            <div className="oxide-security-item-body">
+                              <span className="oxide-security-item-title">Default</span>
+                              <span className="oxide-security-item-desc">
+                                Ask before sensitive operations.
+                              </span>
+                            </div>
+                            {providerConfig.security_mode === "default" && (
+                              <span className="oxide-security-item-check">✓</span>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`oxide-security-item ${
+                              providerConfig.security_mode === "auto" ? "active" : ""
+                            }`}
+                            onClick={async () => {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                security_mode: "auto",
+                              };
+                              setProviderConfig(updated);
+                              setShowSecurityMenu(false);
+                              await oxideBridge.updateProviderConfig(updated);
+                              setStatusBanner("Execution mode set to Auto (Preview).");
+                            }}
+                          >
+                            <span className="oxide-security-item-icon">✨</span>
+                            <div className="oxide-security-item-body">
+                              <span className="oxide-security-item-title">Auto (Preview)</span>
+                              <span className="oxide-security-item-desc">
+                                Automatically decide if commands run.
+                              </span>
+                            </div>
+                            {providerConfig.security_mode === "auto" && (
+                              <span className="oxide-security-item-check">✓</span>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`oxide-security-item ${
+                              providerConfig.security_mode === "turbo" || !providerConfig.security_mode
+                                ? "active"
+                                : ""
+                            }`}
+                            onClick={async () => {
+                              const updated: ProviderConfig = {
+                                ...providerConfig,
+                                security_mode: "turbo",
+                              };
+                              setProviderConfig(updated);
+                              setShowSecurityMenu(false);
+                              await oxideBridge.updateProviderConfig(updated);
+                              setStatusBanner("Execution mode set to Turbo (Unrestricted).");
+                            }}
+                          >
+                            <span className="oxide-security-item-icon">⚡</span>
+                            <div className="oxide-security-item-body">
+                              <span className="oxide-security-item-title">Turbo</span>
+                              <span className="oxide-security-item-desc">
+                                Run all commands without restrictions.
+                              </span>
+                            </div>
+                            {(providerConfig.security_mode === "turbo" ||
+                              !providerConfig.security_mode) && (
+                              <span className="oxide-security-item-check">✓</span>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     <button
                       className="ag-send-btn"
                       disabled={isRunning || !prompt.trim()}
@@ -2285,25 +2480,28 @@ export const App: React.FC = () => {
 
               <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
                 {!ollamaOnline && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={async () => {
-                      setStatusBanner(
-                        "Starting / Installing Ollama local AI engine..."
-                      );
-                      try {
-                        const msg = await oxideBridge.ensureOllamaEngine();
-                        setStatusBanner(msg);
-                        await refreshWorkspaceState(currentDir);
-                      } catch (err: any) {
-                        setStatusBanner(
-                          `Ollama setup error: ${err?.message || String(err)}`
-                        );
-                      }
-                    }}
-                  >
-                    âš¡ 1-Click Start / Install Ollama
-                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                    <button
+                      className="btn btn-primary"
+                      disabled={isInstallingOllama}
+                      onClick={handleInstallOllama}
+                    >
+                      {isInstallingOllama ? "↻ Installing Ollama..." : "⚡ 1-Click Start / Install Ollama"}
+                    </button>
+                    {isInstallingOllama && (
+                      <div style={{ width: "260px" }}>
+                        <div className="oxide-progress-track">
+                          <div
+                            className="oxide-progress-fill"
+                            style={{ width: "70%", animation: "pulse 1.5s infinite" }}
+                          />
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "#fde047", marginTop: "0.25rem" }}>
+                          {ollamaInstallStep}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {ollamaModels.length > 0 && (
                   <button
@@ -2721,16 +2919,26 @@ export const App: React.FC = () => {
                                 ? `${(modelProgressMap[model.install_id]?.percent ?? 0) > 0 ? `${modelProgressMap[model.install_id].percent.toFixed(0)}%` : "âŸ³"} Installing...`
                                 : "â¬‡ Install"}
                             </button>
-                            {isInstallingThis && modelProgressMap[model.install_id] && (
-                              <div>
+                            {isInstallingThis && (
+                              <div style={{ marginTop: "0.3rem", width: "100%" }}>
                                 <div className="oxide-progress-track">
                                   <div
                                     className="oxide-progress-fill"
-                                    style={{ width: `${modelProgressMap[model.install_id].percent}%` }}
+                                    style={{
+                                      width: `${Math.max(6, modelProgressMap[model.install_id]?.percent ?? 8)}%`,
+                                      transition: "width 0.2s ease",
+                                    }}
                                   />
                                 </div>
-                                <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                                  {modelProgressMap[model.install_id].percent.toFixed(1)}% â€¢ {modelProgressMap[model.install_id].status}
+                                <div style={{ fontSize: "0.71rem", color: "#fde047", marginTop: "0.25rem", display: "flex", justifyContent: "space-between" }}>
+                                  <span>
+                                    {modelProgressMap[model.install_id]?.status || "Connecting & pulling layers..."}
+                                  </span>
+                                  <span>
+                                    {(modelProgressMap[model.install_id]?.percent ?? 0) > 0
+                                      ? `${modelProgressMap[model.install_id].percent.toFixed(1)}%`
+                                      : "Starting..."}
+                                  </span>
                                 </div>
                               </div>
                             )}
@@ -2855,6 +3063,7 @@ export const App: React.FC = () => {
                 [
                   ["general", "ðŸ“ General"],
                   ["hardware", "ðŸ–¥ Hardware & Acceleration"],
+                  ["security", "🔒 Security & Sandbox"],
                   ["providers", "ðŸ”‘ AI Providers"],
                   ["agents", "âš¡ Agent Routing"],
                   ["mcp", "ðŸ”Œ MCP Servers"],
@@ -3137,6 +3346,136 @@ export const App: React.FC = () => {
               </div>
             )}
 
+            {/* TAB: SECURITY & WORKSPACE SANDBOX */}
+            {settingsTab === "security" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.85rem",
+                }}
+              >
+                {/* Active Workspace Sandbox Card */}
+                <div className="hw-spec-box">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <strong>🔒 Active Workspace Sandbox Jail</strong>
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                        Restricts AI tools, file mutations, and terminal executions strictly to your active project folder
+                      </div>
+                    </div>
+                    <span className="hw-fit-badge gpu_fast">
+                      ✓ Sandbox Active
+                    </span>
+                  </div>
+                  <div style={{ marginTop: "0.5rem", fontSize: "0.76rem", color: "var(--text-secondary)" }}>
+                    Jailed Root: <code>{activeProject?.path}</code>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.35rem", lineHeight: 1.4 }}>
+                    Oxide canonicalizes all target paths and enforces strict boundary checks. Any attempt to traverse (<code>..</code>), access system directories (e.g. Windows/System32), or escape the project folder is blocked.
+                  </div>
+                </div>
+
+                {/* Model Internet & Web Access */}
+                <div className="hw-spec-box">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <strong>🌐 Model Internet Access &amp; Web Search</strong>
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                        Allows the AI model to search the web and fetch documentation from online URLs
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`btn ${providerConfig.allow_internet_access ? "btn-primary" : ""}`}
+                      onClick={() =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          allow_internet_access: !providerConfig.allow_internet_access,
+                        })
+                      }
+                    >
+                      {providerConfig.allow_internet_access ? "✓ Internet Enabled" : "✕ Offline Mode"}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                    {providerConfig.allow_internet_access
+                      ? "The Lead Architect and subagents can use web_search and fetch_web_url to inspect documentation, public API references, and open-source repositories."
+                      : "The AI is completely cut off from external network connections and operates in 100% offline air-gapped mode."}
+                  </div>
+                </div>
+
+                {/* Execution Approval & Review Mode */}
+                <div className="routing-grid">
+                  <div className="form-group">
+                    <label>Command Execution &amp; Review Mode</label>
+                    <select
+                      className="select-control"
+                      value={providerConfig.security_mode || "turbo"}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          security_mode: e.target.value as SecurityReviewMode,
+                        })
+                      }
+                    >
+                      <option value="turbo">⚡ Turbo (Run all commands without restrictions)</option>
+                      <option value="auto">✨ Auto / Preview (Automatically evaluate command safety)</option>
+                      <option value="default">🔒 Default (Ask before sensitive or destructive operations)</option>
+                      <option value="request_review">🛡️ Request Review (Every command requires approval)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Strict Workspace Jailing</label>
+                    <select
+                      className="select-control"
+                      value={providerConfig.enforce_workspace_sandbox ? "true" : "false"}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          enforce_workspace_sandbox: e.target.value === "true",
+                        })
+                      }
+                    >
+                      <option value="true">🔒 Strict Sandbox (Block all paths outside workspace)</option>
+                      <option value="false">⚠️ Permissive (Allow read-only outside workspace)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Allowed Terminal Binaries */}
+                <div className="hw-spec-box">
+                  <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
+                    Permitted Developer CLI Binaries
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                    The sandbox limits terminal command execution strictly to allowlisted developer tools:
+                  </div>
+                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.45rem" }}>
+                    {["cargo", "rustc", "npm", "npx", "node", "git", "python", "pytest", "ollama", "tsc", "vite"].map((b) => (
+                      <span key={b} className="oxide-slash-badge" style={{ color: "#86efac", borderColor: "rgba(34, 197, 94, 0.3)" }}>
+                        ✓ {b}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      const saved = await oxideBridge.updateProviderConfig(providerConfig);
+                      setProviderConfig(saved);
+                      setStatusBanner("Saved Security & Sandbox settings.");
+                    }}
+                  >
+                    Save Security Settings
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* TAB 3: AI PROVIDERS & RUNTIME */}
             {settingsTab === "providers" && (
               <div
@@ -3168,16 +3507,28 @@ export const App: React.FC = () => {
                     </div>
                     <div style={{ display: "flex", gap: "0.4rem" }}>
                       {!ollamaOnline && (
-                        <button
-                          className="btn btn-primary"
-                          onClick={async () => {
-                            const msg = await oxideBridge.ensureOllamaEngine();
-                            setStatusBanner(msg);
-                            await refreshWorkspaceState(currentDir);
-                          }}
-                        >
-                          âš¡ Start / Install Ollama
-                        </button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                          <button
+                            className="btn btn-primary"
+                            disabled={isInstallingOllama}
+                            onClick={handleInstallOllama}
+                          >
+                            {isInstallingOllama ? "↻ Installing Ollama..." : "⚡ Start / Install Ollama"}
+                          </button>
+                          {isInstallingOllama && (
+                            <div style={{ width: "240px" }}>
+                              <div className="oxide-progress-track">
+                                <div
+                                  className="oxide-progress-fill"
+                                  style={{ width: "70%", animation: "pulse 1.5s infinite" }}
+                                />
+                              </div>
+                              <div style={{ fontSize: "0.72rem", color: "#fde047", marginTop: "0.25rem" }}>
+                                {ollamaInstallStep}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                       <button
                         className="btn"

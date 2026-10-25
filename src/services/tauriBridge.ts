@@ -92,6 +92,11 @@ function getModelForRole(config: ProviderConfig, role: AgentRoleKind): string {
   }
 }
 
+const modelProgressListeners = new Set<(p: ModelDownloadProgress) => void>();
+export function emitModelProgress(p: ModelDownloadProgress) {
+  modelProgressListeners.forEach((l) => l(p));
+}
+
 export const oxideBridge = {
   isNativeDesktop(): boolean {
     return isTauriNative();
@@ -234,6 +239,58 @@ export const oxideBridge = {
   },
 
   async installAiModel(modelId: string): Promise<ModelInstallResult> {
+    if (isTauriNative()) {
+      return callBackend<ModelInstallResult>("install_ai_model", {
+        modelId,
+        model_id: modelId,
+      });
+    }
+
+    const health = await this.getProviderHealth();
+    const baseUrl = health.config.ollama_base_url.replace(/\/$/, "");
+    try {
+      const resp = await fetch(`${baseUrl}/api/pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: modelId.trim(), stream: true }),
+      });
+      if (resp.ok && resp.body) {
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (!line) continue;
+            try {
+              const data = JSON.parse(line);
+              if (data.error) throw new Error(data.error);
+              const completed = data.completed || 0;
+              const total = data.total || 0;
+              const percent = total > 0 ? (completed / total) * 100 : 0;
+              emitModelProgress({
+                model_id: modelId,
+                status: data.status || "downloading",
+                completed,
+                total,
+                percent,
+              });
+            } catch {}
+          }
+        }
+        return {
+          model_id: modelId,
+          success: true,
+          message: `Installed ${modelId} successfully!`,
+        };
+      }
+    } catch {}
+
     return callBackend<ModelInstallResult>("install_ai_model", {
       modelId,
       model_id: modelId,
@@ -747,6 +804,106 @@ export const oxideBridge = {
             content: `[MCP_TOOL_ERROR] ${e?.message}`,
           });
         }
+      } else if (tool.action === "web_search") {
+        if (!health.config.allow_internet_access) {
+          messages.push({
+            role: "user",
+            content: `[SECURITY_BLOCKED] Internet access is disabled in Settings -> Security. Enable 'Allow Internet Access' to permit web searches.`,
+          });
+        } else {
+          emitLocalEvent({
+            type: "workflow_card",
+            step,
+            title: `Web Search: ${tool.query}`,
+            detail: tool.rationale || "Searching internet documentation",
+            status: "running",
+          });
+          try {
+            const searchResp = await fetch(
+              `https://html.duckduckgo.com/html/?q=${encodeURIComponent(
+                tool.query
+              )}`,
+              {
+                headers: {
+                  "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
+              }
+            );
+            const html = await searchResp.text();
+            const snippets: string[] = [];
+            const parts = html.split('class="result__snippet"');
+            for (let i = 1; i < Math.min(parts.length, 6); i++) {
+              const end = parts[i].indexOf("</a>");
+              if (end !== -1) {
+                const raw = parts[i].slice(0, end);
+                const cleaned = raw
+                  .replace(/<[^>]*>/g, "")
+                  .replace(/&quot;/g, '"')
+                  .replace(/&amp;/g, "&")
+                  .trim()
+                  .replace(/^>/, "")
+                  .trim();
+                if (cleaned) snippets.push(`• ${cleaned}`);
+              }
+            }
+            const results =
+              snippets.length > 0
+                ? snippets.join("\n")
+                : `Web search completed for '${tool.query}'.`;
+            emitLocalEvent({
+              type: "workflow_card",
+              step,
+              title: `Web Search: ${tool.query}`,
+              detail: `${snippets.length} results extracted`,
+              status: "succeeded",
+            });
+            messages.push({
+              role: "user",
+              content: `[WEB_SEARCH_RESULTS query="${tool.query}"]\n${results}\n[/WEB_SEARCH_RESULTS]`,
+            });
+          } catch (e: any) {
+            messages.push({
+              role: "user",
+              content: `[WEB_SEARCH_ERROR] ${e?.message || String(e)}`,
+            });
+          }
+        }
+      } else if (tool.action === "fetch_web_url") {
+        if (!health.config.allow_internet_access) {
+          messages.push({
+            role: "user",
+            content: `[SECURITY_BLOCKED] Internet access is disabled in Settings -> Security.`,
+          });
+        } else {
+          emitLocalEvent({
+            type: "workflow_card",
+            step,
+            title: `Fetching URL: ${tool.url}`,
+            detail: "Downloading webpage text",
+            status: "running",
+          });
+          try {
+            const resp = await fetch(tool.url);
+            const text = (await resp.text()).slice(0, 12000);
+            emitLocalEvent({
+              type: "workflow_card",
+              step,
+              title: `Fetched URL: ${tool.url}`,
+              detail: `${text.length} characters received`,
+              status: "succeeded",
+            });
+            messages.push({
+              role: "user",
+              content: `[FETCHED_URL url="${tool.url}"]\n${text}\n[/FETCHED_URL]`,
+            });
+          } catch (e: any) {
+            messages.push({
+              role: "user",
+              content: `[FETCH_URL_ERROR] ${e?.message || String(e)}`,
+            });
+          }
+        }
       } else if (tool.action === "complete_task") {
         if (tool.auto_commit) {
           const rec = await this.triggerGitMilestone(tool.summary);
@@ -792,13 +949,20 @@ export const oxideBridge = {
   async onModelDownloadProgress(
     handler: (progress: ModelDownloadProgress) => void
   ): Promise<UnlistenFn> {
+    modelProgressListeners.add(handler);
+    let tauriUnlisten: (() => void) | null = null;
     if (isTauriNative()) {
-      return listen<ModelDownloadProgress>(
+      listen<ModelDownloadProgress>(
         "oxide://model-download-progress",
         (evt) => handler(evt.payload)
-      );
+      ).then((u) => {
+        tauriUnlisten = u;
+      });
     }
-    return () => {};
+    return () => {
+      modelProgressListeners.delete(handler);
+      if (tauriUnlisten) tauriUnlisten();
+    };
   },
 
   async onUpdateDownloadProgress(

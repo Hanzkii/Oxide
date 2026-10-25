@@ -215,14 +215,24 @@ Oxide Studio includes a native **JSON-RPC 2.0 MCP Client & Registry** (`src-taur
 
 ---
 
-## 🔒 8. Defense-in-Depth Security & Silent Windows Execution
+## 🔒 8. Defense-in-Depth Security, Sandbox & Execution Approval Modes
 
-1. **Canonical Path Sandbox (`src-tauri/src/security/sandbox.rs`)**:
-   - Every file read, write, move, delete, and terminal working directory is canonicalized and verified to reside strictly inside your active project folder, blocking `../` traversal and symlink escapes.
-2. **Allow-Listed Terminal & Self-Correction (`src-tauri/src/orchestrator/terminal.rs`)**:
-   - Commands execute without shell-interpolation injection, scrub cloud API keys from child environments, cap output buffers, and automatically feed non-zero exit codes + `stderr` back to the AI for autonomous self-repair.
-3. **Zero Pop-up Console Windows (`CREATE_NO_WINDOW`)**:
-   - Every background process on Windows (`git`, `ollama`, `nvidia-smi`, `powershell`, `npx`, and the self-updater) executes with the Win32 `CREATE_NO_WINDOW` (`0x08000000`) flag so black terminal windows never flash on your screen.
+Oxide Studio implements an enterprise-grade security model inspired by Google Antigravity:
+
+### Interactive Execution Approval Modes (Composer Shield Menu)
+Users can toggle execution permissions live from the floating prompt bar:
+- 🛡️ **`Request Review`**: Every terminal command, code edit, and mutation requires manual user approval before execution.
+- 🔒 **`Default`**: Automatically permits benign read operations; prompts before sensitive operations (e.g. file deletions, Git push, external network requests).
+- ✨ **`Auto (Preview)`**: Heuristic safety analyzer determines whether commands execute autonomously.
+- ⚡ **`Turbo`**: Runs all workspace commands and subagents without interruption for maximum development velocity.
+
+### Canonical Path Workspace Sandbox (`src-tauri/src/security/sandbox.rs`)
+- **Strict Project Jailing**: All file operations (`read_file`, `write_file`, `delete_file`) and terminal working directories are cryptographically canonicalized via `dunce` and verified to reside inside your project root. Directory escapes (`../`), symlink traversals, and access to system folders (`Windows/System32`, `Program Files`) are strictly blocked.
+- **Allowlisted Developer CLI Tools**: The sandbox restricts command execution exclusively to safe developer binaries: `cargo`, `rustc`, `npm`, `npx`, `node`, `git`, `python`, `pytest`, `ollama`, `tsc`, `vite`.
+- **Credential Scrubbing**: Child processes are spawned with sanitized environments, automatically scrubbing cloud API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`).
+- **Configurable Internet Access**: Model internet access can be toggled in `Settings -> Security & Sandbox`. When enabled, the model can search online documentation via `web_search` and inspect web APIs via `fetch_web_url`. When disabled, the AI operates in 100% offline air-gapped isolation.
+- **Zero Pop-up Windows (`CREATE_NO_WINDOW`)**: All background processes execute silently via Win32 `0x08000000`, eliminating sketchy terminal popups.
+- **Live Installation Progress**: AI model downloads stream real-time percentage and byte counters directly in the card buttons, and 1-Click Ollama installation displays step-by-step progress and service verification.
 
 ---
 

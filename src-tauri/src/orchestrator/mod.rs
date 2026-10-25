@@ -178,6 +178,24 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
     "value": "Uses local token validation"
   }
 }
+```
+
+13. `web_search` — Search the internet for technical documentation, library APIs, or GitHub solutions (available when internet access is enabled in settings):
+```json
+{
+  "thought": "Searching internet for library documentation",
+  "action": "web_search",
+  "query": "tauri v2 security capabilities"
+}
+```
+
+14. `fetch_web_url` — Fetch text content from a web URL:
+```json
+{
+  "thought": "Fetching documentation page",
+  "action": "fetch_web_url",
+  "url": "https://raw.githubusercontent.com/..."
+}
 ```"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,6 +295,18 @@ pub enum AgentToolAction {
         thought: Option<String>,
         plan: Option<Vec<String>>,
     },
+    WebSearch {
+        query: String,
+        rationale: Option<String>,
+        thought: Option<String>,
+        plan: Option<Vec<String>>,
+    },
+    FetchWebUrl {
+        url: String,
+        rationale: Option<String>,
+        thought: Option<String>,
+        plan: Option<Vec<String>>,
+    },
     CompleteTask {
         summary: String,
         #[serde(default = "default_true")]
@@ -311,6 +341,8 @@ impl AgentToolAction {
             | Self::GitAction { thought, .. }
             | Self::OpenInVscode { thought, .. }
             | Self::CallMcpTool { thought, .. }
+            | Self::WebSearch { thought, .. }
+            | Self::FetchWebUrl { thought, .. }
             | Self::CompleteTask { thought, .. } => thought.as_deref(),
         }
     }
@@ -329,6 +361,8 @@ impl AgentToolAction {
             | Self::GitAction { plan, .. }
             | Self::OpenInVscode { plan, .. }
             | Self::CallMcpTool { plan, .. }
+            | Self::WebSearch { plan, .. }
+            | Self::FetchWebUrl { plan, .. }
             | Self::CompleteTask { plan, .. } => plan.as_deref(),
         }
     }
@@ -1138,6 +1172,113 @@ impl AgentOrchestrator {
                                 server, tool, e
                             )));
                         }
+                    }
+                }
+
+                AgentToolAction::WebSearch {
+                    query,
+                    rationale,
+                    ..
+                } => {
+                    if !self.provider_config.allow_internet_access {
+                        conversation.push(ChatMessage::tool(
+                            "[SECURITY_BLOCKED] Internet access is disabled in Oxide Security Settings. Enable 'Allow Internet Access' in Settings -> Security to permit web searches.".to_string(),
+                        ));
+                    } else {
+                        executed_actions.push(format!("🌐 Searched internet for `{}`", query));
+                        self.emit_event(
+                            &app,
+                            AgentStreamEvent::WorkflowCard {
+                                step,
+                                title: format!("Web Search: `{}`", query),
+                                detail: rationale.unwrap_or_else(|| "Querying web documentation".to_string()),
+                                status: WorkflowStepStatus::Running,
+                            },
+                        );
+
+                        let client = reqwest::Client::builder()
+                            .timeout(Duration::from_secs(12))
+                            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                            .build();
+
+                        let results_text = match client {
+                            Ok(c) => {
+                                match c.get("https://html.duckduckgo.com/html/").query(&[("q", &query)]).send().await {
+                                    Ok(resp) if resp.status().is_success() => {
+                                        let html = resp.text().await.unwrap_or_default();
+                                        let mut snippets = Vec::new();
+                                        let parts: Vec<&str> = html.split("class=\"result__snippet\"").collect();
+                                        for part in parts.iter().skip(1).take(5) {
+                                            if let Some(end) = part.find("</a>") {
+                                                let raw = &part[..end];
+                                                let cleaned = raw.replace("<b>", "").replace("</b>", "").replace("&quot;", "\"").replace("&amp;", "&");
+                                                let text = cleaned.trim().trim_start_matches('>').trim();
+                                                if !text.is_empty() {
+                                                    snippets.push(format!("• {}", text));
+                                                }
+                                            }
+                                        }
+                                        if snippets.is_empty() {
+                                            format!("Web search completed for `{}`. No immediate snippets extracted.", query)
+                                        } else {
+                                            snippets.join("\n")
+                                        }
+                                    }
+                                    Ok(resp) => format!("Search engine responded with HTTP {}", resp.status()),
+                                    Err(e) => format!("Search request failed: {}", e),
+                                }
+                            }
+                            Err(e) => format!("Failed to create HTTP client: {}", e),
+                        };
+
+                        self.emit_event(
+                            &app,
+                            AgentStreamEvent::WorkflowCard {
+                                step,
+                                title: format!("Web Search: `{}`", query),
+                                detail: "Results retrieved".to_string(),
+                                status: WorkflowStepStatus::Succeeded,
+                            },
+                        );
+                        conversation.push(ChatMessage::tool(format!(
+                            "[WEB_SEARCH_RESULTS query=\"{}\"]\n{}\n[/WEB_SEARCH_RESULTS]",
+                            query, results_text
+                        )));
+                    }
+                }
+
+                AgentToolAction::FetchWebUrl {
+                    url,
+                    rationale: _,
+                    ..
+                } => {
+                    if !self.provider_config.allow_internet_access {
+                        conversation.push(ChatMessage::tool(
+                            "[SECURITY_BLOCKED] Internet access is disabled in Oxide Security Settings.".to_string(),
+                        ));
+                    } else {
+                        executed_actions.push(format!("🌐 Fetched URL `{}`", url));
+                        let client = reqwest::Client::builder()
+                            .timeout(Duration::from_secs(12))
+                            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .build();
+
+                        let content_text = match client {
+                            Ok(c) => match c.get(&url).send().await {
+                                Ok(resp) if resp.status().is_success() => {
+                                    let raw = resp.text().await.unwrap_or_default();
+                                    raw.chars().take(12_000).collect()
+                                }
+                                Ok(resp) => format!("HTTP {}", resp.status()),
+                                Err(e) => format!("Failed to fetch URL: {}", e),
+                            },
+                            Err(e) => format!("HTTP client error: {}", e),
+                        };
+
+                        conversation.push(ChatMessage::tool(format!(
+                            "[FETCHED_URL url=\"{}\"]\n{}\n[/FETCHED_URL]",
+                            url, content_text
+                        )));
                     }
                 }
 

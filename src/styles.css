@@ -1078,3 +1078,102 @@ body {
   color: #ffffff;
   transition: width 0.3s ease;
 }
+
+/* ==================== SECURITY POPUP MENU (ANTIGRAVITY STYLE) ==================== */
+.oxide-security-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.oxide-security-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oxide-security-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.oxide-security-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 295px;
+  background: #141416;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+  padding: 0.35rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  backdrop-filter: blur(14px);
+}
+
+.oxide-security-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s ease;
+}
+
+.oxide-security-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.oxide-security-item.active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.oxide-security-item-icon {
+  font-size: 1rem;
+  margin-top: 0.1rem;
+  color: var(--text-secondary);
+}
+
+.oxide-security-item-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.oxide-security-item-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.oxide-security-item-desc {
+  font-size: 0.71rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.oxide-security-item-check {
+  color: var(--oxide-ember);
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}

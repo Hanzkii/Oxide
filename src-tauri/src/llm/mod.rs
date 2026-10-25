@@ -35,6 +35,25 @@ impl Default for HardwareAccelerationMode {
 /// Controls how transformer layers are partitioned between GPU VRAM and CPU System RAM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum SecurityReviewMode {
+    /// Every command and mutation requires explicit user approval before execution
+    RequestReview,
+    /// Asks before sensitive operations (external network, destructive commands, file deletions)
+    Default,
+    /// Automatically decides if commands should run based on safety heuristics
+    Auto,
+    /// Runs all workspace commands and tools without interactive confirmation
+    Turbo,
+}
+
+impl Default for SecurityReviewMode {
+    fn default() -> Self {
+        SecurityReviewMode::Turbo
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GpuOffloadPolicy {
     /// 100% GPU offload (num_gpu: 99) for maximum token/s inference
     FullGpu,
@@ -105,6 +124,12 @@ pub struct ProviderConfig {
     pub gpu_offload_policy: GpuOffloadPolicy,
     #[serde(default = "default_gpu_layers")]
     pub gpu_offload_layers: i32,
+    #[serde(default)]
+    pub security_mode: SecurityReviewMode,
+    #[serde(default = "default_true")]
+    pub allow_internet_access: bool,
+    #[serde(default = "default_true")]
+    pub enforce_workspace_sandbox: bool,
 }
 
 fn default_gpu_layers() -> i32 {
@@ -136,6 +161,9 @@ impl Default for ProviderConfig {
             hardware_acceleration: HardwareAccelerationMode::Auto,
             gpu_offload_policy: GpuOffloadPolicy::FullGpu,
             gpu_offload_layers: 99,
+            security_mode: SecurityReviewMode::Turbo,
+            allow_internet_access: true,
+            enforce_workspace_sandbox: true,
         }
     }
 }

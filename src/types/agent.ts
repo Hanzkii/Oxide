@@ -13,6 +13,12 @@ export type GpuOffloadPolicy =
   | "custom_layers"
   | "cpu_only";
 
+export type SecurityReviewMode =
+  | "request_review"
+  | "default"
+  | "auto"
+  | "turbo";
+
 export type AgentRoleKind =
   | "architect"
   | "coder_subagent"
@@ -76,6 +82,9 @@ export interface ProviderConfig {
   hardware_acceleration?: HardwareAccelerationMode;
   gpu_offload_policy?: GpuOffloadPolicy;
   gpu_offload_layers?: number;
+  security_mode?: SecurityReviewMode;
+  allow_internet_access?: boolean;
+  enforce_workspace_sandbox?: boolean;
 }
 
 export interface ModelDownloadProgress {
