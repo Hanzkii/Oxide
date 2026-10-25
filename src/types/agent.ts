@@ -1,5 +1,12 @@
 export type ProviderKind = "ollama" | "anthropic" | "openai";
 
+export type HardwareAccelerationMode =
+  | "auto"
+  | "amd_rocm"
+  | "nvidia_cuda"
+  | "directml"
+  | "cpu";
+
 export type AgentRoleKind =
   | "architect"
   | "coder_subagent"
@@ -60,6 +67,23 @@ export interface ProviderConfig {
   enable_subagents: boolean;
   max_concurrent_subagents: number;
   auto_throttle_on_high_load: boolean;
+  hardware_acceleration?: HardwareAccelerationMode;
+  gpu_offload_layers?: number;
+}
+
+export interface ModelDownloadProgress {
+  model_id: string;
+  status: string;
+  completed: number;
+  total: number;
+  percent: number;
+}
+
+export interface UpdateDownloadProgress {
+  bytes_downloaded: number;
+  total_bytes: number;
+  percent: number;
+  status: string;
 }
 
 export interface HardwareSpecs {

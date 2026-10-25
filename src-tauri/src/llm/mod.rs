@@ -17,6 +17,22 @@ pub enum ProviderKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum HardwareAccelerationMode {
+    Auto,
+    AmdRocm,
+    NvidiaCuda,
+    DirectMl,
+    Cpu,
+}
+
+impl Default for HardwareAccelerationMode {
+    fn default() -> Self {
+        HardwareAccelerationMode::Auto
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentRoleKind {
     Architect,
     CoderSubagent,
@@ -62,6 +78,14 @@ pub struct ProviderConfig {
     pub max_concurrent_subagents: usize,
     #[serde(default = "default_true")]
     pub auto_throttle_on_high_load: bool,
+    #[serde(default)]
+    pub hardware_acceleration: HardwareAccelerationMode,
+    #[serde(default = "default_gpu_layers")]
+    pub gpu_offload_layers: i32,
+}
+
+fn default_gpu_layers() -> i32 {
+    99
 }
 
 fn default_true() -> bool {
@@ -69,7 +93,7 @@ fn default_true() -> bool {
 }
 
 fn default_max_subagents() -> usize {
-    2
+    4
 }
 
 impl Default for ProviderConfig {
@@ -84,8 +108,10 @@ impl Default for ProviderConfig {
             temperature: 0.1,
             task_routing: TaskModelRouting::default(),
             enable_subagents: true,
-            max_concurrent_subagents: 2,
+            max_concurrent_subagents: 4,
             auto_throttle_on_high_load: true,
+            hardware_acceleration: HardwareAccelerationMode::Auto,
+            gpu_offload_layers: 99,
         }
     }
 }

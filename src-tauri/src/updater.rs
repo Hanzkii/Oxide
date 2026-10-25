@@ -1,14 +1,24 @@
 use crate::error::{OxideError, OxideResult};
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::process::Stdio;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const GITHUB_REPO: &str = "Hanzkii/Oxide";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDownloadProgress {
+    pub bytes_downloaded: u64,
+    pub total_bytes: u64,
+    pub percent: f32,
+    pub status: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateStatus {
@@ -155,54 +165,89 @@ pub async fn check_for_github_updates() -> OxideResult<UpdateStatus> {
     })
 }
 
-pub async fn install_github_update() -> OxideResult<UpdateInstallResult> {
+pub async fn install_github_update(app: &AppHandle) -> OxideResult<UpdateInstallResult> {
     let status = check_for_github_updates().await?;
 
-    // 1. If a compiled installer asset (.exe / .msi) is published on GitHub Releases, download & launch it
+    // 1. If a compiled installer asset (.exe / .msi) is published on GitHub Releases, download & stream progress
     if let (Some(download_url), Some(asset_name)) =
         (status.installer_download_url, status.installer_name)
     {
         let client = Client::builder()
             .user_agent("Oxide-Agent-Updater/0.1")
-            .timeout(Duration::from_secs(120))
+            .timeout(Duration::from_secs(300))
             .build()?;
 
-        let bytes = client
-            .get(&download_url)
-            .send()
-            .await?
-            .bytes()
-            .await?;
+        let resp = client.get(&download_url).send().await?;
+        let total_size = resp.content_length().unwrap_or(0);
+
+        let mut stream = resp.bytes_stream();
+        let mut downloaded: u64 = 0;
+        let mut file_bytes = Vec::new();
+
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res?;
+            downloaded += chunk.len() as u64;
+            file_bytes.extend_from_slice(&chunk);
+
+            let percent = if total_size > 0 {
+                ((downloaded as f64 / total_size as f64) * 100.0) as f32
+            } else {
+                0.0
+            };
+
+            let _ = app.emit(
+                "oxide://update-download-progress",
+                UpdateDownloadProgress {
+                    bytes_downloaded: downloaded,
+                    total_bytes: total_size,
+                    percent,
+                    status: format!(
+                        "Downloading update: {:.1} MB / {:.1} MB ({:.0}%)",
+                        downloaded as f64 / (1024.0 * 1024.0),
+                        total_size as f64 / (1024.0 * 1024.0),
+                        percent
+                    ),
+                },
+            );
+        }
 
         let target_path = env::temp_dir().join(&asset_name);
-        fs::write(&target_path, &bytes)?;
+        fs::write(&target_path, &file_bytes)?;
 
-        // Strip NTFS Zone.Identifier and launch installer directly with CREATE_NO_WINDOW
-        // so no black cmd.exe terminal window ever pops up.
+        // Strip NTFS Zone.Identifier and schedule silent replacement
         #[cfg(target_os = "windows")]
         {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
             let zone_ads = format!("{}:Zone.Identifier", target_path.to_string_lossy());
             let _ = fs::remove_file(zone_ads);
 
-            let mut installer_cmd = Command::new(&target_path);
-            installer_cmd
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .creation_flags(CREATE_NO_WINDOW);
+            let installer_path_str = target_path.to_string_lossy().to_string();
+            let current_pid = std::process::id();
 
-            installer_cmd.spawn().map_err(|e| {
-                OxideError::ExecutionError(format!("Failed to launch installer: {}", e))
-            })?;
+            // Wait for current process to exit, run installer with /S to replace existing install, then restart
+            let ps_script = format!(
+                "Start-Sleep -Milliseconds 600; Wait-Process -Id {} -Timeout 5 -ErrorAction SilentlyContinue; Start-Process -FilePath '{}' -ArgumentList '/S' -Wait; $exe = Join-Path $env:LOCALAPPDATA 'Programs\\Oxide\\Oxide.exe'; if (Test-Path $exe) {{ Start-Process $exe }}",
+                current_pid, installer_path_str
+            );
+
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_script]);
+            cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.spawn().map_err(|e| OxideError::ExecutionError(format!("Failed to launch upgrade script: {}", e)))?;
+
+            // Schedule graceful exit of current process so old version executable is unlocked and removed
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                std::process::exit(0);
+            });
         }
 
         return Ok(UpdateInstallResult {
             method: "release_installer".to_string(),
             message: format!(
-                "Downloaded and launched update installer '{}' ({} KB).",
-                asset_name,
-                bytes.len() / 1024
+                "Update '{}' downloaded. Clean upgrade starting; application will restart...",
+                asset_name
             ),
             restart_required: true,
         });

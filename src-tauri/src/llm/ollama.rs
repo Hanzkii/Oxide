@@ -12,6 +12,7 @@ pub struct OllamaProvider {
     client: Client,
     base_url: String,
     model: String,
+    num_gpu: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -25,6 +26,8 @@ struct OllamaChatRequest<'a> {
 #[derive(Serialize)]
 struct OllamaOptions {
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_gpu: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +50,14 @@ struct OllamaChunkMessage {
 
 impl OllamaProvider {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::with_num_gpu(base_url, model, None)
+    }
+
+    pub fn with_num_gpu(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        num_gpu: Option<i32>,
+    ) -> Self {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(300))
@@ -57,6 +68,7 @@ impl OllamaProvider {
             client,
             base_url: base_url.into().trim_end_matches('/').to_string(),
             model: model.into(),
+            num_gpu,
         }
     }
 }
@@ -99,7 +111,10 @@ impl LlmProvider for OllamaProvider {
             model: &self.model,
             messages: payload_messages,
             stream: true,
-            options: OllamaOptions { temperature },
+            options: OllamaOptions {
+                temperature,
+                num_gpu: self.num_gpu,
+            },
         };
 
         let response = self

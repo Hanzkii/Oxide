@@ -33,10 +33,17 @@ impl HybridProviderRouter {
     ) -> Arc<dyn LlmProvider> {
         let role_model = self.config.model_for_role(role);
         match kind {
-            ProviderKind::Ollama => Arc::new(OllamaProvider::new(
-                &self.config.ollama_base_url,
-                role_model,
-            )),
+            ProviderKind::Ollama => {
+                let num_gpu = match self.config.hardware_acceleration {
+                    crate::llm::HardwareAccelerationMode::Cpu => Some(0),
+                    _ => Some(self.config.gpu_offload_layers),
+                };
+                Arc::new(OllamaProvider::with_num_gpu(
+                    &self.config.ollama_base_url,
+                    role_model,
+                    num_gpu,
+                ))
+            }
             ProviderKind::Anthropic => {
                 Arc::new(AnthropicProvider::new(&self.config.anthropic_model))
             }

@@ -455,11 +455,13 @@ body {
   border-color: var(--border-focus);
 }
 
-.ag-composer-input {
+.ag-composer-input,
+.ag-composer-textarea {
   width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
   color: var(--text-primary);
   font-size: 0.88rem;
   line-height: 1.5;
@@ -469,7 +471,8 @@ body {
   font-family: inherit;
 }
 
-.ag-composer-input::placeholder {
+.ag-composer-input::placeholder,
+.ag-composer-textarea::placeholder {
   color: var(--text-muted);
 }
 
@@ -485,6 +488,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .ag-model-picker-inline {
@@ -496,6 +500,10 @@ body {
   padding: 0.25rem 0.45rem;
   border-radius: 6px;
   cursor: pointer;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ag-model-picker-inline:hover {
@@ -873,4 +881,74 @@ body {
   background: rgba(239, 68, 68, 0.14);
   color: #fca5a5;
   border: 1px solid rgba(239, 68, 68, 0.32);
+}
+
+/* ==================== LIVE DOWNLOAD & UPGRADE PROGRESS BARS ==================== */
+.oxide-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+
+.oxide-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-blue) 0%, #60a5fa 100%);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+.oxide-top-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  padding: 0.22rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.oxide-top-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+.ag-thought-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.24rem 0.65rem;
+  border-radius: 14px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: all 0.15s;
+}
+
+.ag-thought-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.ag-thought-body {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding: 0.4rem 0.65rem;
+  margin-bottom: 0.75rem;
+  border-left: 2px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 0 6px 6px 0;
+  white-space: pre-wrap;
 }

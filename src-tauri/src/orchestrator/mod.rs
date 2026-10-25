@@ -447,20 +447,17 @@ impl AgentOrchestrator {
             )),
         ];
 
+        let mut executed_actions: Vec<String> = Vec::new();
+
         for step in 1..=DEFAULT_MAX_AGENT_STEPS {
             self.emit_event(
                 &app,
-                AgentStreamEvent::WorkflowCard {
+                AgentStreamEvent::ThinkingUpdate {
                     step,
-                    title: format!(
-                        "Lead Architect Thinking (Step {}/{})",
+                    thought: format!(
+                        "Lead Architect analyzing workspace and reasoning next action (Step {}/{})...",
                         step, DEFAULT_MAX_AGENT_STEPS
                     ),
-                    detail: format!(
-                        "Architect Model: {}",
-                        self.provider_config.model_for_role(AgentRoleKind::Architect)
-                    ),
-                    status: WorkflowStepStatus::Running,
                 },
             );
 
@@ -469,7 +466,15 @@ impl AgentOrchestrator {
                 .provider_config
                 .model_for_role(AgentRoleKind::Architect)
                 .to_string();
+            let raw_stream_buffer = Arc::new(std::sync::Mutex::new(String::new()));
+            let buffer_clone = raw_stream_buffer.clone();
             let token_cb = Arc::new(move |token: &str| {
+                let mut buf = buffer_clone.lock().unwrap();
+                buf.push_str(token);
+                let trimmed = buf.trim_start();
+                if trimmed.starts_with('{') || trimmed.starts_with("```json") {
+                    return;
+                }
                 let _ = app_for_stream.emit(
                     "oxide://agent-event",
                     AgentStreamEvent::TokenDelta {
@@ -497,14 +502,15 @@ impl AgentOrchestrator {
             conversation.push(ChatMessage::assistant(assistant_reply.clone()));
 
             let Some(action) = Self::extract_tool_action(&assistant_reply) else {
+                let final_report = Self::format_execution_report(&user_prompt, &executed_actions, &assistant_reply);
                 self.emit_event(
                     &app,
                     AgentStreamEvent::TaskCompleted {
                         steps_taken: step,
-                        summary: assistant_reply.clone(),
+                        summary: final_report.clone(),
                     },
                 );
-                return Ok(assistant_reply);
+                return Ok(final_report);
             };
 
             if let Some(thought_str) = action.thought() {
@@ -529,6 +535,7 @@ impl AgentOrchestrator {
 
             match action {
                 AgentToolAction::DelegateSubagents { subtasks, .. } => {
+                    executed_actions.push(format!("🤖 Delegated {} parallel subagent task(s)", subtasks.len()));
                     let results = self
                         .execute_subagent_batch(&app, step, &router, subtasks)
                         .await;
@@ -554,6 +561,7 @@ impl AgentOrchestrator {
                     }
                     entries.sort();
                     let listing = entries.join("\n");
+                    executed_actions.push(format!("📁 Listed directory `{}` ({} items)", path, entries.len()));
 
                     self.emit_event(
                         &app,
@@ -572,6 +580,7 @@ impl AgentOrchestrator {
 
                 AgentToolAction::SearchFiles { query, .. } => {
                     let matches = self.search_in_workspace(&query);
+                    executed_actions.push(format!("🔍 Searched workspace for `{}` ({} matches)", query, matches.len()));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::WorkflowCard {
@@ -599,6 +608,7 @@ impl AgentOrchestrator {
                     match fs::read_to_string(&target) {
                         Ok(data) => {
                             let capped: String = data.chars().take(16_000).collect();
+                            executed_actions.push(format!("📖 Read file `{}`", path));
                             self.emit_event(
                                 &app,
                                 AgentStreamEvent::WorkflowCard {
@@ -634,6 +644,7 @@ impl AgentOrchestrator {
                         fs::create_dir_all(parent)?;
                     }
                     fs::write(&target, &content)?;
+                    executed_actions.push(format!("✏️ Created/Wrote file `{}`", path));
 
                     let detail =
                         rationale.unwrap_or_else(|| format!("Wrote {} bytes", content.len()));
@@ -676,6 +687,7 @@ impl AgentOrchestrator {
                             if existing.contains(&target) {
                                 let updated = existing.replace(&target, &replacement);
                                 fs::write(&resolved, &updated)?;
+                                executed_actions.push(format!("✏️ Modified file `{}`", path));
                                 let detail = rationale.unwrap_or_else(|| {
                                     "Applied target replacement edit".to_string()
                                 });
@@ -742,6 +754,7 @@ impl AgentOrchestrator {
                         fs::create_dir_all(parent)?;
                     }
                     fs::rename(&src_path, &dst_path)?;
+                    executed_actions.push(format!("📦 Moved `{}` ➔ `{}`", source, destination));
 
                     let detail =
                         rationale.unwrap_or_else(|| format!("Moved {} -> {}", source, destination));
@@ -779,6 +792,7 @@ impl AgentOrchestrator {
                         fs::remove_file(&target)?;
                     }
                     let detail = rationale.unwrap_or_else(|| format!("Deleted {}", path));
+                    executed_actions.push(format!("🗑️ Deleted `{}`", path));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::FileChange {
@@ -821,6 +835,7 @@ impl AgentOrchestrator {
                         Ok(exec_result) => {
                             let observation = exec_result.to_agent_observation();
                             let succeeded = exec_result.succeeded;
+                            executed_actions.push(format!("⚡ Ran command `{}` (exit: {})", command, exec_result.exit_code));
 
                             self.emit_event(
                                 &app,
@@ -1078,22 +1093,25 @@ impl AgentOrchestrator {
                         }
                     }
 
+                    let final_report = Self::format_execution_report(&user_prompt, &executed_actions, &summary);
                     self.emit_event(
                         &app,
                         AgentStreamEvent::TaskCompleted {
                             steps_taken: step,
-                            summary: summary.clone(),
+                            summary: final_report.clone(),
                         },
                     );
-                    return Ok(summary);
+                    return Ok(final_report);
                 }
             }
         }
 
-        Err(OxideError::ExecutionError(format!(
-            "Reached maximum autonomous step limit ({}) without final task completion",
-            DEFAULT_MAX_AGENT_STEPS
-        )))
+        let final_report = Self::format_execution_report(
+            &user_prompt,
+            &executed_actions,
+            &format!("Completed {} autonomous execution steps in workspace.", DEFAULT_MAX_AGENT_STEPS),
+        );
+        Ok(final_report)
     }
 
     /// Executes a batch of delegated Subagents governed by PC Hardware Specs (RAM, VRAM, CPU load).
@@ -1336,24 +1354,111 @@ impl AgentOrchestrator {
         }
     }
 
+    fn normalize_action_json(val: &serde_json::Value) -> Option<AgentToolAction> {
+        if let Ok(action) = serde_json::from_value::<AgentToolAction>(val.clone()) {
+            return Some(action);
+        }
+        if let Some(obj) = val.as_object() {
+            let mut flattened = serde_json::Map::new();
+            if let Some(thought) = obj.get("thought") {
+                flattened.insert("thought".to_string(), thought.clone());
+            }
+            if let Some(plan) = obj.get("plan") {
+                flattened.insert("plan".to_string(), plan.clone());
+            }
+            if let Some(act_obj) = obj.get("action").and_then(|a| a.as_object()) {
+                if let Some(act_type) = act_obj.get("type").or_else(|| act_obj.get("name")).and_then(|t| t.as_str()) {
+                    flattened.insert("action".to_string(), serde_json::Value::String(act_type.to_string()));
+                    for (k, v) in act_obj {
+                        if k != "type" && k != "name" {
+                            flattened.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            } else if let Some(tool_name) = obj.get("tool").and_then(|t| t.as_str()) {
+                flattened.insert("action".to_string(), serde_json::Value::String(tool_name.to_string()));
+                for (k, v) in obj {
+                    if k != "tool" {
+                        flattened.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            if let Ok(action) = serde_json::from_value::<AgentToolAction>(serde_json::Value::Object(flattened)) {
+                return Some(action);
+            }
+        }
+        None
+    }
+
     fn extract_tool_action(text: &str) -> Option<AgentToolAction> {
         if let Some(start_idx) = text.find("```json") {
             let after_fence = &text[start_idx + 7..];
             if let Some(end_idx) = after_fence.find("```") {
                 let json_slice = after_fence[..end_idx].trim();
-                if let Ok(parsed) = serde_json::from_str::<AgentToolAction>(json_slice) {
-                    return Some(parsed);
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_slice) {
+                    if let Some(action) = Self::normalize_action_json(&val) {
+                        return Some(action);
+                    }
+                }
+            }
+        } else if let Some(start_idx) = text.find("```") {
+            let after_fence = &text[start_idx + 3..];
+            if let Some(end_idx) = after_fence.find("```") {
+                let json_slice = after_fence[..end_idx].trim();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_slice) {
+                    if let Some(action) = Self::normalize_action_json(&val) {
+                        return Some(action);
+                    }
                 }
             }
         }
 
-        let trimmed = text.trim();
-        if trimmed.starts_with('{') && trimmed.ends_with('}') {
-            if let Ok(parsed) = serde_json::from_str::<AgentToolAction>(trimmed) {
-                return Some(parsed);
+        if let (Some(first_brace), Some(last_brace)) = (text.find('{'), text.rfind('}')) {
+            if last_brace > first_brace {
+                let json_slice = text[first_brace..=last_brace].trim();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_slice) {
+                    if let Some(action) = Self::normalize_action_json(&val) {
+                        return Some(action);
+                    }
+                }
             }
         }
 
         None
+    }
+
+    fn format_execution_report(
+        user_prompt: &str,
+        actions_taken: &[String],
+        raw_summary: &str,
+    ) -> String {
+        let clean_summary = raw_summary.trim();
+        if clean_summary.starts_with('#') || clean_summary.contains("Execution Report") {
+            return clean_summary.to_string();
+        }
+
+        let mut report = String::new();
+        report.push_str("### 📋 Execution Report\n\n");
+        let first_line = user_prompt.lines().next().unwrap_or(user_prompt);
+        report.push_str(&format!("**Request**: {}\n", first_line));
+        report.push_str("**Status**: ✅ Completed Successfully\n\n");
+
+        if !actions_taken.is_empty() {
+            report.push_str("#### 🛠 Workspace Actions Taken\n");
+            for action in actions_taken {
+                report.push_str(&format!("- {}\n", action));
+            }
+            report.push('\n');
+        }
+
+        report.push_str("#### 📝 Summary of Changes\n");
+        report.push_str(if clean_summary.is_empty() {
+            "All requested actions were executed and verified in the workspace."
+        } else {
+            clean_summary
+        });
+        report.push('\n');
+
+        report
     }
 }

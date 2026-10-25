@@ -10,10 +10,28 @@ use crate::updater::{
     check_for_github_updates, install_github_update, UpdateInstallResult, UpdateStatus,
 };
 use crate::AppState;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadProgress {
+    pub model_id: String,
+    pub status: String,
+    pub completed: u64,
+    pub total: u64,
+    pub percent: f32,
+}
+
+#[derive(Deserialize)]
+struct OllamaPullProgressLine {
+    status: Option<String>,
+    completed: Option<u64>,
+    total: Option<u64>,
+    error: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderHealthReport {
@@ -93,11 +111,8 @@ pub async fn update_provider_config(
     config: ProviderConfig,
     state: State<'_, AppState>,
 ) -> OxideResult<ProviderConfig> {
-    let hw = HardwareSpecs::inspect().await;
     let mut sanitized = config;
-    sanitized.max_concurrent_subagents = sanitized
-        .max_concurrent_subagents
-        .clamp(1, hw.hard_limit_subagents.max(1));
+    sanitized.max_concurrent_subagents = sanitized.max_concurrent_subagents.clamp(1, 32);
 
     let mut guard = state.provider_config.write().await;
     *guard = sanitized.clone();
@@ -249,8 +264,8 @@ pub async fn check_github_update() -> OxideResult<UpdateStatus> {
 }
 
 #[tauri::command]
-pub async fn perform_github_update() -> OxideResult<UpdateInstallResult> {
-    install_github_update().await
+pub async fn perform_github_update(app: AppHandle) -> OxideResult<UpdateInstallResult> {
+    install_github_update(&app).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,65 +413,84 @@ pub async fn ensure_ollama_engine() -> OxideResult<String> {
 pub async fn install_ai_model(
     model_id: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> OxideResult<ModelInstallResult> {
     let config = state.provider_config.read().await.clone();
     let base_url = config.ollama_base_url.trim_end_matches('/').to_string();
 
-    // Try HTTP API pull first (`/api/pull` with `stream: false`)
-    if let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_secs(1800))
-        .build()
-    {
-        let pull_url = format!("{}/api/pull", base_url);
-        let body = serde_json::json!({
-            "name": model_id.trim(),
-            "stream": false
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3600))
+        .build()?;
+
+    let pull_url = format!("{}/api/pull", base_url);
+    let body = serde_json::json!({
+        "name": model_id.trim(),
+        "stream": true
+    });
+
+    let resp = client.post(&pull_url).json(&body).send().await.map_err(|e| {
+        OxideError::ProviderError {
+            provider: "ollama".to_string(),
+            message: format!("Failed to connect to local Ollama instance at {}: {}", pull_url, e),
+        }
+    })?;
+
+    if !resp.status().is_success() {
+        let err_text = resp.text().await.unwrap_or_default();
+        return Err(OxideError::ProviderError {
+            provider: "ollama".to_string(),
+            message: format!("Ollama pull error: {}", err_text),
         });
-        if let Ok(resp) = client.post(&pull_url).json(&body).send().await {
-            if resp.status().is_success() {
-                return Ok(ModelInstallResult {
-                    model_id: model_id.clone(),
-                    success: true,
-                    message: format!("Installed {} successfully!", model_id),
-                });
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk_res) = stream.next().await {
+        if let Ok(chunk) = chunk_res {
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(newline_pos) = buffer.find('\n') {
+                let line = buffer[..newline_pos].trim().to_string();
+                buffer = buffer[newline_pos + 1..].to_string();
+                if !line.is_empty() {
+                    if let Ok(chunk_json) = serde_json::from_str::<OllamaPullProgressLine>(&line) {
+                        if let Some(err) = chunk_json.error {
+                            return Err(OxideError::ProviderError {
+                                provider: "ollama".to_string(),
+                                message: err,
+                            });
+                        }
+                        let completed = chunk_json.completed.unwrap_or(0);
+                        let total = chunk_json.total.unwrap_or(0);
+                        let percent = if total > 0 {
+                            ((completed as f64 / total as f64) * 100.0) as f32
+                        } else {
+                            0.0
+                        };
+                        let status_text = chunk_json
+                            .status
+                            .unwrap_or_else(|| "downloading".to_string());
+                        let _ = app.emit(
+                            "oxide://model-download-progress",
+                            ModelDownloadProgress {
+                                model_id: model_id.clone(),
+                                status: status_text,
+                                completed,
+                                total,
+                                percent,
+                            },
+                        );
+                    }
+                }
             }
         }
     }
 
-    // Fallback to `ollama pull <model_id>` CLI command
-    use std::process::Stdio;
-    use tokio::process::Command;
-    let mut cmd = Command::new("ollama");
-    cmd.args(["pull", model_id.trim()]).stdin(Stdio::null());
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let out = cmd.output().await.map_err(|e| {
-        OxideError::ProviderError {
-            provider: "ollama".to_string(),
-            message: format!(
-                "Failed to run `ollama pull {}`: {}. Click 'Start / Install Ollama' first.",
-                model_id, e
-            ),
-        }
-    })?;
-
-    if out.status.success() {
-        Ok(ModelInstallResult {
-            model_id: model_id.clone(),
-            success: true,
-            message: format!("Installed {} successfully!", model_id),
-        })
-    } else {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(OxideError::ProviderError {
-            provider: "ollama".to_string(),
-            message: format!("Failed to pull {}: {}", model_id, stderr),
-        })
-    }
+    Ok(ModelInstallResult {
+        model_id: model_id.clone(),
+        success: true,
+        message: format!("Installed {} successfully!", model_id),
+    })
 }
 
 /// Removes an installed AI model from Ollama to free disk space.

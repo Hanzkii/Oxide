@@ -59,31 +59,41 @@ impl HardwareSpecs {
         let (hard_limit_subagents, recommended_max_subagents, governor_tier, governor_advice) =
             if throttled_by_load {
                 (
-                    1,
-                    1,
-                    "Throttled (High Load / Low Free RAM)".to_string(),
-                    "System RAM or CPU usage is currently high. Subagents are restricted to 1 sequential worker at a time to prevent system freeze.".to_string(),
-                )
-            } else if total_ram_gb >= 30.0 && (gpu_vram_gb >= 12.0 || cpu_cores >= 12) {
-                (
                     4,
-                    3,
-                    "Workstation Tier (High Spec)".to_string(),
-                    "Your PC can comfortably run 1 Large Architect model (14B–32B) + up to 3 fast Subagents (1.5B–7B) concurrently.".to_string(),
+                    2,
+                    "Throttled (High Load / Low Free RAM)".to_string(),
+                    "System RAM or CPU usage is currently high. Subagent concurrency is softly throttled to maintain system responsiveness.".to_string(),
+                )
+            } else if total_ram_gb >= 30.0 && (gpu_vram_gb >= 10.0 || cpu_cores >= 12) {
+                (
+                    16,
+                    8,
+                    if gpu_name.to_lowercase().contains("radeon") {
+                        "Workstation Tier (AMD Radeon ROCm / DirectML)".to_string()
+                    } else if gpu_name.to_lowercase().contains("nvidia") {
+                        "Workstation Tier (NVIDIA CUDA Acceleration)".to_string()
+                    } else {
+                        "Workstation Tier (High Spec Multi-Core)".to_string()
+                    },
+                    "Your PC can comfortably run a Large Architect model + multiple fast Subagents (1.5B–7B) concurrently with GPU offloading.".to_string(),
                 )
             } else if total_ram_gb >= 15.0 && available_ram_gb >= 5.5 {
                 (
-                    2,
-                    2,
-                    "Balanced Desktop Tier (Mid Spec)".to_string(),
-                    "Recommended: 1 Architect model (7B–14B) + up to 2 fast Subagents (1.5B–3B) to stay within memory limits.".to_string(),
+                    8,
+                    4,
+                    if gpu_name.to_lowercase().contains("radeon") {
+                        "Balanced Desktop (AMD Radeon Acceleration)".to_string()
+                    } else {
+                        "Balanced Desktop Tier (Mid Spec)".to_string()
+                    },
+                    "Recommended: 1 Architect model (7B–14B) + up to 4 fast Subagents with hardware acceleration.".to_string(),
                 )
             } else {
                 (
-                    1,
-                    1,
+                    4,
+                    2,
                     "Compact / Memory-Saver Tier".to_string(),
-                    "Limited available RAM detected. Subagents will execute 1 at a time in a sequential queue using compact models (1.5B–3B).".to_string(),
+                    "Subagents execute with lightweight models (1.5B–3B) to preserve system memory.".to_string(),
                 )
             };
 
@@ -145,9 +155,34 @@ async fn detect_gpu_uncached() -> (String, f32) {
         }
     }
 
-    // 2. Fallback on Windows: query Win32_VideoController via PowerShell (hidden window)
+    // 2. Query Windows Registry for 64-bit qwMemorySize (accurate for AMD Radeon, Intel Arc & NVIDIA)
     #[cfg(target_os = "windows")]
     {
+        let mut reg_cmd = Command::new("powershell");
+        reg_cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            "Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue | Where-Object { $_.'HardwareInformation.qwMemorySize' -gt 0 } | Select-Object -First 1 DriverDesc, @{N='VRAM_GB'; E={[math]::Round($_.'HardwareInformation.qwMemorySize' / 1GB, 1)}} | ConvertTo-Json -Compress",
+        ])
+        .stdin(Stdio::null());
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        reg_cmd.creation_flags(CREATE_NO_WINDOW);
+
+        if let Ok(out) = reg_cmd.output().await {
+            if out.status.success() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(name) = val.get("DriverDesc").and_then(|v| v.as_str()) {
+                        let vram = val.get("VRAM_GB").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                        return (name.to_string(), vram);
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback on Windows: query Win32_VideoController via PowerShell (hidden window)
         let mut cmd = Command::new("powershell");
         cmd.args([
             "-NoProfile",
@@ -158,7 +193,6 @@ async fn detect_gpu_uncached() -> (String, f32) {
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ConvertTo-Json -Compress",
         ])
         .stdin(Stdio::null());
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
 
         if let Ok(out) = cmd.output().await {

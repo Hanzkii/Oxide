@@ -11,6 +11,8 @@ import {
   McpServerConfig,
   McpToolCallResult,
   ModelInstallResult,
+  ModelDownloadProgress,
+  UpdateDownloadProgress,
   ProviderConfig,
   ProviderHealthReport,
   UpdateInstallResult,
@@ -785,5 +787,29 @@ export const oxideBridge = {
       localSubscribers.delete(handler);
       if (tauriUnlisten) tauriUnlisten();
     };
+  },
+
+  async onModelDownloadProgress(
+    handler: (progress: ModelDownloadProgress) => void
+  ): Promise<UnlistenFn> {
+    if (isTauriNative()) {
+      return listen<ModelDownloadProgress>(
+        "oxide://model-download-progress",
+        (evt) => handler(evt.payload)
+      );
+    }
+    return () => {};
+  },
+
+  async onUpdateDownloadProgress(
+    handler: (progress: UpdateDownloadProgress) => void
+  ): Promise<UnlistenFn> {
+    if (isTauriNative()) {
+      return listen<UpdateDownloadProgress>(
+        "oxide://update-download-progress",
+        (evt) => handler(evt.payload)
+      );
+    }
+    return () => {};
   },
 };

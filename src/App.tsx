@@ -12,6 +12,9 @@ import {
   GitStatusSummary,
   HardwareSpecs,
   McpServerConfig,
+  ModelDownloadProgress,
+  UpdateDownloadProgress,
+  HardwareAccelerationMode,
   ProviderConfig,
   ProviderKind,
   SubagentRunState,
@@ -63,6 +66,35 @@ interface ProjectWorkspace {
   id: string;
   name: string;
   path: string;
+}
+
+
+function formatModelDisplayName(modelId: string): string {
+  if (!modelId) return "Select Model";
+  if (modelId.includes("hf.co/") || modelId.includes("bartowski/")) {
+    const parts = modelId.split("/");
+    const repo = parts[parts.length - 1]
+      .replace(/:latest$/, "")
+      .replace(/-GGUF$/i, "")
+      .replace(/-Instruct$/i, "");
+    return repo.length > 20 ? repo.slice(0, 18) + "â€¦" : repo;
+  }
+  if (modelId.includes(":")) {
+    const clean = modelId.replace(":latest", "");
+    return clean.length > 20 ? clean.slice(0, 18) + "â€¦" : clean;
+  }
+  return modelId.length > 20 ? modelId.slice(0, 18) + "â€¦" : modelId;
+}
+
+function getStepIcon(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("read") || t.includes("search") || t.includes("list")) return "ðŸ”";
+  if (t.includes("wrote") || t.includes("write") || t.includes("edit") || t.includes("modify")) return "âœï¸";
+  if (t.includes("command") || t.includes("execut") || t.includes("terminal")) return "âš¡";
+  if (t.includes("git") || t.includes("commit") || t.includes("push") || t.includes("pull")) return "ðŸŒ¿";
+  if (t.includes("subagent") || t.includes("delegat") || t.includes("worker")) return "ðŸ¤–";
+  if (t.includes("mcp") || t.includes("tool")) return "ðŸ”Œ";
+  return "ðŸ“„";
 }
 
 function getBaseName(p: string): string {
@@ -144,7 +176,7 @@ export const App: React.FC = () => {
   // Modals & Tabbed Settings State
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [settingsTab, setSettingsTab] = useState<
-    "general" | "providers" | "agents" | "mcp" | "updates"
+    "general" | "hardware" | "providers" | "agents" | "mcp" | "updates"
   >("general");
   const [showModelHubModal, setShowModelHubModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -172,6 +204,12 @@ export const App: React.FC = () => {
     null
   );
   const [customInstallTag, setCustomInstallTag] = useState<string>("");
+  const [modelProgressMap, setModelProgressMap] = useState<
+    Record<string, ModelDownloadProgress>
+  >({});
+  const [updateDownloadProgress, setUpdateDownloadProgress] =
+    useState<UpdateDownloadProgress | null>(null);
+  const [liveThoughtExpanded, setLiveThoughtExpanded] = useState<boolean>(true);
 
   // MCP Servers State
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
@@ -423,9 +461,22 @@ export const App: React.FC = () => {
       }
     });
 
+    const modelProgPromise = oxideBridge.onModelDownloadProgress((prog) => {
+      setModelProgressMap((prev) => ({
+        ...prev,
+        [prog.model_id]: prog,
+      }));
+    });
+
+    const updateProgPromise = oxideBridge.onUpdateDownloadProgress((prog) => {
+      setUpdateDownloadProgress(prog);
+    });
+
     return () => {
       clearInterval(hwTimer);
       unlistenPromise.then((unlisten) => unlisten());
+      modelProgPromise.then((unlisten) => unlisten());
+      updateProgPromise.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -665,7 +716,7 @@ export const App: React.FC = () => {
       ollamaModels.length === 0
     ) {
       setStatusBanner(
-        "No AI model installed yet — install a local AI model below first."
+        "No AI model installed yet â€” install a local AI model below first."
       );
       setShowModelHubModal(true);
       return;
@@ -832,7 +883,7 @@ export const App: React.FC = () => {
     const saved = await oxideBridge.updateProviderConfig(updated);
     setProviderConfig(saved);
     setStatusBanner(
-      `Assigned Agent: ${mainModel} • Subagent: ${subModel}`
+      `Assigned Agent: ${mainModel} â€¢ Subagent: ${subModel}`
     );
   };
 
@@ -869,7 +920,7 @@ export const App: React.FC = () => {
               onClick={handlePickProjectFolder}
               title="Open Workspace Folder"
             >
-              📁+
+              ðŸ“+
             </button>
             <button
               className="ag-icon-btn"
@@ -879,7 +930,7 @@ export const App: React.FC = () => {
               }}
               title="Open Explorer"
             >
-              🔍
+              ðŸ”
             </button>
           </div>
         </div>
@@ -904,7 +955,7 @@ export const App: React.FC = () => {
               setShowRightPanel(true);
             }}
           >
-            <span>📁 Explorer</span>
+            <span>ðŸ“ Explorer</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {files.length}
             </span>
@@ -924,7 +975,7 @@ export const App: React.FC = () => {
                   : undefined,
             }}
           >
-            <span>🧠 Models</span>
+            <span>ðŸ§  Models</span>
             <span
               style={{
                 fontSize: "0.7rem",
@@ -946,7 +997,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            <span>⚡ Agents &amp; Subagents</span>
+            <span>âš¡ Agents &amp; Subagents</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               Max {providerConfig.max_concurrent_subagents}
             </span>
@@ -959,7 +1010,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            <span>🔌 MCP Servers</span>
+            <span>ðŸ”Œ MCP Servers</span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
               {mcpServers.filter((s) => s.enabled).length} active
             </span>
@@ -998,7 +1049,7 @@ export const App: React.FC = () => {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    📁 {proj.name}
+                    ðŸ“ {proj.name}
                   </span>
                   <div
                     style={{
@@ -1030,7 +1081,7 @@ export const App: React.FC = () => {
                         opacity: 0.65,
                       }}
                     >
-                      ✕
+                      âœ•
                     </span>
                   </div>
                 </div>
@@ -1053,7 +1104,7 @@ export const App: React.FC = () => {
                         }}
                       >
                         <span className="ag-conv-meta">
-                          {isActive && isRunning ? "⟳" : conv.updatedAt}
+                          {isActive && isRunning ? "âŸ³" : conv.updatedAt}
                         </span>
                         <span
                           className="ag-conv-meta"
@@ -1064,7 +1115,7 @@ export const App: React.FC = () => {
                             fontSize: "0.72rem",
                           }}
                         >
-                          ✕
+                          âœ•
                         </span>
                       </div>
                     </div>
@@ -1083,7 +1134,7 @@ export const App: React.FC = () => {
               setShowSettingsModal(true);
             }}
           >
-            ⚙ Settings
+            âš™ Settings
           </button>
           <button
             className="ag-pill-btn"
@@ -1102,7 +1153,7 @@ export const App: React.FC = () => {
                 .catch(() => {});
             }}
           >
-            ↻ {updateStatus?.update_available ? "Update Available" : "Updates"}
+            â†» {updateStatus?.update_available ? "Update Available" : "Updates"}
           </button>
         </div>
       </aside>
@@ -1126,6 +1177,19 @@ export const App: React.FC = () => {
           </div>
 
           <div className="ag-topbar-right">
+            {hwSpecs && (
+              <button
+                className="oxide-top-pill"
+                onClick={() => {
+                  setSettingsTab("hardware");
+                  setShowSettingsModal(true);
+                }}
+                title={`PC Hardware Governor: ${hwSpecs.governor_tier}\nCPU: ${hwSpecs.cpu_brand} (${hwSpecs.cpu_cores} Cores)\nRAM: ${hwSpecs.available_ram_gb} GB free / ${hwSpecs.total_ram_gb} GB\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nClick to configure hardware acceleration.`}
+              >
+                ðŸ–¥ {hwSpecs.gpu_name} ({hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : `${hwSpecs.available_ram_gb} GB free`})
+              </button>
+            )}
+
             <button
               className="ag-pill-btn"
               style={{
@@ -1136,7 +1200,7 @@ export const App: React.FC = () => {
               onClick={() => setShowModelHubModal(true)}
               title="Open AI Model Store (1-Click Install via Ollama & HuggingFace)"
             >
-              🧠 Models ({ollamaModels.length} Installed)
+              ðŸ§  Models ({ollamaModels.length} Installed)
             </button>
 
             <button
@@ -1154,7 +1218,7 @@ export const App: React.FC = () => {
               onClick={() => setShowRightPanel((v) => !v)}
               title="Toggle Right Panel"
             >
-              ▤
+              â–¤
             </button>
           </div>
         </header>
@@ -1211,7 +1275,7 @@ export const App: React.FC = () => {
                               color: "var(--oxide-ember)",
                             }}
                           >
-                            ⚡ No Local AI Model Installed Yet
+                            âš¡ No Local AI Model Installed Yet
                           </div>
                           <div
                             style={{
@@ -1228,7 +1292,7 @@ export const App: React.FC = () => {
                               className="btn btn-primary"
                               onClick={() => setShowModelHubModal(true)}
                             >
-                              🧠 Open Models (1-Click Install)
+                              ðŸ§  Open Models (1-Click Install)
                             </button>
                           </div>
                         </div>
@@ -1247,13 +1311,13 @@ export const App: React.FC = () => {
                           className="ag-pill-btn"
                           onClick={handlePickProjectFolder}
                         >
-                          📁 Open Folder...
+                          ðŸ“ Open Folder...
                         </button>
                         <button
                           className="ag-pill-btn"
                           onClick={() => setShowModelHubModal(true)}
                         >
-                          🧠 Models ({ollamaModels.length} Installed)
+                          ðŸ§  Models ({ollamaModels.length} Installed)
                         </button>
                         <button
                           className="ag-pill-btn"
@@ -1262,7 +1326,7 @@ export const App: React.FC = () => {
                             setShowRightPanel(true);
                           }}
                         >
-                          📄 Explorer ({files.length})
+                          ðŸ“„ Explorer ({files.length})
                         </button>
                       </div>
                     </div>
@@ -1294,7 +1358,7 @@ export const App: React.FC = () => {
                         >
                           <span>
                             Thought for {turn.thoughtSeconds}s{" "}
-                            {isExpanded ? "▾" : "›"}
+                            {isExpanded ? "â–¾" : "â€º"}
                           </span>
                         </button>
 
@@ -1315,12 +1379,7 @@ export const App: React.FC = () => {
 
                         {turn.steps.map((s) => (
                           <div key={s.id} className="ag-tool-step">
-                            <span className="ag-tool-step-icon">
-                              {s.title.toLowerCase().includes("command") ||
-                              s.title.toLowerCase().includes("terminal")
-                                ? ">_"
-                                : "📄"}
-                            </span>
+                            <span className="ag-tool-step-icon">{getStepIcon(s.title)}</span>
                             <span className="ag-tool-step-label">
                               {s.title}
                             </span>
@@ -1348,39 +1407,44 @@ export const App: React.FC = () => {
                     }}
                   >
                     <div className="ag-trace-group">
-                      <div className="ag-thought-toggle">
+                      <button
+                        className="ag-thought-toggle"
+                        onClick={() => setLiveThoughtExpanded((v) => !v)}
+                      >
                         <span style={{ color: "var(--oxide-ember)" }}>
-                          ⟳ Thinking...
+                          âš¡ Thinking... {liveThoughtExpanded ? "â–¾" : "â€º"}
                         </span>
-                      </div>
-                      <div className="ag-thought-body">
-                        {liveThinking}
-                        {planChecklist.length > 0 && (
-                          <div style={{ marginTop: "0.45rem" }}>
-                            {planChecklist.map((item, idx) => (
-                              <div key={idx}>
-                                {idx + 1}. {item}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      </button>
+                      {liveThoughtExpanded && (
+                        <div className="ag-thought-body">
+                          {liveThinking || "Reasoning workspace operations..."}
+                          {planChecklist.length > 0 && (
+                            <div style={{ marginTop: "0.45rem" }}>
+                              {planChecklist.map((item, idx) => (
+                                <div key={idx}>
+                                  {idx + 1}. {item}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {subagents.slice(0, 3).map((sub) => (
                         <div key={sub.id} className="ag-tool-step">
-                          <span className="ag-tool-step-icon">⚡</span>
+                          <span className="ag-tool-step-icon">âš¡</span>
                           <span className="ag-tool-step-label">
                             [{sub.role.toUpperCase()}] {sub.title}
                           </span>
                           <span className="ag-tool-step-badge">
-                            {sub.model} • {sub.state}
+                            {sub.model} â€¢ {sub.state}
                           </span>
                         </div>
                       ))}
 
                       {liveSteps.map((s) => (
                         <div key={s.id} className="ag-tool-step">
-                          <span className="ag-tool-step-icon">📄</span>
+                          <span className="ag-tool-step-icon">{getStepIcon(s.title)}</span>
                           <span className="ag-tool-step-label">{s.title}</span>
                           <span className="ag-tool-step-badge">
                             {s.detail.slice(0, 70)}
@@ -1463,9 +1527,10 @@ export const App: React.FC = () => {
                             <option
                               key={m}
                               value={m}
+                              title={m}
                               style={{ background: "#18181b", color: "#ececef" }}
                             >
-                              {m}
+                              {formatModelDisplayName(m)}
                             </option>
                           ))}
                         </select>
@@ -1595,7 +1660,7 @@ export const App: React.FC = () => {
                       onClick={() => handleRunTask()}
                       title="Send (Enter)"
                     >
-                      →
+                      â†’
                     </button>
                   </div>
                 </div>
@@ -1623,7 +1688,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("review")}
                   >
-                    <span>📋 Source Control</span>
+                    <span>ðŸ“‹ Source Control</span>
                     <span style={{ fontSize: "0.72rem" }}>
                       {gitStatus?.changed_files.length || 0} changed
                     </span>
@@ -1637,7 +1702,7 @@ export const App: React.FC = () => {
                     }`}
                     onClick={() => setRightDrawer("files")}
                   >
-                    <span>📁 Explorer</span>
+                    <span>ðŸ“ Explorer</span>
                     <span style={{ fontSize: "0.72rem" }}>{files.length}</span>
                   </button>
 
@@ -1660,73 +1725,12 @@ export const App: React.FC = () => {
                       setShowSettingsModal(true);
                     }}
                   >
-                    <span>🔌 MCP Servers</span>
+                    <span>ðŸ”Œ MCP Servers</span>
                     <span style={{ fontSize: "0.72rem" }}>
                       {mcpServers.filter((s) => s.enabled).length} active
                     </span>
                   </button>
                 </div>
-              </div>
-
-              {/* Dedicated 🖥 PC HARDWARE GOVERNOR Card (Matches Docs Showcase) */}
-              <div
-                className="ag-overview-card"
-                style={{ padding: "0.8rem 0.9rem" }}
-              >
-                <div
-                  style={{
-                    fontSize: "0.7rem",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "var(--text-secondary)",
-                    marginBottom: "0.35rem",
-                    display: "flex",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>🖥 PC HARDWARE GOVERNOR</span>
-                  <span
-                    style={{
-                      color: ollamaOnline ? "#4ade80" : "var(--text-muted)",
-                    }}
-                  >
-                    {ollamaOnline ? "● Ollama Online" : "○ Ollama Offline"}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    fontWeight: 600,
-                    fontSize: "0.82rem",
-                    color: hwSpecs?.throttled_by_load ? "#fbbf24" : "#4ade80",
-                  }}
-                >
-                  ⚡ {hwSpecs?.governor_tier || "Inspecting PC Specs..."}
-                </div>
-                {hwSpecs && (
-                  <div
-                    style={{
-                      fontSize: "0.74rem",
-                      color: "var(--text-secondary)",
-                      marginTop: "0.25rem",
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    <div>
-                      {hwSpecs.total_ram_gb} GB RAM ({hwSpecs.available_ram_gb}{" "}
-                      GB free) • {hwSpecs.gpu_name}
-                    </div>
-                    <div>
-                      Max{" "}
-                      {Math.min(
-                        providerConfig.max_concurrent_subagents,
-                        hwSpecs.hard_limit_subagents
-                      )}{" "}
-                      Concurrent Subagents (Hard Limit:{" "}
-                      {hwSpecs.hard_limit_subagents})
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Expandable Right Drawer Content */}
@@ -1764,21 +1768,21 @@ export const App: React.FC = () => {
                       onClick={handlePickProjectFolder}
                       style={{ justifyContent: "center" }}
                     >
-                      📁 Switch Workspace Folder...
+                      ðŸ“ Switch Workspace Folder...
                     </button>
                     <button
                       className="btn"
                       onClick={() => setRightDrawer("files")}
                       style={{ justifyContent: "center" }}
                     >
-                      📄 Browse Explorer ({files.length})
+                      ðŸ“„ Browse Explorer ({files.length})
                     </button>
                     <button
                       className="btn"
                       onClick={() => setShowModelHubModal(true)}
                       style={{ justifyContent: "center" }}
                     >
-                      🧠 Open Models ({ollamaModels.length} Installed)
+                      ðŸ§  Open Models ({ollamaModels.length} Installed)
                     </button>
                   </div>
                 </div>
@@ -1798,7 +1802,7 @@ export const App: React.FC = () => {
                             setFiles(await oxideBridge.listWorkspaceFiles("."));
                           }}
                         >
-                          ↑ Root
+                          â†‘ Root
                         </button>
                       )}
                       <button
@@ -1826,7 +1830,7 @@ export const App: React.FC = () => {
                         onClick={() => handleOpenFileOrDir(entry)}
                       >
                         <span>
-                          {entry.is_dir ? "📁" : "📄"} {entry.name}
+                          {entry.is_dir ? "ðŸ“" : "ðŸ“„"} {entry.name}
                         </span>
                       </div>
                     ))}
@@ -1852,7 +1856,7 @@ export const App: React.FC = () => {
                         style={{ padding: "0.18rem 0.45rem" }}
                         onClick={() => setRightDrawer("files")}
                       >
-                        ← Files
+                        â† Files
                       </button>
                       <button
                         className="btn btn-primary"
@@ -1892,19 +1896,19 @@ export const App: React.FC = () => {
                         className="btn"
                         onClick={() => handleGitAction("pull")}
                       >
-                        ↓ Pull
+                        â†“ Pull
                       </button>
                       <button
                         className="btn"
                         onClick={() => handleGitAction("commit")}
                       >
-                        ✓ Commit
+                        âœ“ Commit
                       </button>
                       <button
                         className="btn btn-primary"
                         onClick={() => handleGitAction("push")}
                       >
-                        ↑ Push
+                        â†‘ Push
                       </button>
                     </div>
                   </div>
@@ -1998,7 +2002,7 @@ export const App: React.FC = () => {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
-                  🧠 AI Models (Ollama &amp; HuggingFace 1-Click Installer)
+                  ðŸ§  AI Models (Ollama &amp; HuggingFace 1-Click Installer)
                 </h3>
                 <div
                   style={{
@@ -2007,7 +2011,7 @@ export const App: React.FC = () => {
                     marginTop: "0.2rem",
                   }}
                 >
-                  Auto-matched to your PC hardware • Filter by Coding,
+                  Auto-matched to your PC hardware â€¢ Filter by Coding,
                   Uncensored, Reasoning &amp; Fast Subagents
                 </div>
               </div>
@@ -2015,7 +2019,7 @@ export const App: React.FC = () => {
                 className="btn"
                 onClick={() => setShowModelHubModal(false)}
               >
-                ✕ Close
+                âœ• Close
               </button>
             </div>
 
@@ -2032,10 +2036,10 @@ export const App: React.FC = () => {
             >
               <div>
                 <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                  🖥 Detected PC Specs:{" "}
+                  ðŸ–¥ Detected PC Specs:{" "}
                   <span style={{ color: "var(--oxide-ember)" }}>
                     {hwSpecs
-                      ? `${hwSpecs.total_ram_gb} GB RAM (${hwSpecs.available_ram_gb} GB free) • ${hwSpecs.gpu_name}${
+                      ? `${hwSpecs.total_ram_gb} GB RAM (${hwSpecs.available_ram_gb} GB free) â€¢ ${hwSpecs.gpu_name}${
                           hwSpecs.gpu_vram_gb > 0
                             ? ` (${hwSpecs.gpu_vram_gb} GB VRAM)`
                             : ""
@@ -2060,12 +2064,12 @@ export const App: React.FC = () => {
                       ? `Online (${ollamaModels.length} installed)`
                       : "Not Running / Not Installed"}
                   </strong>
-                  {" • "}
+                  {" â€¢ "}
                   Agent:{" "}
                   <code>
                     {providerConfig.task_routing.architect_model || "None"}
                   </code>
-                  {" • "}
+                  {" â€¢ "}
                   Subagent:{" "}
                   <code>
                     {providerConfig.task_routing.coder_subagent_model || "None"}
@@ -2092,7 +2096,7 @@ export const App: React.FC = () => {
                       }
                     }}
                   >
-                    ⚡ 1-Click Start / Install Ollama
+                    âš¡ 1-Click Start / Install Ollama
                   </button>
                 )}
                 {ollamaModels.length > 0 && (
@@ -2100,7 +2104,7 @@ export const App: React.FC = () => {
                     className="btn"
                     onClick={handleAutoAssignOptimalModels}
                   >
-                    ✨ Auto-Assign Installed Models
+                    âœ¨ Auto-Assign Installed Models
                   </button>
                 )}
               </div>
@@ -2119,11 +2123,11 @@ export const App: React.FC = () => {
                 {(
                   [
                     ["all", "All Models"],
-                    ["coding", "💻 Coding"],
-                    ["uncensored", "🔓 Uncensored"],
-                    ["coding_uncensored", "🔥 Coding + Uncensored"],
-                    ["reasoning", "🧠 Reasoning (R1)"],
-                    ["subagent", "⚡ Fast Subagents"],
+                    ["coding", "ðŸ’» Coding"],
+                    ["uncensored", "ðŸ”“ Uncensored"],
+                    ["coding_uncensored", "ðŸ”¥ Coding + Uncensored"],
+                    ["reasoning", "ðŸ§  Reasoning (R1)"],
+                    ["subagent", "âš¡ Fast Subagents"],
                   ] as const
                 ).map(([key, label]) => (
                   <button
@@ -2142,8 +2146,8 @@ export const App: React.FC = () => {
                 {(
                   [
                     ["all", "All Sources"],
-                    ["ollama", "🦙 Ollama"],
-                    ["huggingface", "🤗 HuggingFace"],
+                    ["ollama", "ðŸ¦™ Ollama"],
+                    ["huggingface", "ðŸ¤— HuggingFace"],
                   ] as const
                 ).map(([srcKey, srcLabel]) => (
                   <button
@@ -2174,7 +2178,7 @@ export const App: React.FC = () => {
                     checked={onlyFitsMyPc}
                     onChange={(e) => setOnlyFitsMyPc(e.target.checked)}
                   />
-                  ✅ Fits My PC Only
+                  âœ… Fits My PC Only
                 </label>
               </div>
             </div>
@@ -2229,8 +2233,8 @@ export const App: React.FC = () => {
                 }}
               >
                 {isSearchingHf
-                  ? "🤗 Searching HF..."
-                  : "🤗 Search HuggingFace Live"}
+                  ? "ðŸ¤— Searching HF..."
+                  : "ðŸ¤— Search HuggingFace Live"}
               </button>
               {hfSearchResults.length > 0 && (
                 <button
@@ -2282,8 +2286,8 @@ export const App: React.FC = () => {
               >
                 {installingModelId === customInstallTag.trim() &&
                 customInstallTag.trim()
-                  ? "⟳ Installing..."
-                  : "⬇ Install Tag"}
+                  ? `${(modelProgressMap[customInstallTag.trim()]?.percent ?? 0) > 0 ? `${modelProgressMap[customInstallTag.trim()].percent.toFixed(0)}%` : "âŸ³"} Installing...`
+                  : "â¬‡ Install Tag"}
               </button>
             </div>
 
@@ -2399,9 +2403,9 @@ export const App: React.FC = () => {
                               }}
                             >
                               {model.source === "huggingface"
-                                ? "🤗 HuggingFace GGUF"
-                                : "🦙 Ollama Registry"}{" "}
-                              • <code>{model.params}</code> • {model.size_gb} GB
+                                ? "ðŸ¤— HuggingFace GGUF"
+                                : "ðŸ¦™ Ollama Registry"}{" "}
+                              â€¢ <code>{model.params}</code> â€¢ {model.size_gb} GB
                             </div>
                           </div>
 
@@ -2422,22 +2426,22 @@ export const App: React.FC = () => {
                         >
                           {model.is_coding && (
                             <span className="model-badge coding">
-                              💻 Coding
+                              ðŸ’» Coding
                             </span>
                           )}
                           {model.is_uncensored && (
                             <span className="model-badge uncensored">
-                              🔓 Uncensored
+                              ðŸ”“ Uncensored
                             </span>
                           )}
                           {model.is_reasoning && (
                             <span className="model-badge reasoning">
-                              🧠 Reasoning
+                              ðŸ§  Reasoning
                             </span>
                           )}
                           {model.is_fast_subagent && (
                             <span className="model-badge subagent">
-                              ⚡ Fast Subagent
+                              âš¡ Fast Subagent
                             </span>
                           )}
                         </div>
@@ -2480,6 +2484,7 @@ export const App: React.FC = () => {
 
                         <div style={{ display: "flex", gap: "0.35rem" }}>
                           {!isInstalled ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", width: "100%" }}>
                             <button
                               className="btn btn-primary"
                               disabled={Boolean(installingModelId)}
@@ -2507,9 +2512,23 @@ export const App: React.FC = () => {
                               }}
                             >
                               {isInstallingThis
-                                ? "⟳ Installing..."
-                                : "⬇ Install"}
+                                ? `${(modelProgressMap[model.install_id]?.percent ?? 0) > 0 ? `${modelProgressMap[model.install_id].percent.toFixed(0)}%` : "âŸ³"} Installing...`
+                                : "â¬‡ Install"}
                             </button>
+                            {isInstallingThis && modelProgressMap[model.install_id] && (
+                              <div>
+                                <div className="oxide-progress-track">
+                                  <div
+                                    className="oxide-progress-fill"
+                                    style={{ width: `${modelProgressMap[model.install_id].percent}%` }}
+                                  />
+                                </div>
+                                <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                                  {modelProgressMap[model.install_id].percent.toFixed(1)}% â€¢ {modelProgressMap[model.install_id].status}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           ) : (
                             <>
                               <button
@@ -2536,7 +2555,7 @@ export const App: React.FC = () => {
                                   );
                                 }}
                               >
-                                {isLead ? "✓ Agent" : "Set as Agent"}
+                                {isLead ? "âœ“ Agent" : "Set as Agent"}
                               </button>
                               <button
                                 className={`btn ${
@@ -2564,7 +2583,7 @@ export const App: React.FC = () => {
                                 }}
                               >
                                 {isSubagent
-                                  ? "✓ Subagent"
+                                  ? "âœ“ Subagent"
                                   : "Set as Subagent"}
                               </button>
                               <button
@@ -2577,7 +2596,7 @@ export const App: React.FC = () => {
                                   await refreshWorkspaceState(currentDir);
                                 }}
                               >
-                                🗑
+                                ðŸ—‘
                               </button>
                             </>
                           )}
@@ -2609,12 +2628,12 @@ export const App: React.FC = () => {
                 alignItems: "center",
               }}
             >
-              <h3 style={{ margin: 0 }}>⚙ Oxide Studio Settings</h3>
+              <h3 style={{ margin: 0 }}>âš™ Oxide Studio Settings</h3>
               <button
                 className="btn"
                 onClick={() => setShowSettingsModal(false)}
               >
-                ✕ Close
+                âœ• Close
               </button>
             </div>
 
@@ -2628,11 +2647,12 @@ export const App: React.FC = () => {
             >
               {(
                 [
-                  ["general", "📁 General & Workspace"],
-                  ["providers", "🔑 AI Providers & Runtime"],
-                  ["agents", "⚡ Agents & Hardware Governor"],
-                  ["mcp", "🔌 MCP Servers"],
-                  ["updates", "↻ Updates & About"],
+                  ["general", "ðŸ“ General"],
+                  ["hardware", "ðŸ–¥ Hardware & Acceleration"],
+                  ["providers", "ðŸ”‘ AI Providers"],
+                  ["agents", "âš¡ Agent Routing"],
+                  ["mcp", "ðŸ”Œ MCP Servers"],
+                  ["updates", "â†» Updates"],
                 ] as const
               ).map(([tabKey, tabLabel]) => (
                 <button
@@ -2678,7 +2698,7 @@ export const App: React.FC = () => {
                       className="btn btn-primary"
                       onClick={handlePickProjectFolder}
                     >
-                      📁 Open Folder...
+                      ðŸ“ Open Folder...
                     </button>
                     <button
                       className="btn"
@@ -2754,14 +2774,103 @@ export const App: React.FC = () => {
                         setStatusBanner("Cleared saved conversation history.");
                       }}
                     >
-                      🗑 Clear Conversation History
+                      ðŸ—‘ Clear Conversation History
                     </button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* TAB 2: AI PROVIDERS & RUNTIME */}
+                        {/* TAB 2: HARDWARE & ACCELERATION */}
+            {settingsTab === "hardware" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                {hwSpecs && (
+                  <div className="hw-spec-box">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <strong>ðŸ–¥ {hwSpecs.gpu_name}</strong>
+                        <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                          {hwSpecs.governor_tier} â€¢ {hwSpecs.cpu_brand} ({hwSpecs.cpu_cores} Cores)
+                        </div>
+                      </div>
+                      <span className="hw-fit-badge gpu_fast">
+                        âš¡ {hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : "System GPU"}
+                      </span>
+                    </div>
+
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.74rem" }}>
+                        <span>System RAM Usage</span>
+                        <span>{hwSpecs.available_ram_gb} GB free / {hwSpecs.total_ram_gb} GB ({hwSpecs.used_ram_percent}%)</span>
+                      </div>
+                      <div className="oxide-progress-track">
+                        <div className="oxide-progress-fill" style={{ width: `${hwSpecs.used_ram_percent}%` }} />
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.6rem" }}>
+                      ðŸ’¡ {hwSpecs.governor_advice}
+                    </div>
+                  </div>
+                )}
+
+                <div className="routing-grid">
+                  <div className="form-group">
+                    <label>Hardware Acceleration Backend</label>
+                    <select
+                      className="select-control"
+                      value={providerConfig.hardware_acceleration || "auto"}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          hardware_acceleration:
+                            e.target.value as HardwareAccelerationMode,
+                        })
+                      }
+                    >
+                      <option value="auto">Auto-Detect ({hwSpecs?.gpu_name || "GPU / DirectML"})</option>
+                      <option value="amd_rocm">AMD Radeon (ROCm / DirectML GPU Acceleration)</option>
+                      <option value="nvidia_cuda">NVIDIA GeForce / RTX (CUDA Acceleration)</option>
+                      <option value="directml">DirectML / Windows ML (Universal GPU)</option>
+                      <option value="cpu">CPU Only (Disable GPU Offloading)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      GPU Offload Layers ({providerConfig.gpu_offload_layers ?? 99} layers {providerConfig.gpu_offload_layers === 0 ? "â€” CPU Only" : "â€” Fast GPU"})
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="99"
+                      value={providerConfig.gpu_offload_layers ?? 99}
+                      onChange={(e) =>
+                        setProviderConfig({
+                          ...providerConfig,
+                          gpu_offload_layers: parseInt(e.target.value, 10),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      const saved = await oxideBridge.updateProviderConfig(providerConfig);
+                      setProviderConfig(saved);
+                      setStatusBanner("Saved Hardware Acceleration settings.");
+                    }}
+                  >
+                    Save Hardware Settings
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: AI PROVIDERS & RUNTIME */}
             {settingsTab === "providers" && (
               <div
                 style={{
@@ -2800,7 +2909,7 @@ export const App: React.FC = () => {
                             await refreshWorkspaceState(currentDir);
                           }}
                         >
-                          ⚡ Start / Install Ollama
+                          âš¡ Start / Install Ollama
                         </button>
                       )}
                       <button
@@ -2810,7 +2919,7 @@ export const App: React.FC = () => {
                           setShowModelHubModal(true);
                         }}
                       >
-                        🧠 Open Model Store
+                        ðŸ§  Open Model Store
                       </button>
                     </div>
                   </div>
@@ -2963,8 +3072,8 @@ export const App: React.FC = () => {
                     >
                       <div>
                         <strong>
-                          🖥 {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
-                          GB Free / {hwSpecs.total_ram_gb} GB RAM •{" "}
+                          ðŸ–¥ {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
+                          GB Free / {hwSpecs.total_ram_gb} GB RAM â€¢{" "}
                           {hwSpecs.cpu_cores} Cores)
                         </strong>
                         <div
@@ -2980,7 +3089,7 @@ export const App: React.FC = () => {
                         className="btn btn-primary"
                         onClick={handleAutoAssignOptimalModels}
                       >
-                        ✨ Auto-Assign Installed Models
+                        âœ¨ Auto-Assign Installed Models
                       </button>
                     </div>
                   </div>
@@ -3003,14 +3112,14 @@ export const App: React.FC = () => {
                           setShowModelHubModal(true);
                         }}
                       >
-                        🧠 Open Model Store
+                        ðŸ§  Open Model Store
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="routing-grid">
                     <div className="form-group">
-                      <label>🧠 Main Agent (Lead Architect)</label>
+                      <label>ðŸ§  Main Agent (Lead Architect)</label>
                       <select
                         className="select-control"
                         value={
@@ -3037,7 +3146,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>💻 Coder Subagent (Fast File Edits)</label>
+                      <label>ðŸ’» Coder Subagent (Fast File Edits)</label>
                       <select
                         className="select-control"
                         value={
@@ -3063,7 +3172,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>🔍 Research Subagent (Fast Search)</label>
+                      <label>ðŸ” Research Subagent (Fast Search)</label>
                       <select
                         className="select-control"
                         value={
@@ -3090,14 +3199,12 @@ export const App: React.FC = () => {
 
                     <div className="form-group">
                       <label>
-                        Max Concurrent Subagents (
-                        {providerConfig.max_concurrent_subagents} / Hard Limit:{" "}
-                        {hwSpecs?.hard_limit_subagents ?? 2})
+                        Max Concurrent Subagents ({providerConfig.max_concurrent_subagents} Active Workers)
                       </label>
                       <input
                         type="range"
                         min="1"
-                        max={hwSpecs?.hard_limit_subagents ?? 4}
+                        max={16}
                         value={providerConfig.max_concurrent_subagents}
                         onChange={(e) =>
                           setProviderConfig({
@@ -3166,7 +3273,7 @@ export const App: React.FC = () => {
                           color: "var(--text-secondary)",
                         }}
                       >
-                        Tools discovered: {srv.discovered_tools.length} •
+                        Tools discovered: {srv.discovered_tools.length} â€¢
                         Status: {srv.status}
                       </div>
                     </div>
@@ -3291,14 +3398,30 @@ export const App: React.FC = () => {
                       try {
                         const res = await oxideBridge.performGithubUpdate();
                         setStatusBanner(res.message);
+                      } catch (err: any) {
+                        setStatusBanner(`Update error: ${err?.message || String(err)}`);
                       } finally {
                         setIsUpdating(false);
                       }
                     }}
                   >
-                    {isUpdating ? "Updating..." : "Install Latest Update"}
+                    {isUpdating ? "Updating (Auto-replaces old version)..." : "Install Latest Update"}
                   </button>
                 </div>
+
+                {updateDownloadProgress && (
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <div className="oxide-progress-track">
+                      <div
+                        className="oxide-progress-fill"
+                        style={{ width: `${updateDownloadProgress.percent}%` }}
+                      />
+                    </div>
+                    <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.25rem" }}>
+                      {updateDownloadProgress.status}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3307,3 +3430,4 @@ export const App: React.FC = () => {
     </div>
   );
 };
+

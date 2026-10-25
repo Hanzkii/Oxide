@@ -85,7 +85,7 @@ Oxide Studio is designed around a three-zone layout modeled after **Google Antig
 | :--- | :--- |
 | **Left Sidebar (`Projects & Conversations`)** | • **`+ New Conversation`** button starts a fresh agent thread in your active project.<br>• **Native Windows Folder Picker (`📁+` / `+ Folder`)**: Opens the native OS folder dialog (`FolderBrowserDialog`) so you can add or switch project directories without typing paths.<br>• **Multi-Project Tree**: Group multiple codebases in the sidebar and click any saved conversation to restore its full history, reasoning traces, and tool steps.<br>• **Automatic Disk Persistence**: Saved automatically to `%LOCALAPPDATA%/OxideStudio/studio_sessions.json`. |
 | **Center Stream (`Thought & Action Trace`)** | • **Collapsible `Thought for Xs ›` Blocks**: Click to expand or collapse the AI's raw `<think>...</think>` chain-of-thought and numbered execution plan.<br>• **Inline Tool & Subagent Steps**: File reads/edits (`📄`), terminal executions (`>_`), and live subagent status badges appear inline between thoughts and answers.<br>• **Floating Bottom Composer**: Quick model switcher, `⬇ + Install AI` launcher, and `⚡ Turbo` subagent concurrency indicator. |
-| **Right Dock (`Floating Overview Card`)** | • **Overview Card**: Shows current Git branch, changed file count, total workspace files, and terminal logs at a glance.<br>• **Expandable Drawers**: Click to expand the **Project File Explorer**, **Built-in Code Editor** (with 1-click Save & New File), **Git Review & Sync** (`Commit`, `Pull`, `Push`), or **Interactive Sandboxed Terminal**. |
+| **Right Dock (`Floating Overview Card`)** | • **Overview Card**: Clean, uncluttered overview displaying active workspace branch, live subagents, workflow milestones, and connected MCP servers.<br>• **Compact PC Specs Pill & Settings**: Hardware governor metrics (AMD Radeon, NVIDIA CUDA, CPU load, and 64-bit VRAM) reside in the top status bar pill and dedicated Settings tab, keeping the right overview spacious and focused.<br>• **Expandable Drawers**: Click to expand the **Project File Explorer**, **Built-in Code Editor** (with 1-click Save & New File), **Git Review & Sync** (`Commit`, `Pull`, `Push`), or **Interactive Sandboxed Terminal**. |
 
 ---
 
@@ -148,11 +148,14 @@ sequenceDiagram
     Lead->>User: Final verified summary & Git milestone ready
 ```
 
-### How the PC Hardware Governor Protects Your Machine (`src-tauri/src/hardware.rs`)
-- **Workstation Tier (`≥30 GB RAM` + `≥12 GB VRAM` or `≥12 Cores`)**: Allows up to **3–4 concurrent subagents** alongside a `14B–32B` Lead Architect.
-- **Balanced Desktop Tier (`≥15 GB RAM` + `≥5.5 GB Free RAM`)**: Allows up to **2 concurrent subagents** (`1.5B–7B`) alongside a `7B–14B` Lead Architect.
-- **Compact / Memory-Saver Tier (`<15 GB RAM`)**: Runs subagents **1 at a time** sequentially so your system never swaps to disk.
-- **Automatic High-Load Throttling**: If live RAM usage exceeds **85%** or CPU usage exceeds **88%**, the governor automatically throttles active workers down to `1`.
+### Hardware Acceleration & Dynamic PC Governor (`src-tauri/src/hardware.rs`)
+- **AMD Radeon ROCm / DirectML & NVIDIA CUDA**: Full GPU hardware acceleration detection (including 64-bit VRAM registry detection for AMD Radeon RX 6000/7000/8000 series and NVIDIA RTX), with configurable GPU offload layers (0 to 99).
+- **Workstation Tier (`≥30 GB RAM` + `≥10 GB VRAM` or `≥12 Cores`)**: Effortlessly runs up to **8–16 concurrent subagents** alongside a heavyweight Lead Architect with GPU layer acceleration.
+- **Balanced Desktop Tier (`≥15 GB RAM` + `≥5.5 GB Free RAM`)**: Runs up to **4–8 concurrent subagents** with hardware acceleration.
+- **Compact / Memory-Saver Tier (`<15 GB RAM`)**: Automatically optimizes subagent queues with lightweight models (1.5B–3B).
+- **Uncapped Concurrency & Unlimited MCP**: Full user control over worker counts and MCP server limits with zero artificial hard limits.
+- **Automated Final Execution Reports**: The agent synthesizes an Antigravity-grade summary report detailing every workspace action taken, files created/edited, build results, and milestone changes upon task completion.
+- **Clean In-Place Self-Updater**: Background updater streams live download percentages and executes a clean in-place replacement so old versions never linger.
 
 ---
 
