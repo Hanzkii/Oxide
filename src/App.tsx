@@ -1342,9 +1342,15 @@ export const App: React.FC = () => {
                   setSettingsTab("hardware");
                   setShowSettingsModal(true);
                 }}
-                title={`PC Hardware Governor: ${hwSpecs.governor_tier}\nCPU: ${hwSpecs.cpu_brand} (${hwSpecs.cpu_cores} Cores)\nRAM: ${hwSpecs.available_ram_gb} GB free / ${hwSpecs.total_ram_gb} GB\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nClick to configure hardware acceleration.`}
+                title={`PC Hardware Specs:\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nCPU: ${hwSpecs.cpu_brand} (${hwSpecs.cpu_cores} Cores)\nRAM: ${hwSpecs.available_ram_gb} GB Free / ${hwSpecs.total_ram_gb} GB Total\nGovernor Tier: ${hwSpecs.governor_tier}\nClick to configure hardware acceleration & layer offloading.`}
               >
-                [GPU] {hwSpecs.gpu_name} ({hwSpecs.gpu_vram_gb > 0 ? `${hwSpecs.gpu_vram_gb} GB VRAM` : `${hwSpecs.available_ram_gb} GB free`})
+                <span className="hw-pill-gpu">
+                  {hwSpecs.gpu_name} {hwSpecs.gpu_vram_gb > 0 ? `(${hwSpecs.gpu_vram_gb}GB)` : ""}
+                </span>
+                <span className="hw-pill-sep">|</span>
+                <span className="hw-pill-ram">
+                  RAM: {hwSpecs.available_ram_gb}/{hwSpecs.total_ram_gb}GB
+                </span>
               </button>
             )}
 
@@ -1645,6 +1651,19 @@ export const App: React.FC = () => {
 
             {/* ==================== BOTTOM FLOATING CHAT COMPOSER ==================== */}
             <div className="ag-composer-dock">
+              {statusBanner && (
+                <div className="ag-composer-status-banner">
+                  <span>{statusBanner}</span>
+                  <button
+                    type="button"
+                    className="status-dismiss"
+                    onClick={() => setStatusBanner("")}
+                  >
+                    x
+                  </button>
+                </div>
+              )}
+
               <div className="ag-composer-card" style={{ position: "relative" }}>
                 {/* Floating Slash Commands Palette */}
                 {prompt.startsWith("/") && !prompt.includes(" ") && (
@@ -1724,31 +1743,14 @@ export const App: React.FC = () => {
                 />
 
                 <div className="ag-composer-toolbar">
-                  {/* Main Agent & Subagent Selectors (ONLY Installed Models) */}
+                  {/* Left: Model Pill & Subagent Pill */}
                   <div className="ag-toolbar-left">
-                    {/* Main Agent Model Picker */}
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.3rem",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: "0.71rem",
-                          color: "var(--text-muted)",
-                        }}
-                      >
-                        Agent:
-                      </span>
+                    {/* Main Agent Pill */}
+                    <div className="ag-pill-container" title="Select Lead Architect Model">
+                      <span className="ag-pill-label">Agent:</span>
                       {ollamaModels.length > 0 ? (
                         <select
-                          className="ag-model-picker-inline"
-                          style={{
-                            background: "var(--bg-elevated)",
-                            border: "1px solid var(--border-subtle)",
-                          }}
+                          className="ag-pill-select"
                           value={
                             providerConfig.task_routing.architect_model ||
                             ollamaModels[0]
@@ -1768,53 +1770,37 @@ export const App: React.FC = () => {
                           }}
                         >
                           {ollamaModels.map((m) => (
-                            <option
-                              key={m}
-                              value={m}
-                              title={m}
-                              style={{ background: "#18181b", color: "#ececef" }}
-                            >
+                            <option key={m} value={m} title={m}>
                               {formatModelDisplayName(m)}
                             </option>
                           ))}
                         </select>
                       ) : (
                         <button
-                          className="ag-model-picker-inline"
-                          style={{
-                            color: "var(--oxide-ember)",
-                            border: "1px solid rgba(212, 91, 44, 0.45)",
-                          }}
+                          className="ag-pill-select"
                           onClick={() => setShowModelHubModal(true)}
                         >
-                          + Install Agent Model
+                          + Install Model
                         </button>
                       )}
                     </div>
 
-                    {/* Subagent Model Picker */}
+                    {/* Subagents Pill */}
                     <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.3rem",
-                      }}
+                      className={`ag-pill-container ${
+                        providerConfig.enable_subagents ? "active-subagent" : ""
+                      }`}
+                      title="Subagents: click label to configure roles"
                     >
                       <span
-                        style={{
-                          fontSize: "0.71rem",
-                          color: "var(--text-muted)",
-                        }}
+                        className="ag-pill-label clickable"
+                        onClick={() => setShowSubagentsGuide(true)}
                       >
                         Subagent:
                       </span>
                       {ollamaModels.length > 0 ? (
                         <select
-                          className="ag-model-picker-inline"
-                          style={{
-                            background: "var(--bg-elevated)",
-                            border: "1px solid var(--border-subtle)",
-                          }}
+                          className="ag-pill-select"
                           value={
                             !providerConfig.enable_subagents
                               ? "__off__"
@@ -1847,89 +1833,41 @@ export const App: React.FC = () => {
                           }}
                         >
                           {ollamaModels.map((m) => (
-                            <option
-                              key={m}
-                              value={m}
-                              style={{ background: "#18181b", color: "#ececef" }}
-                            >
-                              {m}
+                            <option key={m} value={m} title={m}>
+                              {formatModelDisplayName(m)}
                             </option>
                           ))}
-                          <option
-                            value="__off__"
-                            style={{ background: "#18181b", color: "#a1a1aa" }}
-                          >
-                            Off (Single Agent)
-                          </option>
+                          <option value="__off__">Off</option>
                         </select>
                       ) : (
-                        <button
-                          className="ag-model-picker-inline"
-                          onClick={() => setShowModelHubModal(true)}
-                        >
-                          None
-                        </button>
+                        <span className="ag-pill-value">Off</span>
                       )}
                     </div>
 
+                    {/* Models Store Button */}
                     <button
-                      className="ag-model-picker-inline"
+                      type="button"
+                      className="ag-toolbar-icon-btn"
                       onClick={() => setShowModelHubModal(true)}
-                      title="Install or manage AI models"
+                      title="Install & manage AI models"
                     >
                       + Models
                     </button>
-
-                    <button
-                      className="ag-model-picker-inline"
-                      onClick={() => setShowSubagentsGuide(true)}
-                      title="Subagent Architecture & Multi-Agent Delegation Guide"
-                      style={{
-                        borderColor: providerConfig.enable_subagents ? "rgba(34, 197, 94, 0.4)" : undefined,
-                        color: providerConfig.enable_subagents ? "#86efac" : undefined,
-                      }}
-                    >
-                      Subagents
-                    </button>
                   </div>
 
+                  {/* Right: Security Mode & Send Button */}
                   <div className="ag-toolbar-right">
-                    {statusBanner && (
-                      <span
-                        style={{
-                          fontSize: "0.72rem",
-                          color: "var(--text-muted)",
-                          maxWidth: "240px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={statusBanner}
-                      >
-                        {statusBanner}
-                      </span>
-                    )}
-
-                    {/* Security Review Mode Dropdown (Antigravity Style) */}
+                    {/* Security Review Mode Dropdown */}
                     <div className="oxide-security-wrapper">
                       <button
                         type="button"
                         className="oxide-security-btn"
                         onClick={() => setShowSecurityMenu((v) => !v)}
-                        title="AI Execution Security Mode"
+                        title="Command Execution Security Mode"
                       >
-                        <span style={{ fontSize: "0.85rem" }}>
-                          {providerConfig.security_mode === "request_review"
-                            ? "[Review]"
-                            : providerConfig.security_mode === "default"
-                            ? "[Default]"
-                            : providerConfig.security_mode === "auto"
-                            ? "[Auto]"
-                            : ""}
-                        </span>
                         <span>
                           {providerConfig.security_mode === "request_review"
-                            ? "Request Review"
+                            ? "Review"
                             : providerConfig.security_mode === "default"
                             ? "Default"
                             : providerConfig.security_mode === "auto"
@@ -1949,7 +1887,9 @@ export const App: React.FC = () => {
                           <button
                             type="button"
                             className={`oxide-security-item ${
-                              providerConfig.security_mode === "request_review" ? "active" : ""
+                              providerConfig.security_mode === "request_review"
+                                ? "active"
+                                : ""
                             }`}
                             onClick={async () => {
                               const updated: ProviderConfig = {
@@ -1959,25 +1899,29 @@ export const App: React.FC = () => {
                               setProviderConfig(updated);
                               setShowSecurityMenu(false);
                               await oxideBridge.updateProviderConfig(updated);
-                              setStatusBanner("Execution mode set to Request Review.");
+                              setStatusBanner("Execution mode: Request Review");
                             }}
                           >
-                            <span className="oxide-security-item-icon">[Review]</span>
                             <div className="oxide-security-item-body">
-                              <span className="oxide-security-item-title">Request Review</span>
+                              <span className="oxide-security-item-title">
+                                Request Review
+                              </span>
                               <span className="oxide-security-item-desc">
                                 Every command requires approval.
                               </span>
                             </div>
-                            {providerConfig.security_mode === "request_review" && (
-                              <span className="oxide-security-item-check">[OK]</span>
+                            {providerConfig.security_mode ===
+                              "request_review" && (
+                              <span className="oxide-security-item-check">OK</span>
                             )}
                           </button>
 
                           <button
                             type="button"
                             className={`oxide-security-item ${
-                              providerConfig.security_mode === "default" ? "active" : ""
+                              providerConfig.security_mode === "default"
+                                ? "active"
+                                : ""
                             }`}
                             onClick={async () => {
                               const updated: ProviderConfig = {
@@ -1987,25 +1931,28 @@ export const App: React.FC = () => {
                               setProviderConfig(updated);
                               setShowSecurityMenu(false);
                               await oxideBridge.updateProviderConfig(updated);
-                              setStatusBanner("Execution mode set to Default.");
+                              setStatusBanner("Execution mode: Default");
                             }}
                           >
-                            <span className="oxide-security-item-icon">[Default]</span>
                             <div className="oxide-security-item-body">
-                              <span className="oxide-security-item-title">Default</span>
+                              <span className="oxide-security-item-title">
+                                Default
+                              </span>
                               <span className="oxide-security-item-desc">
                                 Ask before sensitive operations.
                               </span>
                             </div>
                             {providerConfig.security_mode === "default" && (
-                              <span className="oxide-security-item-check">[OK]</span>
+                              <span className="oxide-security-item-check">OK</span>
                             )}
                           </button>
 
                           <button
                             type="button"
                             className={`oxide-security-item ${
-                              providerConfig.security_mode === "auto" ? "active" : ""
+                              providerConfig.security_mode === "auto"
+                                ? "active"
+                                : ""
                             }`}
                             onClick={async () => {
                               const updated: ProviderConfig = {
@@ -2015,25 +1962,27 @@ export const App: React.FC = () => {
                               setProviderConfig(updated);
                               setShowSecurityMenu(false);
                               await oxideBridge.updateProviderConfig(updated);
-                              setStatusBanner("Execution mode set to Auto (Preview).");
+                              setStatusBanner("Execution mode: Auto (Preview)");
                             }}
                           >
-                            <span className="oxide-security-item-icon">[Auto]</span>
                             <div className="oxide-security-item-body">
-                              <span className="oxide-security-item-title">Auto (Preview)</span>
+                              <span className="oxide-security-item-title">
+                                Auto (Preview)
+                              </span>
                               <span className="oxide-security-item-desc">
                                 Automatically decide if commands run.
                               </span>
                             </div>
                             {providerConfig.security_mode === "auto" && (
-                              <span className="oxide-security-item-check">[OK]</span>
+                              <span className="oxide-security-item-check">OK</span>
                             )}
                           </button>
 
                           <button
                             type="button"
                             className={`oxide-security-item ${
-                              providerConfig.security_mode === "turbo" || !providerConfig.security_mode
+                              providerConfig.security_mode === "turbo" ||
+                              !providerConfig.security_mode
                                 ? "active"
                                 : ""
                             }`}
@@ -2045,30 +1994,33 @@ export const App: React.FC = () => {
                               setProviderConfig(updated);
                               setShowSecurityMenu(false);
                               await oxideBridge.updateProviderConfig(updated);
-                              setStatusBanner("Execution mode set to Turbo (Unrestricted).");
+                              setStatusBanner("Execution mode: Turbo (Fast)");
                             }}
                           >
-                            <span className="oxide-security-item-icon"></span>
                             <div className="oxide-security-item-body">
-                              <span className="oxide-security-item-title">Turbo</span>
+                              <span className="oxide-security-item-title">
+                                Turbo
+                              </span>
                               <span className="oxide-security-item-desc">
                                 Run all commands without restrictions.
                               </span>
                             </div>
                             {(providerConfig.security_mode === "turbo" ||
                               !providerConfig.security_mode) && (
-                              <span className="oxide-security-item-check">[OK]</span>
+                              <span className="oxide-security-item-check">OK</span>
                             )}
                           </button>
                         </div>
                       )}
                     </div>
 
+                    {/* Send Button */}
                     <button
-                      className="ag-send-btn"
+                      type="button"
+                      className="ag-composer-send-btn"
                       disabled={isRunning || !prompt.trim()}
                       onClick={() => handleRunTask()}
-                      title="Send (Enter)"
+                      title="Send Prompt (Enter)"
                     >
                       -&gt;
                     </button>
@@ -4266,7 +4218,7 @@ export const App: React.FC = () => {
         >
           <div
             className="model-hub-card"
-            style={{ width: "780px", maxHeight: "88vh", overflowY: "auto" }}
+            style={{ width: "820px", maxHeight: "88vh", overflowY: "auto" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -4275,16 +4227,15 @@ export const App: React.FC = () => {
                 justifyContent: "space-between",
                 alignItems: "center",
                 borderBottom: "1px solid var(--border-subtle)",
-                paddingBottom: "0.6rem",
+                paddingBottom: "0.75rem",
               }}
             >
               <div>
-                <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span>[Agent]</span>
-                  <span>Oxide Multi-Agent Architecture</span>
+                <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 600 }}>
+                  Subagent Delegation &amp; Worker Roles
                 </h3>
                 <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                  Lead Architect executive reasoning &amp; specialized subagent delegation
+                  Configure role assignment and model routing across primary and subagent execution
                 </div>
               </div>
               <button
@@ -4296,87 +4247,13 @@ export const App: React.FC = () => {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
-              {/* How it works banner */}
-              <div
-                style={{
-                  background: "rgba(242, 108, 58, 0.08)",
-                  border: "1px solid rgba(242, 108, 58, 0.3)",
-                  borderRadius: "8px",
-                  padding: "0.75rem 1rem",
-                  fontSize: "0.78rem",
-                  lineHeight: 1.5,
-                }}
-              >
-                <strong>[AI] How Subagent Delegation Works in Oxide:</strong>
-                <p style={{ margin: "0.35rem 0 0" }}>
-                  Complex coding tasks overwhelm single-threaded LLMs with context pollution and hallucination. In Oxide, your <strong>Lead Architect</strong> reasons deeply inside <code>&lt;think&gt;</code> tags, breaks down the user request into concrete subtasks, and issues parallel orders to <strong>Specialized Subagents</strong>.
-                </p>
-              </div>
-
-              {/* Roles Breakdown */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0.75rem",
-                }}
-              >
-                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(242, 108, 58, 0.3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "var(--oxide-ember)" }}>
-                    <span>Lead Architect (Main Agent)</span>
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
-                    Analyzes user requests, forms multi-step plans, reasons about architecture, and synthesizes final deliverables. Emits <code>delegate_subagents</code> tool calls to trigger subagents.
-                  </div>
-                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#fde047" }}>
-                    Active Model: <code>{providerConfig.task_routing.architect_model || providerConfig.ollama_model}</code>
-                  </div>
-                </div>
-
-                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(96, 165, 250, 0.3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#60a5fa" }}>
-                    <span>Coder Subagent</span>
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
-                    Specialized in granular code mutations (<code>write_file</code>, <code>replace_in_file</code>). Performs fast, clean code edits across files concurrently without distracting the Lead Architect.
-                  </div>
-                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#60a5fa" }}>
-                    Active Model: <code>{providerConfig.task_routing.coder_subagent_model || providerConfig.ollama_model}</code>
-                  </div>
-                </div>
-
-                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(167, 139, 250, 0.3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#a78bfa" }}>
-                    <span>Research Subagent</span>
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
-                    Fast read-only exploration. Traverses project files, parses symbols, and checks dependencies using <code>search_codebase</code> and <code>read_file</code> to verify facts before changes.
-                  </div>
-                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#a78bfa" }}>
-                    Active Model: <code>{providerConfig.task_routing.research_subagent_model || providerConfig.ollama_model}</code>
-                  </div>
-                </div>
-
-                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(52, 211, 153, 0.3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#34d399" }}>
-                    <span>Tester Subagent</span>
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "0.3rem", lineHeight: 1.4 }}>
-                    Executes test suites (<code>cargo test</code>, <code>npm test</code>, linters), parses terminal compiler errors, and reports exact diagnostics back to the Lead Architect.
-                  </div>
-                  <div style={{ fontSize: "0.7rem", marginTop: "0.5rem", color: "#34d399" }}>
-                    Active Model: <code>{providerConfig.task_routing.tester_subagent_model || providerConfig.ollama_model}</code>
-                  </div>
-                </div>
-              </div>
-
-              {/* Multi-Agent Toggle */}
+              {/* Delegation Toggle Banner */}
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  padding: "0.75rem",
+                  padding: "0.85rem 1rem",
                   background: "var(--bg-elevated)",
                   borderRadius: "8px",
                   border: "1px solid var(--border-subtle)",
@@ -4384,12 +4261,12 @@ export const App: React.FC = () => {
               >
                 <div>
                   <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                    Multi-Agent Delegation Status
+                    Autonomous Delegation
                   </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
                     {providerConfig.enable_subagents
-                      ? "Enabled - Lead Architect delegates subtasks to parallel subagents."
-                      : "Disabled - Lead Architect handles all steps in a single thread."}
+                      ? "Enabled - Primary agent breaks down complex tasks and delegates to specialized subagents."
+                      : "Disabled - Primary agent handles all execution steps sequentially."}
                   </div>
                 </div>
                 <button
@@ -4408,13 +4285,181 @@ export const App: React.FC = () => {
                     );
                   }}
                 >
-                  {providerConfig.enable_subagents ? "[OK] Enabled" : "Enable Multi-Agent"}
+                  {providerConfig.enable_subagents ? "Delegation Active" : "Enable Delegation"}
                 </button>
               </div>
 
-              {/* Slash Command Hint */}
-              <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                <strong>Tip:</strong> You can type <code>/subagents &lt;your request&gt;</code> in chat to explicitly demand multi-agent delegation, or <code>/plan</code> to have the Lead Architect draft a breakdown before execution.
+              {/* Roles Breakdown Grid */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "0.85rem",
+                }}
+              >
+                {/* 1. Lead Architect */}
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(242, 108, 58, 0.35)", padding: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "var(--oxide-ember)" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--oxide-ember)", display: "inline-block" }} />
+                      <span>Primary Agent (Architect)</span>
+                    </div>
+                    <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(242, 108, 58, 0.15)", color: "var(--oxide-ember)" }}>Coordinator</span>
+                  </div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                    Analyzes objectives, reasons about code changes, schedules subtasks, and reviews deliverables before presenting.
+                  </div>
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <label style={{ fontSize: "0.68rem", color: "var(--text-muted)", display: "block", marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Assigned Model</label>
+                    <select
+                      className="select-control"
+                      style={{ width: "100%", fontSize: "0.75rem", padding: "0.3rem 0.5rem" }}
+                      value={providerConfig.task_routing.architect_model || providerConfig.ollama_model}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        const updated = {
+                          ...providerConfig,
+                          ollama_model: val,
+                          task_routing: { ...providerConfig.task_routing, architect_model: val },
+                        };
+                        setProviderConfig(updated);
+                        await oxideBridge.updateProviderConfig(updated);
+                      }}
+                    >
+                      {ollamaModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 2. Coder Subagent */}
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(96, 165, 250, 0.35)", padding: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#60a5fa" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#60a5fa", display: "inline-block" }} />
+                      <span>Coder Subagent</span>
+                    </div>
+                    <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(96, 165, 250, 0.15)", color: "#60a5fa" }}>Worker</span>
+                  </div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                    Specialized in focused code mutations, file edits, and refactoring without polluting architect context.
+                  </div>
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <label style={{ fontSize: "0.68rem", color: "var(--text-muted)", display: "block", marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Assigned Model</label>
+                    <select
+                      className="select-control"
+                      style={{ width: "100%", fontSize: "0.75rem", padding: "0.3rem 0.5rem" }}
+                      value={providerConfig.task_routing.coder_subagent_model || providerConfig.ollama_model}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        const updated = {
+                          ...providerConfig,
+                          task_routing: { ...providerConfig.task_routing, coder_subagent_model: val },
+                        };
+                        setProviderConfig(updated);
+                        await oxideBridge.updateProviderConfig(updated);
+                      }}
+                    >
+                      {ollamaModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 3. Research Subagent */}
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(167, 139, 250, 0.35)", padding: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#a78bfa" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#a78bfa", display: "inline-block" }} />
+                      <span>Research Subagent</span>
+                    </div>
+                    <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(167, 139, 250, 0.15)", color: "#a78bfa" }}>Worker</span>
+                  </div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                    Fast read-only exploration: searches codebase symbols, analyzes documentation, and cross-references dependencies.
+                  </div>
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <label style={{ fontSize: "0.68rem", color: "var(--text-muted)", display: "block", marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Assigned Model</label>
+                    <select
+                      className="select-control"
+                      style={{ width: "100%", fontSize: "0.75rem", padding: "0.3rem 0.5rem" }}
+                      value={providerConfig.task_routing.research_subagent_model || providerConfig.ollama_model}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        const updated = {
+                          ...providerConfig,
+                          task_routing: { ...providerConfig.task_routing, research_subagent_model: val },
+                        };
+                        setProviderConfig(updated);
+                        await oxideBridge.updateProviderConfig(updated);
+                      }}
+                    >
+                      {ollamaModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 4. Tester Subagent */}
+                <div className="hw-spec-box" style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(52, 211, 153, 0.35)", padding: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, color: "#34d399" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399", display: "inline-block" }} />
+                      <span>Tester &amp; Diagnostics</span>
+                    </div>
+                    <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(52, 211, 153, 0.15)", color: "#34d399" }}>Worker</span>
+                  </div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                    Executes test commands, inspects terminal logs, parses compiler diagnostics, and verifies build integrity.
+                  </div>
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <label style={{ fontSize: "0.68rem", color: "var(--text-muted)", display: "block", marginBottom: "0.2rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Assigned Model</label>
+                    <select
+                      className="select-control"
+                      style={{ width: "100%", fontSize: "0.75rem", padding: "0.3rem 0.5rem" }}
+                      value={providerConfig.task_routing.tester_subagent_model || providerConfig.ollama_model}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        const updated = {
+                          ...providerConfig,
+                          task_routing: { ...providerConfig.task_routing, tester_subagent_model: val },
+                        };
+                        setProviderConfig(updated);
+                        await oxideBridge.updateProviderConfig(updated);
+                      }}
+                    >
+                      {ollamaModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips Footer */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: "0.74rem",
+                  color: "var(--text-muted)",
+                  paddingTop: "0.4rem",
+                  borderTop: "1px solid var(--border-subtle)",
+                }}
+              >
+                <div>
+                  Use <code>/subagents &lt;task&gt;</code> to trigger parallel worker execution or <code>/plan</code> for staged verification.
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setShowSubagentsGuide(false)}
+                >
+                  Save &amp; Close
+                </button>
               </div>
             </div>
           </div>

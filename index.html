@@ -632,7 +632,6 @@
         <span class="tag">Fe2O3 // v0.1.0</span>
       </a>
       <div class="nav-links">
-        <a href="#preview">Studio UI</a>
         <a href="#models">1-Click AI Store</a>
         <a href="#subagents">Subagents &amp; Governor</a>
         <a href="#mcp">MCP Protocol</a>
@@ -823,156 +822,11 @@
         </div>
       </section>
 
-      <!-- ==================== INTERACTIVE STUDIO PREVIEW ==================== -->
-      <section id="preview" class="section">
-        <div class="section-header">
-          <span class="section-tag">01 // ANTIGRAVITY-INSPIRED INTERFACE</span>
-          <h2 class="section-title">
-            Multi-Project Workspace, Saved Conversations &amp; Live Thought
-            Stream
-          </h2>
-          <p class="section-desc">
-            Open any folder on your PC with the native Windows folder picker,
-            switch between multiple projects and saved conversation threads, and
-            watch the AI's internal <code>&lt;think&gt;</code> reasoning and
-            tool executions unfold in real time.
-          </p>
-        </div>
-
-        <div class="studio-mockup">
-          <!-- Left Sidebar Mockup -->
-          <div class="mock-sidebar">
-            <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                font-weight: 700;
-              "
-            >
-              <span>Oxide Studio</span>
-              <span>+ Folder</span>
-            </div>
-            <div class="mock-btn-new">+ New Conversation</div>
-            <div class="mock-conv">AI Model Hub (1-Click)</div>
-            <div class="mock-conv">Subagents &amp; Routing</div>
-            <div class="mock-conv">Customizations (MCP)</div>
-
-            <div class="mock-tree-group">
-              <div class="mock-tree-title">[dir] backend-api</div>
-              <div class="mock-conv active">
-                <span>Refactor Auth Middleware</span>
-                <span>[sync]</span>
-              </div>
-              <div class="mock-conv">
-                <span>Add Rate Limiter Tests</span>
-                <span>14:20</span>
-              </div>
-            </div>
-
-            <div class="mock-tree-group">
-              <div class="mock-tree-title">[dir] web-dashboard</div>
-              <div class="mock-conv">
-                <span>Responsive Chart Layout</span>
-                <span>Yesterday</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Center Conversation Stream Mockup -->
-          <div class="mock-center">
-            <div style="display: flex; flex-direction: column; gap: 0.7rem">
-              <div class="mock-bubble">
-                Scan the workspace, refactor the model router, and verify the
-                TypeScript build passes.
-              </div>
-
-              <div class="mock-thought">
-                <strong>Thought for 4s [v]</strong><br />
-                1. Inspect <code>src/data/modelCatalog.ts</code> and hardware
-                VRAM thresholds.<br />
-                2. Delegate file edits to <code>coder_subagent</code> (Qwen 2.5
-                Coder 7B) while running <code>npm run build</code> in
-                <code>tester_subagent</code>.
-              </div>
-
-              <div class="mock-step">
-                <span>[cmd]</span>
-                <strong style="color: #f26c3a">[CODER SUBAGENT]</strong>
-                <code>qwen2.5-coder:7b</code> edited
-                <code>src/App.tsx</code> (+142 lines)
-              </div>
-              <div class="mock-step">
-                <span>&gt;_</span>
-                <span>Executed</span>
-                <code>npm run build</code>
-                <span style="color: #4ade80">exit 0 (496ms)</span>
-              </div>
-            </div>
-
-            <div class="mock-composer">
-              <span>Ask Oxide anything about this project...</span>
-              <span style="color: #f26c3a; font-weight: 600"
-                >AI Model Hub | Turbo (2 Sub) -></span
-              >
-            </div>
-          </div>
-
-          <!-- Right Floating Overview Dock Mockup -->
-          <div class="mock-right">
-            <div class="mock-card">
-              <div
-                style="
-                  font-weight: 700;
-                  margin-bottom: 0.45rem;
-                  display: flex;
-                  justify-content: space-between;
-                "
-              >
-                <span>Overview</span>
-                <span style="color: #4ade80">main</span>
-              </div>
-              <div class="mock-conv">
-                <span>Review &amp; Git</span>
-                <span>Clean</span>
-              </div>
-              <div class="mock-conv active">
-                <span>Project Files</span>
-                <span>36 files</span>
-              </div>
-              <div class="mock-conv">
-                <span>&gt;_ Terminal</span>
-                <span>Silent</span>
-              </div>
-            </div>
-
-            <div class="mock-card">
-              <div
-                style="
-                  font-size: 0.72rem;
-                  color: #a3958d;
-                  margin-bottom: 0.35rem;
-                "
-              >
-                ACTIVE MCP SERVERS
-              </div>
-              <div class="mock-conv">
-                <span>oxide-memory</span>
-                <span style="color: #4ade80">[Active]</span>
-              </div>
-              <div class="mock-conv">
-                <span>filesystem-tools</span>
-                <span style="color: #4ade80">[Active]</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- ==================== 1-CLICK AI MODEL STORE ==================== -->
       <section id="models" class="section">
         <div class="section-header">
           <span class="section-tag"
-            >02 // OLLAMA + HUGGINGFACE GGUF INTEGRATION</span
+            >01 // OLLAMA + HUGGINGFACE GGUF INTEGRATION</span
           >
           <h2 class="section-title">
             1-Click AI Model Hub with Auto PC Spec Detection &amp; Uncensored
@@ -1311,6 +1165,26 @@
               Checks <code>Hanzkii/Oxide</code> for new releases or commits on
               <code>main</code> and installs updates silently in the background
               with a single click.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <span class="feature-icon">[FAST]</span>
+            <h3>Hybrid Split Inference &amp; GPU Offloading</h3>
+            <p>
+              Run heavyweight 14B, 32B, and 70B models exceeding physical VRAM by
+              partitioning transformer tensor layers between GPU VRAM and System RAM
+              with real-time layer allocation dials and visual split tracking.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <span class="feature-icon">[CHAT]</span>
+            <h3>Slash Commands &amp; Side-Queries (/btw)</h3>
+            <p>
+              Type <code>/</code> for an auto-completing command palette including
+              <code>/btw</code> (ask side-questions without file edits), <code>/plan</code>,
+              <code>/subagents</code>, <code>/fix</code>, and <code>/test</code>.
             </p>
           </div>
         </div>

@@ -64,6 +64,15 @@ function createLocalSystemBridgePlugin(): Plugin {
         fs.mkdirSync(oxideRuntimeRoot, { recursive: true });
       if (!fs.existsSync(oxideModelsRoot))
         fs.mkdirSync(oxideModelsRoot, { recursive: true });
+
+      const scripts = ["detect-gpu.ps1", "modern-folder-picker.ps1"];
+      for (const s of scripts) {
+        const src = path.resolve("scripts", s);
+        const dst = path.join(oxideRuntimeRoot, s);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, dst);
+        }
+      }
     } catch {}
   }
 
@@ -371,21 +380,45 @@ function createLocalSystemBridgePlugin(): Plugin {
       10;
 
     if (!state.cachedGpu) {
-      const nv = await runCommandBounded(
-        "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits"
-      );
-      if (nv.succeeded && nv.stdout.trim()) {
-        const first = nv.stdout.trim().split(/\r?\n/)[0];
-        const [gName, gMem] = first.split(",");
-        state.cachedGpu = {
-          name: (gName || "NVIDIA GPU").trim(),
-          vramGb: Math.round(((parseFloat(gMem) || 0) / 1024) * 10) / 10,
-        };
-      } else {
-        state.cachedGpu = {
-          name: "System GPU / Unified Memory",
-          vramGb: 0,
-        };
+      const gpuScript = fs.existsSync(path.resolve("scripts/detect-gpu.ps1"))
+        ? path.resolve("scripts/detect-gpu.ps1")
+        : path.join(oxideRuntimeRoot, "detect-gpu.ps1");
+      let gpuFound = false;
+      if (fs.existsSync(gpuScript)) {
+        const gpuRes = await runCommandBounded(
+          `powershell -NoProfile -ExecutionPolicy Bypass -File "${gpuScript}"`
+        );
+        if (gpuRes.succeeded && gpuRes.stdout.trim()) {
+          const parts = gpuRes.stdout.trim().split("|");
+          const name = parts[0]?.trim();
+          const vram = parseFloat(parts[1] || "0");
+          if (name && name !== "Integrated Graphics") {
+            state.cachedGpu = {
+              name,
+              vramGb: isNaN(vram) ? 0 : vram,
+            };
+            gpuFound = true;
+          }
+        }
+      }
+
+      if (!gpuFound) {
+        const nv = await runCommandBounded(
+          "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits"
+        );
+        if (nv.succeeded && nv.stdout.trim()) {
+          const first = nv.stdout.trim().split(/\r?\n/)[0];
+          const [gName, gMem] = first.split(",");
+          state.cachedGpu = {
+            name: (gName || "NVIDIA GPU").trim(),
+            vramGb: Math.round(((parseFloat(gMem) || 0) / 1024) * 10) / 10,
+          };
+        } else {
+          state.cachedGpu = {
+            name: "System GPU / Unified Memory",
+            vramGb: 0,
+          };
+        }
       }
     }
 
@@ -522,8 +555,14 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "pick_folder_dialog") {
+            const pickerScript = fs.existsSync(
+              path.resolve("scripts/modern-folder-picker.ps1")
+            )
+              ? path.resolve("scripts/modern-folder-picker.ps1")
+              : path.join(oxideRuntimeRoot, "modern-folder-picker.ps1");
+            const initial = state.workspaceRoot ? `"${state.workspaceRoot}"` : "";
             const out = await runCommandBounded(
-              `powershell -NoProfile -Sta -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Oxide Studio'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"`
+              `powershell -NoProfile -Sta -ExecutionPolicy Bypass -File "${pickerScript}" ${initial}`
             );
             const selected = out.stdout.trim();
             res.end(JSON.stringify(selected || null));

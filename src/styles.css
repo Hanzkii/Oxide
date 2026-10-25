@@ -1177,3 +1177,147 @@ body {
   font-size: 0.85rem;
   margin-top: 0.15rem;
 }
+
+/* ==================== CLEAN COMPOSER & TOOLBAR PILLS ==================== */
+.ag-pill-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.24rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+
+.ag-pill-container.clickable {
+  cursor: pointer;
+}
+
+.ag-pill-container.clickable:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.ag-pill-container.active-subagent {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.08);
+  color: #86efac;
+}
+
+.ag-pill-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.ag-pill-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.76rem;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  max-width: 170px;
+  text-overflow: ellipsis;
+}
+
+.ag-pill-select option {
+  background: #18181b;
+  color: #ececef;
+}
+
+.ag-pill-value {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.ag-toolbar-icon-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 0.24rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ag-toolbar-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.ag-composer-send-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--oxide-ember);
+  color: #ffffff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.88rem;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.ag-composer-send-btn:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.ag-composer-send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ag-composer-status-banner {
+  margin-bottom: 0.45rem;
+  padding: 0.3rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+
+.status-dismiss:hover {
+  color: var(--text-primary);
+}
+
+.hw-pill-gpu {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hw-pill-sep {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.hw-pill-ram {
+  color: var(--text-secondary);
+}
