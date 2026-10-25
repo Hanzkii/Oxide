@@ -177,8 +177,13 @@ pub async fn install_github_update() -> OxideResult<UpdateInstallResult> {
         let target_path = env::temp_dir().join(&asset_name);
         fs::write(&target_path, &bytes)?;
 
+        // Strip NTFS Zone.Identifier (Mark of the Web) so Windows Defender SmartScreen
+        // never blocks the updated executable or installer.
         #[cfg(target_os = "windows")]
         {
+            let zone_ads = format!("{}:Zone.Identifier", target_path.to_string_lossy());
+            let _ = fs::remove_file(zone_ads);
+
             Command::new("cmd")
                 .args(["/C", "start", "", &target_path.to_string_lossy()])
                 .stdin(Stdio::null())

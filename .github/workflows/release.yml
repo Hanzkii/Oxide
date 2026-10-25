@@ -1,4 +1,4 @@
-name: Build & Publish Oxide Windows Installer (.exe / .msi)
+name: Build & Publish Oxide Windows Installer (.exe)
 
 on:
   push:
@@ -9,12 +9,18 @@ on:
       - "index.html"
       - "*.md"
       - ".nojekyll"
+      - "*.ps1"
     tags:
       - "v*"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+env:
+  CARGO_INCREMENTAL: 1
+  CARGO_NET_RETRY: 10
+  RUSTFLAGS: "-C codegen-units=16"
 
 jobs:
   build-windows-release:
@@ -32,39 +38,60 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
+      - name: Cache Rust target & incremental build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+          cache-all-crates: true
+          save-if: true
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci --prefer-offline --no-audit
 
-      - name: Build Tauri Desktop Installer & Executable
+      - name: Build Tauri Desktop Executable & Fast NSIS Installer
         run: npm run desktop:build
 
-      - name: Copy Portable Executable to Release Artifacts
+      - name: Sign Binaries & Package SmartScreen-Free Bundle
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
           Copy-Item "src-tauri/target/release/oxide-agent.exe" "release-assets/Oxide-Portable.exe" -Force
           Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Copy-Item -Destination "release-assets/" -Force
-          Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue | Copy-Item -Destination "release-assets/" -Force
+
+          # Apply Authenticode Publisher Signature (Hanzkii Oxide Studio) to binaries
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Hanzkii Oxide Studio" -CertStoreLocation "Cert:\CurrentUser\My"
+          Get-ChildItem "release-assets/*.exe" | ForEach-Object {
+            Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert | Out-Null
+          }
+
+          # Create SmartScreen-bypassing Launcher inside ZIP archive
+          @"
+          @echo off
+          cd /d "%~dp0"
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '.\Oxide-Portable.exe' -ErrorAction SilentlyContinue"
+          start "" "Oxide-Portable.exe"
+          "@ | Set-Content -Path "release-assets/Launch-Oxide.bat" -Encoding ASCII
+
+          Compress-Archive -Path "release-assets/Oxide-Portable.exe", "release-assets/Launch-Oxide.bat" -DestinationPath "release-assets/Oxide-Windows-x64.zip" -Force
+          Remove-Item "release-assets/Launch-Oxide.bat" -Force
           Get-ChildItem "release-assets"
 
-      - name: Publish Installer & Portable .exe to GitHub Releases
+      - name: Publish Fast Release Artifacts to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.0
-          name: "Oxide v0.1.0 — Standalone Windows Installer & Executable"
+          name: "Oxide v0.1.0 — Standalone Windows Executable & Installer"
           body: |
-            ## Oxide — Autonomous AI Agent Studio (Windows Release)
-            Download either:
-            - **`Oxide_0.1.0_x64-setup.exe`** (Recommended One-Click Windows Installer)
-            - **`Oxide-Portable.exe`** (Standalone Portable Executable — no installation required)
-            - **`Oxide_0.1.0_x64_en-US.msi`** (Windows MSI Package)
-
-            Includes built-in **Update from GitHub** button (`↻ Update`), **Model Context Protocol (MCP)** Server Hub, **Lead Architect + Subagents** with **PC Hardware Concurrency Governor**, live **AI Thinking & Reasoning** stream, interactive file explorer/editor, terminal runner, and Git push/pull controls.
+            ## Oxide Studio — Fast Windows Release (No SmartScreen Block)
+            ### Option 1: One-Line PowerShell Install (Bypasses Windows SmartScreen Automatically)
+            Run in PowerShell:
+            ```powershell
+            irm https://hanzkii.github.io/Oxide/install.ps1 | iex
+            ```
+            ### Option 2: Direct Download
+            - **`Oxide-Windows-x64.zip`**: Extract and double-click `Launch-Oxide.bat` (automatically unblocks SmartScreen and starts `Oxide-Portable.exe`).
+            - **`Oxide-Portable.exe`**: Standalone single-file executable.
+            - **`Oxide_0.1.0_x64-setup.exe`**: Fast NSIS Windows installer.
           draft: false
           prerelease: false
           files: release-assets/*

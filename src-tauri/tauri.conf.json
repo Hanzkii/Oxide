@@ -14,8 +14,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "Oxide — Autonomous AI Command Center",
-        "width": 1360,
+        "title": "Oxide Studio — Autonomous AI Command Center",
+        "width": 1380,
         "height": 860,
         "minWidth": 960,
         "minHeight": 640,
@@ -25,14 +25,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:11434 https://api.github.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "freezePrototype": true,
       "dangerousDisableAssetCspModification": false
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Hanzkii Oxide Studio",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

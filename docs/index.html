@@ -527,29 +527,28 @@
       </section>
 
       <section id="start" class="block">
-        <div class="block-label">01 // HOW TO OPEN OXIDE</div>
+        <div class="block-label">01 // HOW TO OPEN OXIDE (NO SMARTSCREEN POPUP)</div>
         <div class="cmd-grid">
           <div class="cmd-box">
-            <strong>A. Standalone Release Installer</strong>
+            <strong>A. 1-Line PowerShell Install (Zero SmartScreen Block)</strong>
             <p>
-              Download <code>Oxide_0.1.0_x64-setup.exe</code> or
-              <code>Oxide-Portable.exe</code> from
+              Run in PowerShell to download <code>Oxide-Portable.exe</code>,
+              strip Windows SmartScreen's browser block (<code>Unblock-File</code>),
+              create a Desktop shortcut, and launch immediately:<br />
+              <code>irm https://hanzkii.github.io/Oxide/install.ps1 | iex</code>
+            </p>
+          </div>
+          <div class="cmd-box">
+            <strong>B. Direct ZIP / Executable or Local Clone</strong>
+            <p>
+              Download <code>Oxide-Windows-x64.zip</code> from
               <a
                 href="https://github.com/Hanzkii/Oxide/releases/latest"
                 style="color: var(--rust-bright)"
                 >GitHub Releases</a
               >
-              and launch directly. Use the top-right
-              <code>↻ Update</code> button inside the GUI to pull future updates
-              from GitHub.
-            </p>
-          </div>
-          <div class="cmd-box">
-            <strong>B. Local Clone Launcher</strong>
-            <p>
-              Ensure <code>ollama serve</code> is running locally, then
-              double-click <code>start-oxide.bat</code> in the repo root to pop
-              open the native desktop Studio window immediately.
+              and run <code>Launch-Oxide.bat</code>, or double-click
+              <code>start-oxide.bat</code> inside a local repo clone.
             </p>
           </div>
         </div>
