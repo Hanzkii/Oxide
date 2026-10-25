@@ -25,7 +25,7 @@ impl Default for AppState {
         let initial_dir = env::current_dir()
             .ok()
             .filter(|cwd| !commands::workspace::is_installer_binary_dir(cwd))
-            .unwrap_or_else(commands::workspace::default_projects_scratch_dir);
+            .unwrap_or_else(commands::workspace::default_projects_workspace_dir);
         let initial_sandbox = WorkspaceSandbox::new(initial_dir, CommandPolicy::default()).ok();
 
         Self {

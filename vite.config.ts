@@ -485,9 +485,37 @@ function createLocalSystemBridgePlugin(): Plugin {
             return;
           }
 
+          const getOxideInstallDir = () => {
+            const localAppData =
+              process.env.LOCALAPPDATA ||
+              path.join(os.homedir(), "AppData", "Local");
+            return path.join(localAppData, "Programs", "Oxide");
+          };
+
+          const getStudioStateFile = () => {
+            const installDir = getOxideInstallDir();
+            fs.mkdirSync(installDir, { recursive: true });
+            const stateFile = path.join(installDir, "studio_sessions.json");
+
+            // Migration from legacy OxideStudio if needed
+            if (!fs.existsSync(stateFile)) {
+              const legacy = path.join(
+                process.env.LOCALAPPDATA || os.tmpdir(),
+                "OxideStudio",
+                "studio_sessions.json"
+              );
+              if (fs.existsSync(legacy)) {
+                try {
+                  fs.copyFileSync(legacy, stateFile);
+                  fs.unlinkSync(legacy);
+                } catch {}
+              }
+            }
+            return stateFile;
+          };
+
           if (action === "load_studio_state") {
-            const base = process.env.LOCALAPPDATA || os.tmpdir();
-            const file = path.join(base, "OxideStudio", "studio_sessions.json");
+            const file = getStudioStateFile();
             if (fs.existsSync(file)) {
               res.end(JSON.stringify(fs.readFileSync(file, "utf-8")));
             } else {
@@ -497,14 +525,8 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "save_studio_state") {
-            const base = process.env.LOCALAPPDATA || os.tmpdir();
-            const dir = path.join(base, "OxideStudio");
-            fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(
-              path.join(dir, "studio_sessions.json"),
-              args.stateJson || "{}",
-              "utf-8"
-            );
+            const file = getStudioStateFile();
+            fs.writeFileSync(file, args.stateJson || "{}", "utf-8");
             res.end(JSON.stringify(true));
             return;
           }
@@ -613,17 +635,35 @@ function createLocalSystemBridgePlugin(): Plugin {
           }
 
           if (action === "set_workspace") {
+            // Proactively clean up any legacy .oxide folder
+            const legacyDotOxide = path.join(os.homedir(), ".oxide");
+            if (fs.existsSync(legacyDotOxide)) {
+              try {
+                fs.rmSync(legacyDotOxide, { recursive: true, force: true });
+              } catch {}
+            }
+
             const rawPath = String(args.workspacePath || "").trim();
-            const defaultScratch = path.join(os.homedir(), ".oxide", "scratch");
+            const defaultWorkspace = path.join(getOxideInstallDir(), "workspace");
             let target =
               !rawPath || rawPath === "."
-                ? defaultScratch
+                ? defaultWorkspace
                 : path.resolve(rawPath);
+            const lowerTarget = target.toLowerCase();
             if (
-              target.toLowerCase().endsWith("\\appdata\\local\\oxide") ||
-              fs.existsSync(path.join(target, "uninstall.exe"))
+              (lowerTarget.endsWith("\\appdata\\local\\oxide") ||
+                lowerTarget.endsWith("/appdata/local/oxide") ||
+                lowerTarget.endsWith("\\appdata\\local\\programs\\oxide") ||
+                lowerTarget.endsWith("/appdata/local/programs/oxide") ||
+                lowerTarget.includes("\\.oxide\\scratch") ||
+                lowerTarget.includes("/.oxide/scratch") ||
+                lowerTarget.endsWith("\\.oxide") ||
+                lowerTarget.endsWith("/.oxide") ||
+                fs.existsSync(path.join(target, "uninstall.exe"))) &&
+              !lowerTarget.endsWith("\\workspace") &&
+              !lowerTarget.endsWith("/workspace")
             ) {
-              target = defaultScratch;
+              target = defaultWorkspace;
             }
             if (!fs.existsSync(target)) {
               fs.mkdirSync(target, { recursive: true });

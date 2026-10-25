@@ -57,34 +57,104 @@ pub async fn pick_folder_dialog() -> OxideResult<Option<String>> {
     }
 }
 
+/// Returns the Oxide install root directory (`C:\Users\<user>\AppData\Local\Programs\Oxide` on Windows),
+/// falling back to the current executable's folder or local appdata.
+pub fn oxide_install_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        // 1. If currently running from an installed directory, use its parent
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let name = parent
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if name == "oxide" || parent.join("uninstall.exe").exists() {
+                    return parent.to_path_buf();
+                }
+            }
+        }
+
+        // 2. Standard Windows per-user installation path: %LOCALAPPDATA%\Programs\Oxide
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            return PathBuf::from(local_appdata).join("Programs").join("Oxide");
+        }
+
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            return PathBuf::from(user_profile)
+                .join("AppData")
+                .join("Local")
+                .join("Programs")
+                .join("Oxide");
+        }
+    }
+
+    dirs::data_local_dir()
+        .map(|p| p.join("Programs").join("Oxide"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 fn studio_state_file_path() -> PathBuf {
-    let base = std::env::var("LOCALAPPDATA")
-        .or_else(|_| std::env::var("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-    let dir = base.join("OxideStudio");
-    let _ = fs::create_dir_all(&dir);
-    dir.join("studio_sessions.json")
+    let install_dir = oxide_install_dir();
+    let _ = fs::create_dir_all(&install_dir);
+    let state_file = install_dir.join("studio_sessions.json");
+
+    // Migrate from legacy %LOCALAPPDATA%\OxideStudio\studio_sessions.json if present
+    if !state_file.exists() {
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let legacy_dir = PathBuf::from(local_appdata).join("OxideStudio");
+            let legacy_file = legacy_dir.join("studio_sessions.json");
+            if legacy_file.exists() {
+                let _ = fs::copy(&legacy_file, &state_file);
+                let _ = fs::remove_file(&legacy_file);
+                let _ = fs::remove_dir(&legacy_dir);
+            }
+        }
+    }
+
+    state_file
 }
 
-/// Returns the default user projects scratch folder (`C:\Users\<user>\.oxide\scratch`),
-/// creating it automatically if it does not exist yet (just like Google Antigravity's `.gemini/antigravity/scratch`).
-pub fn default_projects_scratch_dir() -> PathBuf {
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let scratch = home.join(".oxide").join("scratch");
-    let _ = fs::create_dir_all(&scratch);
-    scratch
+/// Returns the default user projects workspace folder inside the install directory
+/// (`C:\Users\<user>\AppData\Local\Programs\Oxide\workspace`),
+/// creating it automatically if it does not exist yet.
+pub fn default_projects_workspace_dir() -> PathBuf {
+    // Proactively clean up any legacy C:\Users\<user>\.oxide directory so nothing remains in .oxide
+    if let Ok(user_profile) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        let dot_oxide = PathBuf::from(user_profile).join(".oxide");
+        if dot_oxide.exists() {
+            let _ = fs::remove_dir_all(&dot_oxide);
+        }
+    }
+
+    let install_dir = oxide_install_dir();
+    let workspace = install_dir.join("workspace");
+    let _ = fs::create_dir_all(&workspace);
+    workspace
 }
 
-/// Checks if a path is the NSIS installer application directory (`AppData\Local\Oxide`) rather than a user project.
+/// Checks if a path is the NSIS installer root application directory (`AppData\Local\Programs\Oxide` or `AppData\Local\Oxide`)
+/// rather than a user project or workspace.
 pub fn is_installer_binary_dir(path: &Path) -> bool {
     let s = path.to_string_lossy().to_lowercase();
-    s.ends_with("\\appdata\\local\\oxide")
+    // Allow the workspace subfolder
+    if s.ends_with("\\programs\\oxide\\workspace")
+        || s.ends_with("/programs/oxide/workspace")
+        || s.ends_with("\\oxide\\workspace")
+        || s.ends_with("/oxide/workspace")
+    {
+        return false;
+    }
+    s.ends_with("\\appdata\\local\\programs\\oxide")
+        || s.ends_with("/appdata/local/programs/oxide")
+        || s.ends_with("\\appdata\\local\\oxide")
         || s.ends_with("/appdata/local/oxide")
-        || path.join("uninstall.exe").exists()
+        || (path.join("uninstall.exe").exists()
+            && !path
+                .file_name()
+                .map(|n| n.to_string_lossy().eq_ignore_ascii_case("workspace"))
+                .unwrap_or(false))
 }
 
 /// Loads persisted Projects and Conversation History from disk (`%LOCALAPPDATA%/OxideStudio/studio_sessions.json`).
@@ -113,16 +183,16 @@ pub async fn set_workspace(
 ) -> OxideResult<WorkspaceInfo> {
     let trimmed = workspace_path.trim();
     let candidate = if trimmed.is_empty() || trimmed == "." {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| default_projects_scratch_dir());
+        let cwd = std::env::current_dir().unwrap_or_else(|_| default_projects_workspace_dir());
         if is_installer_binary_dir(&cwd) {
-            default_projects_scratch_dir()
+            default_projects_workspace_dir()
         } else {
             cwd
         }
     } else {
         let p = PathBuf::from(trimmed);
         if is_installer_binary_dir(&p) {
-            default_projects_scratch_dir()
+            default_projects_workspace_dir()
         } else {
             p
         }

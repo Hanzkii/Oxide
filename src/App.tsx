@@ -177,9 +177,24 @@ function getBaseName(p: string): string {
 
 function isAppInstallDir(p: string): boolean {
   const lower = p.replace(/[\\/]+$/, "").toLowerCase();
+  // Allow the workspace subfolder
+  if (
+    lower.endsWith("\\programs\\oxide\\workspace") ||
+    lower.endsWith("/programs/oxide/workspace") ||
+    lower.endsWith("\\oxide\\workspace") ||
+    lower.endsWith("/oxide/workspace")
+  ) {
+    return false;
+  }
   return (
     lower.endsWith("\\appdata\\local\\oxide") ||
-    lower.endsWith("/appdata/local/oxide")
+    lower.endsWith("/appdata/local/oxide") ||
+    lower.endsWith("\\appdata\\local\\programs\\oxide") ||
+    lower.endsWith("/appdata/local/programs/oxide") ||
+    lower.includes("\\.oxide\\scratch") ||
+    lower.includes("/.oxide/scratch") ||
+    lower.endsWith("\\.oxide") ||
+    lower.endsWith("/.oxide")
   );
 }
 
@@ -400,7 +415,7 @@ export const App: React.FC = () => {
             parsed.projects.length > 0 &&
             Array.isArray(parsed.conversations)
           ) {
-            // Migrate any old AppData\Local\Oxide binary dir to the default `.oxide/scratch` folder
+            // Migrate any old AppData\Local\Oxide binary dir or .oxide to the default workspace folder
             const defaultInfo = await oxideBridge.setWorkspace(".");
             const migratedProjects: ProjectWorkspace[] = parsed.projects.map(
               (p: ProjectWorkspace) => {
@@ -444,7 +459,7 @@ export const App: React.FC = () => {
 
       if (!restored) {
         try {
-          // "." automatically resolves to C:\Users\<user>\.oxide\scratch when run from installer
+          // "." automatically resolves to C:\Users\<user>\AppData\Local\Programs\Oxide\workspace when run from installer
           const info = await oxideBridge.setWorkspace(".");
           const defaultProj: ProjectWorkspace = {
             id: "proj-default",
@@ -1261,7 +1276,7 @@ export const App: React.FC = () => {
               onClick={handlePickProjectFolder}
               title={`Workspace folder: ${activeProject?.path}\nClick to switch folder`}
             >
-              {activeProject?.name || "scratch"}
+              {activeProject?.name || "workspace"}
             </span>
             <span>/</span>
             <span className="ag-breadcrumb-conv">
@@ -1341,7 +1356,7 @@ export const App: React.FC = () => {
                           color: "var(--text-primary)",
                         }}
                       >
-                        {activeProject?.name || "scratch"}
+                        {activeProject?.name || "workspace"}
                       </div>
                       <div
                         style={{
@@ -2896,7 +2911,7 @@ export const App: React.FC = () => {
                       onClick={async () => {
                         const info = await oxideBridge.setWorkspace(".");
                         const defaultProj: ProjectWorkspace = {
-                          id: "proj-scratch",
+                          id: "proj-workspace",
                           name: getBaseName(info.canonical_path),
                           path: info.canonical_path,
                         };
@@ -2910,11 +2925,11 @@ export const App: React.FC = () => {
                         setActiveProjectId(defaultProj.id);
                         await refreshWorkspaceState(".");
                         setStatusBanner(
-                          `Opened default scratch workspace: ${info.canonical_path}`
+                          `Opened default workspace: ${info.canonical_path}`
                         );
                       }}
                     >
-                      Open Default Scratch Folder (`.oxide/scratch`)
+                      Open Default Workspace Folder (`Programs/Oxide/workspace`)
                     </button>
                     <button
                       className="btn"
@@ -2939,7 +2954,7 @@ export const App: React.FC = () => {
                   >
                     Conversations are automatically saved to{" "}
                     <code>
-                      %LOCALAPPDATA%/OxideStudio/studio_sessions.json
+                      %LOCALAPPDATA%/Programs/Oxide/studio_sessions.json
                     </code>
                     .
                   </div>
