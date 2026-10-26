@@ -6,6 +6,12 @@ cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path . -Filter '*.exe' -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
 
 :: 1. If a compiled portable or release executable exists locally, launch it immediately!
+if exist "%~dp0Oxide-Portable-v0.1.25.exe" (
+    echo [*] Starting Oxide Studio Native Desktop Application (v0.1.25)...
+    start "" "%~dp0Oxide-Portable-v0.1.25.exe"
+    exit /b 0
+)
+
 if exist "%~dp0Oxide-Portable.exe" (
     echo [*] Starting Oxide Studio Native Desktop Application...
     start "" "%~dp0Oxide-Portable.exe"
