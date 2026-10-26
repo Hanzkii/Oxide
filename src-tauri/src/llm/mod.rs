@@ -15,6 +15,8 @@ pub enum ProviderKind {
     CustomOpenai,
     Anthropic,
     OpenAi,
+    Gemini,
+    Deepseek,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,7 +112,27 @@ pub struct ProviderConfig {
     pub ollama_base_url: String,
     pub ollama_model: String,
     pub anthropic_model: String,
+    #[serde(default)]
+    pub anthropic_api_key: Option<String>,
     pub openai_model: String,
+    #[serde(default)]
+    pub openai_api_key: Option<String>,
+    #[serde(default)]
+    pub gemini_model: Option<String>,
+    #[serde(default)]
+    pub gemini_api_key: Option<String>,
+    #[serde(default)]
+    pub deepseek_model: Option<String>,
+    #[serde(default)]
+    pub deepseek_api_key: Option<String>,
+    #[serde(default)]
+    pub custom_openai_url: Option<String>,
+    #[serde(default)]
+    pub custom_openai_model: Option<String>,
+    #[serde(default)]
+    pub oxide_native_port: Option<u16>,
+    #[serde(default)]
+    pub oxide_native_model: Option<String>,
     pub enable_cloud_fallback: bool,
     pub temperature: f32,
     #[serde(default)]
@@ -133,6 +155,8 @@ pub struct ProviderConfig {
     pub allow_internet_access: bool,
     #[serde(default = "default_true")]
     pub enforce_workspace_sandbox: bool,
+    #[serde(default)]
+    pub permitted_terminal_binaries: Option<Vec<String>>,
 }
 
 fn default_gpu_layers() -> i32 {
@@ -154,7 +178,17 @@ impl Default for ProviderConfig {
             ollama_base_url: "http://localhost:11434".to_string(),
             ollama_model: "qwen2.5-coder:latest".to_string(),
             anthropic_model: "claude-3-5-sonnet-latest".to_string(),
+            anthropic_api_key: None,
             openai_model: "gpt-4o".to_string(),
+            openai_api_key: None,
+            gemini_model: Some("gemini-1.5-flash".to_string()),
+            gemini_api_key: None,
+            deepseek_model: Some("deepseek-chat".to_string()),
+            deepseek_api_key: None,
+            custom_openai_url: None,
+            custom_openai_model: None,
+            oxide_native_port: Some(11435),
+            oxide_native_model: None,
             enable_cloud_fallback: false,
             temperature: 0.1,
             task_routing: TaskModelRouting::default(),
@@ -167,6 +201,7 @@ impl Default for ProviderConfig {
             security_mode: SecurityReviewMode::Turbo,
             allow_internet_access: true,
             enforce_workspace_sandbox: true,
+            permitted_terminal_binaries: None,
         }
     }
 }

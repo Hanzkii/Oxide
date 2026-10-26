@@ -71,14 +71,33 @@ impl HybridProviderRouter {
                 Arc::new(AnthropicProvider::new(&self.config.anthropic_model))
             }
             ProviderKind::OpenAi => Arc::new(OpenAiProvider::new(&self.config.openai_model)),
-            ProviderKind::OxideNative => Arc::new(OpenAiProvider::with_base_url(
-                "http://127.0.0.1:11435/v1",
-                role_model,
-            )),
-            ProviderKind::CustomOpenai => Arc::new(OpenAiProvider::with_base_url(
-                "http://127.0.0.1:1234/v1",
-                role_model,
-            )),
+            ProviderKind::OxideNative => {
+                let port = self.config.oxide_native_port.unwrap_or(11435);
+                let url = format!("http://127.0.0.1:{}/v1", port);
+                Arc::new(OpenAiProvider::with_base_url(&url, role_model))
+            }
+            ProviderKind::CustomOpenai => {
+                let url = self
+                    .config
+                    .custom_openai_url
+                    .as_deref()
+                    .unwrap_or("http://127.0.0.1:1234/v1");
+                Arc::new(OpenAiProvider::with_base_url(url, role_model))
+            }
+            ProviderKind::Gemini => {
+                let model = self.config.gemini_model.as_deref().unwrap_or("gemini-1.5-flash");
+                Arc::new(OpenAiProvider::with_base_url(
+                    "https://generativelanguage.googleapis.com/v1beta/openai",
+                    model,
+                ))
+            }
+            ProviderKind::Deepseek => {
+                let model = self.config.deepseek_model.as_deref().unwrap_or("deepseek-chat");
+                Arc::new(OpenAiProvider::with_base_url(
+                    "https://api.deepseek.com/v1",
+                    model,
+                ))
+            }
         }
     }
 
