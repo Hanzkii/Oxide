@@ -1,7 +1,7 @@
 pub mod git;
 pub mod terminal;
 
-use crate::error::{OxideError, OxideResult};
+use crate::error::OxideResult;
 use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
 use crate::llm::{AgentRoleKind, ChatMessage, ProviderConfig};
@@ -14,6 +14,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{RwLock, Semaphore};
 
@@ -649,7 +650,7 @@ impl AgentOrchestrator {
 
             match action {
                 AgentToolAction::DelegateSubagents { subtasks, .. } => {
-                    executed_actions.push(format!("🤖 Delegated {} parallel subagent task(s)", subtasks.len()));
+                    executed_actions.push(format!("[Subagents] Delegated {} parallel subagent task(s)", subtasks.len()));
                     let results = self
                         .execute_subagent_batch(&app, step, &router, subtasks)
                         .await;
@@ -949,7 +950,7 @@ impl AgentOrchestrator {
                         Ok(exec_result) => {
                             let observation = exec_result.to_agent_observation();
                             let succeeded = exec_result.succeeded;
-                            executed_actions.push(format!("⚡ Ran command `{}` (exit: {})", command, exec_result.exit_code));
+                            executed_actions.push(format!("[Command] Ran command `{}` (exit: {})", command, exec_result.exit_code));
 
                             self.emit_event(
                                 &app,
@@ -1185,7 +1186,7 @@ impl AgentOrchestrator {
                             "[SECURITY_BLOCKED] Internet access is disabled in Oxide Security Settings. Enable 'Allow Internet Access' in Settings -> Security to permit web searches.".to_string(),
                         ));
                     } else {
-                        executed_actions.push(format!("🌐 Searched internet for `{}`", query));
+                        executed_actions.push(format!("[Search] Searched internet for `{}`", query));
                         self.emit_event(
                             &app,
                             AgentStreamEvent::WorkflowCard {
@@ -1257,7 +1258,7 @@ impl AgentOrchestrator {
                             "[SECURITY_BLOCKED] Internet access is disabled in Oxide Security Settings.".to_string(),
                         ));
                     } else {
-                        executed_actions.push(format!("🌐 Fetched URL `{}`", url));
+                        executed_actions.push(format!("[Fetch] Fetched URL `{}`", url));
                         let client = reqwest::Client::builder()
                             .timeout(Duration::from_secs(12))
                             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
