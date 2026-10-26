@@ -70,6 +70,11 @@ pub fn run() {
             commands::agent::install_ai_model,
             commands::agent::delete_ai_model,
             commands::agent::search_huggingface_gguf,
+            commands::agent::open_native_models_folder,
+            commands::agent::open_native_runtime_folder,
+            commands::agent::start_native_engine,
+            commands::agent::stop_native_engine,
+            commands::agent::test_provider_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Tauri application");

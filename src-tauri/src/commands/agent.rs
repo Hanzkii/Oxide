@@ -13,6 +13,8 @@ use crate::AppState;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
@@ -38,8 +40,13 @@ pub struct ProviderHealthReport {
     pub active_provider: String,
     pub ollama_reachable: bool,
     pub ollama_models: Vec<String>,
+    pub oxide_native_running: bool,
+    pub oxide_native_models: Vec<String>,
+    pub oxide_native_installed: bool,
     pub anthropic_key_present: bool,
     pub openai_key_present: bool,
+    pub gemini_key_present: bool,
+    pub deepseek_key_present: bool,
     pub config: ProviderConfig,
 }
 
@@ -96,12 +103,41 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
         }
     }
 
+    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let runtime_dir = crate::commands::workspace::oxide_install_dir().join("runtime");
+    let mut native_models = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&models_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|x| x.to_str()) == Some("gguf") {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    native_models.push(name.to_string());
+                }
+            }
+        }
+    }
+    let native_installed = runtime_dir.join("llama-server.exe").exists();
+    let port = config.oxide_native_port.unwrap_or(11435);
+    let native_running = if let Ok(client) = reqwest::Client::builder().timeout(Duration::from_millis(600)).build() {
+        client.get(format!("http://127.0.0.1:{}/v1/models", port)).send().await.map(|r| r.status().is_success()).unwrap_or(false)
+    } else {
+        false
+    };
+
+    let gemini_ok = config.gemini_api_key.as_ref().map(|k| !k.trim().is_empty()).unwrap_or(false);
+    let deepseek_ok = config.deepseek_api_key.as_ref().map(|k| !k.trim().is_empty()).unwrap_or(false);
+
     Ok(ProviderHealthReport {
         active_provider: format!("{:?}", config.active_provider).to_lowercase(),
         ollama_reachable: ollama_ok,
         ollama_models,
+        oxide_native_running: native_running,
+        oxide_native_models: native_models,
+        oxide_native_installed: native_installed,
         anthropic_key_present: anthropic_ok,
         openai_key_present: openai_ok,
+        gemini_key_present: gemini_ok,
+        deepseek_key_present: deepseek_ok,
         config,
     })
 }
@@ -407,14 +443,229 @@ pub async fn ensure_ollama_engine() -> OxideResult<String> {
     }
 }
 
-/// 1-Click Installs an AI model from either the Ollama Registry (`qwen2.5-coder:7b`)
-/// or directly from HuggingFace GGUF (`hf.co/<owner>/<repo>`).
+/// 1-Click Installs an AI model directly from HuggingFace GGUF (`hf.co/<owner>/<repo>`),
+/// direct URL, or the Ollama Registry as fallback.
 #[tauri::command]
 pub async fn install_ai_model(
     model_id: String,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> OxideResult<ModelInstallResult> {
+    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let _ = fs::create_dir_all(&models_dir);
+
+    let trimmed = model_id.trim();
+    let is_direct_url = trimmed.starts_with("http://") || trimmed.starts_with("https://");
+    let is_hf = trimmed.starts_with("hf.co/") || trimmed.starts_with("huggingface.co/") || trimmed.ends_with(".gguf");
+
+    let mut repo = trimmed.replace("hf.co/", "").replace("huggingface.co/", "");
+    let r_lower = repo.to_lowercase();
+
+    // Map common shortcuts to high quality GGUF repositories
+    if r_lower == "qwen2.5-coder:7b" || r_lower == "qwen2.5-coder" || r_lower == "qwen2.5-coder:latest" {
+        repo = "bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF".to_string();
+    } else if r_lower == "qwen2.5-coder:14b" {
+        repo = "bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF".to_string();
+    } else if r_lower == "deepseek-r1:7b" || r_lower == "deepseek-r1" {
+        repo = "huihui-ai/DeepSeek-R1-Distill-Qwen-7B-abliterated-GGUF".to_string();
+    } else if r_lower == "deepseek-r1:14b" {
+        repo = "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-GGUF".to_string();
+    } else if r_lower == "dolphin-mistral:7b" {
+        repo = "TheBloke/dolphin-2.8-mistral-7B-GGUF".to_string();
+    } else if r_lower == "dolphin-llama3:8b" {
+        repo = "bartowski/dolphin-2.9-llama3-8b-GGUF".to_string();
+    }
+
+    let is_gguf_flow = is_direct_url || is_hf || repo.contains('/');
+
+    if is_gguf_flow {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(7200))
+            .user_agent("OxideStudio/0.1 (Windows NT 10.0; Win64; x64)")
+            .build()?;
+
+        let (download_url, local_filename) = if is_direct_url {
+            let fname = Path::new(trimmed).file_name().and_then(|n| n.to_str()).unwrap_or("model.gguf").to_string();
+            (trimmed.to_string(), fname)
+        } else {
+            let _ = app.emit(
+                "oxide://model-download-progress",
+                ModelDownloadProgress {
+                    model_id: model_id.clone(),
+                    status: format!("Querying HuggingFace repository {}...", repo),
+                    completed: 0,
+                    total: 100,
+                    percent: 5.0,
+                },
+            );
+
+            let tree_url = format!("https://huggingface.co/api/models/{}/tree/main", repo);
+            let tree_resp = client.get(&tree_url).send().await.map_err(|e| {
+                OxideError::ProviderError {
+                    provider: "huggingface".to_string(),
+                    message: format!("Failed to reach HuggingFace API: {}", e),
+                }
+            })?;
+
+            if !tree_resp.status().is_success() {
+                return Err(OxideError::ProviderError {
+                    provider: "huggingface".to_string(),
+                    message: format!("HuggingFace repository '{}' not found (HTTP {})", repo, tree_resp.status()),
+                });
+            }
+
+            let file_list: Vec<Value> = tree_resp.json().await.unwrap_or_default();
+            let gguf_files: Vec<String> = file_list
+                .iter()
+                .filter_map(|f| {
+                    let path = f.get("path").or_else(|| f.get("rfilename")).and_then(|v| v.as_str())?;
+                    if path.to_lowercase().ends_with(".gguf") {
+                        Some(path.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if gguf_files.is_empty() {
+                return Err(OxideError::ProviderError {
+                    provider: "huggingface".to_string(),
+                    message: format!("No .gguf model files found in HuggingFace repository '{}'", repo),
+                });
+            }
+
+            let chosen = gguf_files.iter().find(|f| f.contains("Q4_K_M"))
+                .or_else(|| gguf_files.iter().find(|f| f.contains("Q4_0")))
+                .or_else(|| gguf_files.iter().find(|f| f.contains("Q5_K_M")))
+                .or_else(|| gguf_files.iter().find(|f| f.contains("Q4_K_S")))
+                .unwrap_or(&gguf_files[0])
+                .clone();
+
+            let durl = format!("https://huggingface.co/{}/resolve/main/{}", repo, chosen);
+            (durl, chosen)
+        };
+
+        let target_path = models_dir.join(&local_filename);
+        let temp_path = models_dir.join(format!("{}.download", local_filename));
+
+        let _ = app.emit(
+            "oxide://model-download-progress",
+            ModelDownloadProgress {
+                model_id: model_id.clone(),
+                status: format!("Connecting to download {}...", local_filename),
+                completed: 0,
+                total: 100,
+                percent: 10.0,
+            },
+        );
+
+        let resp = client.get(&download_url).send().await.map_err(|e| {
+            OxideError::ProviderError {
+                provider: "huggingface".to_string(),
+                message: format!("Failed to initiate download from {}: {}", download_url, e),
+            }
+        })?;
+
+        if !resp.status().is_success() {
+            return Err(OxideError::ProviderError {
+                provider: "huggingface".to_string(),
+                message: format!("Download server returned HTTP {}", resp.status()),
+            });
+        }
+
+        let total_bytes = resp.content_length().unwrap_or(0);
+        let mut downloaded_bytes: u64 = 0;
+        let mut stream = resp.bytes_stream();
+
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+            OxideError::ExecutionError(format!("Failed to create destination file: {}", e))
+        })?;
+
+        let mut last_emit = std::time::Instant::now();
+
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res.map_err(|e| {
+                OxideError::ProviderError {
+                    provider: "huggingface".to_string(),
+                    message: format!("Network stream error while downloading: {}", e),
+                }
+            })?;
+
+            file.write_all(&chunk).await.map_err(|e| {
+                OxideError::ExecutionError(format!("Failed to write chunk to disk: {}", e))
+            })?;
+
+            downloaded_bytes += chunk.len() as u64;
+
+            if last_emit.elapsed() >= Duration::from_millis(250) || downloaded_bytes == total_bytes {
+                last_emit = std::time::Instant::now();
+                let percent = if total_bytes > 0 {
+                    ((downloaded_bytes as f64 / total_bytes as f64) * 100.0) as f32
+                } else {
+                    50.0
+                };
+                let mb_done = downloaded_bytes / (1024 * 1024);
+                let mb_total = total_bytes / (1024 * 1024);
+                let status_msg = if mb_total > 0 {
+                    format!("Downloading {} ({} MB / {} MB)...", local_filename, mb_done, mb_total)
+                } else {
+                    format!("Downloading {} ({} MB)...", local_filename, mb_done)
+                };
+
+                let _ = app.emit(
+                    "oxide://model-download-progress",
+                    ModelDownloadProgress {
+                        model_id: model_id.clone(),
+                        status: status_msg,
+                        completed: downloaded_bytes,
+                        total: total_bytes,
+                        percent,
+                    },
+                );
+            }
+        }
+
+        file.flush().await.map_err(|e| {
+            OxideError::ExecutionError(format!("Failed to flush downloaded file: {}", e))
+        })?;
+        drop(file);
+
+        if target_path.exists() {
+            let _ = tokio::fs::remove_file(&target_path).await;
+        }
+        tokio::fs::rename(&temp_path, &target_path).await.map_err(|e| {
+            OxideError::ExecutionError(format!("Failed to finalize model file: {}", e))
+        })?;
+
+        // Automatically configure native model
+        {
+            let mut cfg_guard = state.provider_config.write().await;
+            cfg_guard.oxide_native_model = Some(local_filename.clone());
+            if cfg_guard.active_provider == crate::llm::ProviderKind::Ollama {
+                cfg_guard.active_provider = crate::llm::ProviderKind::OxideNative;
+            }
+        }
+
+        let _ = app.emit(
+            "oxide://model-download-progress",
+            ModelDownloadProgress {
+                model_id: model_id.clone(),
+                status: "Installation complete!".to_string(),
+                completed: total_bytes,
+                total: total_bytes,
+                percent: 100.0,
+            },
+        );
+
+        return Ok(ModelInstallResult {
+            model_id: model_id.clone(),
+            success: true,
+            message: format!("Successfully installed {} directly to Oxide Models folder!", local_filename),
+        });
+    }
+
+    // Fallback: Ollama Registry
     let config = state.provider_config.read().await.clone();
     let base_url = config.ollama_base_url.trim_end_matches('/').to_string();
 
@@ -424,14 +675,14 @@ pub async fn install_ai_model(
 
     let pull_url = format!("{}/api/pull", base_url);
     let body = serde_json::json!({
-        "name": model_id.trim(),
+        "name": trimmed,
         "stream": true
     });
 
     let resp = client.post(&pull_url).json(&body).send().await.map_err(|e| {
         OxideError::ProviderError {
             provider: "ollama".to_string(),
-            message: format!("Failed to connect to local Ollama instance at {}: {}", pull_url, e),
+            message: format!("Failed to connect to local Ollama at {}: {}. For GGUF models, HuggingFace direct download is recommended.", pull_url, e),
         }
     })?;
 
@@ -493,12 +744,19 @@ pub async fn install_ai_model(
     })
 }
 
-/// Removes an installed AI model from Ollama to free disk space.
+/// Removes an installed AI model from models folder or Ollama.
 #[tauri::command]
 pub async fn delete_ai_model(
     model_id: String,
     state: State<'_, AppState>,
 ) -> OxideResult<bool> {
+    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let target = models_dir.join(model_id.trim());
+    if target.exists() {
+        let _ = fs::remove_file(target);
+        return Ok(true);
+    }
+
     let config = state.provider_config.read().await.clone();
     let base_url = config.ollama_base_url.trim_end_matches('/').to_string();
 
@@ -515,17 +773,21 @@ pub async fn delete_ai_model(
         }
     }
 
-    use std::process::Stdio;
-    use tokio::process::Command;
-    let mut cmd = Command::new("ollama");
-    cmd.args(["rm", model_id.trim()]).stdin(Stdio::null());
     #[cfg(target_os = "windows")]
     {
+        use tokio::process::Command;
+        let mut cmd = Command::new("ollama");
+        cmd.args(["rm", model_id.trim()]);
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
+        let out = cmd.output().await?;
+        return Ok(out.status.success());
     }
-    let out = cmd.output().await?;
-    Ok(out.status.success())
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(true)
+    }
 }
 
 /// Searches HuggingFace Hub for GGUF models compatible with 1-click Ollama installation (`hf.co/<repo>`).
@@ -611,4 +873,177 @@ fn urlencoding_encode(input: &str) -> String {
         }
     }
     out
+}
+
+#[tauri::command]
+pub async fn open_native_models_folder() -> OxideResult<bool> {
+    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let _ = fs::create_dir_all(&models_dir);
+    #[cfg(target_os = "windows")]
+    {
+        use tokio::process::Command;
+        let mut cmd = Command::new("explorer");
+        cmd.arg(&models_dir);
+        let _ = cmd.spawn();
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn open_native_runtime_folder() -> OxideResult<bool> {
+    let runtime_dir = crate::commands::workspace::oxide_install_dir().join("runtime");
+    let _ = fs::create_dir_all(&runtime_dir);
+    #[cfg(target_os = "windows")]
+    {
+        use tokio::process::Command;
+        let mut cmd = Command::new("explorer");
+        cmd.arg(&runtime_dir);
+        let _ = cmd.spawn();
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn start_native_engine(
+    model: Option<String>,
+    layers: Option<u32>,
+    state: State<'_, AppState>,
+) -> OxideResult<Value> {
+    let install_dir = crate::commands::workspace::oxide_install_dir();
+    let runtime_dir = install_dir.join("runtime");
+    let models_dir = install_dir.join("models");
+    let _ = fs::create_dir_all(&models_dir);
+    let _ = fs::create_dir_all(&runtime_dir);
+
+    let llama_exe = runtime_dir.join("llama-server.exe");
+    if !llama_exe.exists() {
+        return Err(OxideError::ExecutionError(format!(
+            "llama-server.exe not found in {}. Place llama-server.exe into this folder or run with bundled runtime.",
+            runtime_dir.display()
+        )));
+    }
+
+    let target_model = match model {
+        Some(m) if !m.is_empty() => m,
+        _ => {
+            let config_model = state.provider_config.read().await.oxide_native_model.clone().unwrap_or_default();
+            if !config_model.is_empty() {
+                config_model
+            } else {
+                let entries = fs::read_dir(&models_dir).ok();
+                let first = entries.and_then(|mut r| {
+                    r.find_map(|e| {
+                        let path = e.ok()?.path();
+                        if path.extension().and_then(|x| x.to_str()) == Some("gguf") {
+                            Some(path.file_name()?.to_string_lossy().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                });
+                first.ok_or_else(|| {
+                    OxideError::ExecutionError(format!(
+                        "No .gguf model found in {}. Install a model from the Models Hub first.",
+                        models_dir.display()
+                    ))
+                })?
+            }
+        }
+    };
+
+    let model_path = if Path::new(&target_model).is_absolute() {
+        PathBuf::from(&target_model)
+    } else {
+        models_dir.join(&target_model)
+    };
+
+    let port = state.provider_config.read().await.oxide_native_port.unwrap_or(11435);
+    let n_layers = layers.unwrap_or(99);
+
+    let hw_mode = state.provider_config.read().await.hardware_acceleration;
+    let ngl_arg = match hw_mode {
+        crate::llm::HardwareAccelerationMode::Cpu => 0,
+        _ => n_layers,
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        use tokio::process::Command;
+        let mut cmd = Command::new(&llama_exe);
+        cmd.args([
+            "-m",
+            &model_path.to_string_lossy(),
+            "--port",
+            &port.to_string(),
+            "-ngl",
+            &ngl_arg.to_string(),
+            "-c",
+            "8192",
+            "--host",
+            "127.0.0.1",
+        ]);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.spawn()?;
+    }
+
+    Ok(serde_json::json!({
+        "started": true,
+        "port": port,
+        "model": target_model,
+        "message": format!("Oxide Native Engine running on http://127.0.0.1:{}", port)
+    }))
+}
+
+#[tauri::command]
+pub async fn stop_native_engine() -> OxideResult<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        use tokio::process::Command;
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/F", "/IM", "llama-server.exe"]);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output().await;
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn test_provider_connection(
+    provider: String,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    _model: Option<String>,
+) -> OxideResult<bool> {
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(6)).build()?;
+    match provider.to_lowercase().as_str() {
+        "ollama" => {
+            let url = format!("{}/api/tags", base_url.unwrap_or_else(|| "http://localhost:11434".to_string()).trim_end_matches('/'));
+            let r = client.get(&url).send().await?;
+            Ok(r.status().is_success())
+        }
+        "oxide_native" => {
+            let port = 11435;
+            let url = format!("http://127.0.0.1:{}/v1/models", port);
+            let r = client.get(&url).send().await?;
+            Ok(r.status().is_success())
+        }
+        "anthropic" => {
+            let key = api_key.unwrap_or_default();
+            let r = client.get("https://api.anthropic.com/v1/models")
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01")
+                .send().await?;
+            Ok(r.status().is_success())
+        }
+        "openai" => {
+            let key = api_key.unwrap_or_default();
+            let r = client.get("https://api.openai.com/v1/models")
+                .bearer_auth(key)
+                .send().await?;
+            Ok(r.status().is_success())
+        }
+        _ => Ok(true),
+    }
 }

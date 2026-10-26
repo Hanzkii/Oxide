@@ -20,6 +20,8 @@ Thumbs.db
 # Executables and releases
 *.exe
 release-assets/
+studio_sessions.json
+*.log
 
 # Environment variables & secrets
 .env

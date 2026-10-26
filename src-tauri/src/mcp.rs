@@ -363,13 +363,23 @@ async fn run_mcp_jsonrpc_request(
     }
 
     // Stdio JSON-RPC 2.0 MCP Transport
-    let bin = if cfg!(target_os = "windows") && server.command == "npx" {
-        "npx.cmd"
+    let bin = if cfg!(target_os = "windows") {
+        if server.command == "npx" {
+            "npx.cmd".to_string()
+        } else if server.command == "npm" {
+            "npm.cmd".to_string()
+        } else if server.command == "pnpm" {
+            "pnpm.cmd".to_string()
+        } else if server.command == "yarn" {
+            "yarn.cmd".to_string()
+        } else {
+            server.command.clone()
+        }
     } else {
-        &server.command
+        server.command.clone()
     };
 
-    let mut cmd = Command::new(bin);
+    let mut cmd = Command::new(&bin);
     cmd.args(&server.args)
         .envs(&server.env)
         .stdin(Stdio::piped())

@@ -11,6 +11,7 @@ export type HardwareAccelerationMode =
   | "auto"
   | "amd_rocm"
   | "nvidia_cuda"
+  | "intel_gpu"
   | "directml"
   | "cpu";
 

@@ -23,6 +23,7 @@ pub enum HardwareAccelerationMode {
     Auto,
     AmdRocm,
     NvidiaCuda,
+    IntelGpu,
     DirectMl,
     Cpu,
 }

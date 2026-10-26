@@ -276,8 +276,10 @@ export const App: React.FC = () => {
     | "providers"
     | "agents"
     | "mcp"
+    | "builtintools"
     | "updates"
   >("general");
+  const [isDiscoveringMcpId, setIsDiscoveringMcpId] = useState<string | null>(null);
   const [showModelHubModal, setShowModelHubModal] = useState<boolean>(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -2582,7 +2584,14 @@ export const App: React.FC = () => {
               <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
                 <button
                   className="btn"
-                  onClick={() => oxideBridge.openNativeModelsFolder()}
+                  onClick={async () => {
+                    try {
+                      await oxideBridge.openNativeModelsFolder();
+                      setStatusBanner("Opened models directory in Windows Explorer.");
+                    } catch (e: any) {
+                      setStatusBanner(`Failed to open folder: ${e?.message || e}`);
+                    }
+                  }}
                   title="Open folder where .gguf models are stored on disk"
                 >
                   Open Models Folder
@@ -3176,7 +3185,8 @@ export const App: React.FC = () => {
                   ["security", "Security & Sandbox"],
                   ["providers", "AI Providers"],
                   ["agents", "Agent Routing"],
-                  ["mcp", "MCP Servers"],
+                  ["mcp", "External MCP Servers"],
+                  ["builtintools", "Built-in Tools"],
                   ["updates", "Updates"],
                 ] as const
               ).map(([tabKey, tabLabel]) => (
@@ -3356,6 +3366,7 @@ export const App: React.FC = () => {
                       <option value="auto">Auto-Detect ({hwSpecs?.gpu_name || "GPU / DirectML"})</option>
                       <option value="amd_rocm">AMD Radeon (ROCm / DirectML GPU Acceleration)</option>
                       <option value="nvidia_cuda">NVIDIA GeForce / RTX (CUDA Acceleration)</option>
+                      <option value="intel_gpu">Intel Arc / Iris Xe / Ultra (DirectML / Vulkan Acceleration)</option>
                       <option value="directml">DirectML / Windows ML (Universal GPU)</option>
                       <option value="cpu">CPU Only (Disable GPU Offloading)</option>
                     </select>
@@ -4220,7 +4231,14 @@ export const App: React.FC = () => {
 
                         <button
                           className="oxide-btn-secondary"
-                          onClick={() => oxideBridge.openNativeModelsFolder()}
+                          onClick={async () => {
+                            try {
+                              await oxideBridge.openNativeModelsFolder();
+                              setStatusBanner("Opened models directory in Windows Explorer.");
+                            } catch (e: any) {
+                              setStatusBanner(`Failed to open folder: ${e?.message || e}`);
+                            }
+                          }}
                         >
                           Open Models Folder
                         </button>
@@ -4551,7 +4569,7 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 4: MCP SERVERS */}
+            {/* TAB 4: EXTERNAL MCP SERVERS */}
             {settingsTab === "mcp" && (
               <div
                 style={{
@@ -4560,56 +4578,237 @@ export const App: React.FC = () => {
                   gap: "0.75rem",
                 }}
               >
-                {mcpServers.map((srv) => (
-                  <div
-                    key={srv.id}
-                    style={{
-                      background: "var(--bg-elevated)",
-                      padding: "0.7rem",
-                      borderRadius: 8,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <strong>{srv.name}</strong>{" "}
-                      <code style={{ fontSize: "0.72rem" }}>({srv.id})</code>
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.4,
+                    padding: "0.5rem 0.75rem",
+                    background: "var(--bg-elevated)",
+                    borderRadius: 6,
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <strong>Model Context Protocol (MCP) External Servers:</strong> Connect third-party tools via <code>stdio</code> or <code>SSE</code>. Oxide's internal tools and memory are managed separately in the <em>Built-in Tools</em> tab.
+                </div>
+
+                {mcpServers
+                  .filter((srv) => srv.transport !== "builtin")
+                  .map((srv) => (
+                    <div
+                      key={srv.id}
+                      style={{
+                        background: "var(--bg-elevated)",
+                        padding: "0.8rem",
+                        borderRadius: 8,
+                        border: "1px solid var(--border-subtle)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.5rem",
+                      }}
+                    >
                       <div
                         style={{
-                          fontSize: "0.72rem",
-                          color: "var(--text-secondary)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: "0.5rem",
                         }}
                       >
-                        Tools discovered: {srv.discovered_tools.length} |
-                        Status: {srv.status}
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <strong>{srv.name}</strong>
+                            <code style={{ fontSize: "0.72rem" }}>({srv.id})</code>
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                padding: "0.1rem 0.45rem",
+                                borderRadius: "4px",
+                                background:
+                                  srv.status === "ready"
+                                    ? "rgba(34, 197, 94, 0.15)"
+                                    : srv.status.startsWith("error")
+                                    ? "rgba(239, 68, 68, 0.15)"
+                                    : "rgba(148, 163, 184, 0.15)",
+                                color:
+                                  srv.status === "ready"
+                                    ? "#22c55e"
+                                    : srv.status.startsWith("error")
+                                    ? "#ef4444"
+                                    : "var(--text-secondary)",
+                                border: "1px solid currentColor",
+                              }}
+                            >
+                              {srv.status}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "0.74rem",
+                              color: "var(--text-secondary)",
+                              marginTop: "0.2rem",
+                            }}
+                          >
+                            Command: <code>{srv.command} {srv.args.join(" ")}</code>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+                          <button
+                            className="btn"
+                            disabled={isDiscoveringMcpId === srv.id}
+                            onClick={async () => {
+                              setIsDiscoveringMcpId(srv.id);
+                              try {
+                                const srvConfig = await oxideBridge.discoverMcpTools(srv.id);
+                                const updated = await oxideBridge.listMcpServers();
+                                setMcpServers(updated);
+                                const count = srvConfig?.discovered_tools?.length ?? 0;
+                                setStatusBanner(`Discovered ${count} tool(s) from "${srv.name}".`);
+                              } catch (err: any) {
+                                setStatusBanner(`MCP Discovery error: ${err?.message || err}`);
+                              } finally {
+                                setIsDiscoveringMcpId(null);
+                              }
+                            }}
+                            title="Query tools/list from MCP server"
+                          >
+                            {isDiscoveringMcpId === srv.id ? "Discovering..." : "Discover Tools"}
+                          </button>
+                          <button
+                            className={`btn ${srv.enabled ? "btn-primary" : ""}`}
+                            onClick={async () => {
+                              try {
+                                const list = await oxideBridge.saveMcpServer({
+                                  ...srv,
+                                  enabled: !srv.enabled,
+                                });
+                                setMcpServers(list);
+                              } catch (e: any) {
+                                setStatusBanner(`Toggle failed: ${e?.message || e}`);
+                              }
+                            }}
+                          >
+                            {srv.enabled ? "Enabled" : "Disabled"}
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ color: "#ef4444" }}
+                            onClick={() => {
+                              setConfirmDelete({
+                                type: "MCP Server",
+                                name: srv.name || srv.id,
+                                onConfirm: async () => {
+                                  try {
+                                    const list = await oxideBridge.removeMcpServer(srv.id);
+                                    setMcpServers(list);
+                                    setStatusBanner(`Removed MCP server "${srv.name}".`);
+                                  } catch (e: any) {
+                                    setStatusBanner(`Failed to remove server: ${e?.message || e}`);
+                                  }
+                                },
+                              });
+                            }}
+                            title="Remove external MCP server"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
+
+                      {srv.discovered_tools.length > 0 && (
+                        <div
+                          style={{
+                            background: "var(--bg-secondary)",
+                            borderRadius: 6,
+                            padding: "0.5rem 0.65rem",
+                            border: "1px solid var(--border-color)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "0.72rem",
+                              fontWeight: 600,
+                              color: "var(--text-secondary)",
+                              marginBottom: "0.35rem",
+                            }}
+                          >
+                            Discovered Tools ({srv.discovered_tools.length}):
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                            {srv.discovered_tools.map((t) => (
+                              <span
+                                key={t.name}
+                                title={t.description || "No description provided"}
+                                style={{
+                                  fontSize: "0.72rem",
+                                  padding: "0.15rem 0.45rem",
+                                  background: "var(--bg-elevated)",
+                                  border: "1px solid var(--border-subtle)",
+                                  borderRadius: "4px",
+                                  fontFamily: "monospace",
+                                  color: "var(--text-primary)",
+                                }}
+                              >
+                                {t.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: "flex", gap: "0.4rem" }}>
-                      <button
-                        className="btn"
-                        onClick={async () => {
-                          await oxideBridge.discoverMcpTools(srv.id);
-                          setMcpServers(await oxideBridge.listMcpServers());
-                        }}
-                      >
-                        Discover Tools
-                      </button>
-                      <button
-                        className={`btn ${srv.enabled ? "btn-primary" : ""}`}
-                        onClick={async () => {
-                          const list = await oxideBridge.saveMcpServer({
-                            ...srv,
-                            enabled: !srv.enabled,
-                          });
-                          setMcpServers(list);
-                        }}
-                      >
-                        {srv.enabled ? "Enabled" : "Disabled"}
-                      </button>
-                    </div>
+                  ))}
+
+                {mcpServers.filter((srv) => srv.transport !== "builtin").length === 0 && (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "1.5rem",
+                      background: "var(--bg-elevated)",
+                      borderRadius: 8,
+                      border: "1px dashed var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    No external MCP servers configured yet. Add one using the form below or choose a preset.
                   </div>
-                ))}
+                )}
+
+                {/* Quick Add Presets */}
+                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>Quick Presets:</span>
+                  <button
+                    className="model-filter-pill"
+                    onClick={() => {
+                      setNewMcpId("filesystem");
+                      setNewMcpCommand("npx");
+                      setNewMcpArgs("-y @modelcontextprotocol/server-filesystem .");
+                    }}
+                  >
+                    + Filesystem Server
+                  </button>
+                  <button
+                    className="model-filter-pill"
+                    onClick={() => {
+                      setNewMcpId("sequential-thinking");
+                      setNewMcpCommand("npx");
+                      setNewMcpArgs("-y @modelcontextprotocol/server-sequential-thinking");
+                    }}
+                  >
+                    + Sequential Thinking
+                  </button>
+                  <button
+                    className="model-filter-pill"
+                    onClick={() => {
+                      setNewMcpId("fetch");
+                      setNewMcpCommand("uvx");
+                      setNewMcpArgs("mcp-server-fetch");
+                    }}
+                  >
+                    + Python Fetch Server
+                  </button>
+                </div>
 
                 <div
                   style={{
@@ -4620,7 +4819,7 @@ export const App: React.FC = () => {
                 >
                   <input
                     className="workspace-input"
-                    placeholder="Server ID (e.g. memory)"
+                    placeholder="Server ID (e.g. filesystem)"
                     value={newMcpId}
                     onChange={(e) => setNewMcpId(e.target.value)}
                   />
@@ -4632,7 +4831,7 @@ export const App: React.FC = () => {
                   />
                   <input
                     className="workspace-input"
-                    placeholder="Args (e.g. -y @modelcontextprotocol/server-memory)"
+                    placeholder="Args (e.g. -y @modelcontextprotocol/server-filesystem .)"
                     value={newMcpArgs}
                     onChange={(e) => setNewMcpArgs(e.target.value)}
                   />
@@ -4640,24 +4839,288 @@ export const App: React.FC = () => {
                     className="btn btn-primary"
                     onClick={async () => {
                       if (!newMcpId.trim()) return;
-                      const list = await oxideBridge.saveMcpServer({
-                        id: newMcpId.trim(),
-                        name: newMcpId.trim(),
-                        transport: "stdio",
-                        command: newMcpCommand.trim(),
-                        args: newMcpArgs.split(/\s+/).filter(Boolean),
-                        env: {},
-                        url: null,
-                        enabled: true,
-                        status: "configured",
-                        discovered_tools: [],
-                      });
-                      setMcpServers(list);
-                      setNewMcpId("");
+                      try {
+                        const list = await oxideBridge.saveMcpServer({
+                          id: newMcpId.trim(),
+                          name: newMcpId.trim(),
+                          transport: "stdio",
+                          command: newMcpCommand.trim(),
+                          args: newMcpArgs.split(/\s+/).filter(Boolean),
+                          env: {},
+                          url: null,
+                          enabled: true,
+                          status: "configured",
+                          discovered_tools: [],
+                        });
+                        setMcpServers(list);
+                        setNewMcpId("");
+                        setNewMcpCommand("");
+                        setNewMcpArgs("");
+                        setStatusBanner(`Added external MCP server "${newMcpId.trim()}".`);
+                      } catch (err: any) {
+                        setStatusBanner(`Failed to add MCP server: ${err?.message || err}`);
+                      }
                     }}
                   >
-                    + Add
+                    + Add Server
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: BUILT-IN TOOLS */}
+            {settingsTab === "builtintools" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.85rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.4,
+                    padding: "0.6rem 0.8rem",
+                    background: "var(--bg-elevated)",
+                    borderRadius: 6,
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <strong>Oxide Native Tool Engine:</strong> Core first-party capabilities built directly into Oxide. These run in-process with hardware governor enforcement, sandbox security policies, and zero external daemon overhead.
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+                    gap: "0.75rem",
+                  }}
+                >
+                  {/* Tool 1: Knowledge Graph & Memory */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Knowledge Graph & Memory</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#22c55e",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        Active
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      Persistent architectural note and memory store across conversations. Agents save requirements and decisions here to prevent context drift.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>store_memory</code>
+                      <code>retrieve_memory</code>
+                      <code>list_memories</code>
+                    </div>
+                  </div>
+
+                  {/* Tool 2: Workspace File Operations */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Workspace File System</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#22c55e",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        Sandboxed
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      File read, multi-line patch replacements, new file creation, and project tree traversal locked strictly to your workspace folder.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>read_file</code>
+                      <code>write_file</code>
+                      <code>edit_file</code>
+                      <code>list_files</code>
+                    </div>
+                  </div>
+
+                  {/* Tool 3: Sandboxed Terminal Executor */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Sandboxed Terminal Executor</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#22c55e",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        {providerConfig.security_mode || "default"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      Runs build commands, package managers, and test suites with process timeouts and security policy validation.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>run_command</code>
+                      <code>run_background_task</code>
+                      <code>terminate_process</code>
+                    </div>
+                  </div>
+
+                  {/* Tool 4: Web Intelligence & Research */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Web Intelligence & Research</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: providerConfig.allow_internet_access
+                            ? "rgba(34, 197, 94, 0.15)"
+                            : "rgba(148, 163, 184, 0.15)",
+                          color: providerConfig.allow_internet_access ? "#22c55e" : "var(--text-secondary)",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        {providerConfig.allow_internet_access ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      Direct web queries via DuckDuckGo and live HTTP webpage fetching for fresh documentation and API references.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>web_search</code>
+                      <code>fetch_web_url</code>
+                    </div>
+                  </div>
+
+                  {/* Tool 5: Multi-Agent Subagent Orchestrator */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Subagent Orchestrator</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#22c55e",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        Max {providerConfig.max_concurrent_subagents || 2} Active
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      Dynamically splits large coding initiatives into parallel subagent workers (Architect, Coder, Tester, Researcher) with hardware throttling.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>invoke_subagent</code>
+                      <code>await_subagents</code>
+                      <code>aggregate_results</code>
+                    </div>
+                  </div>
+
+                  {/* Tool 6: Git Milestones & Snapshots */}
+                  <div
+                    style={{
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      padding: "0.85rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>Git Milestones & Rollback</strong>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#22c55e",
+                          border: "1px solid currentColor",
+                        }}
+                      >
+                        Automatic
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      Takes automated git snapshots before edits, computes workspace diffs, and provides one-click milestone rollback.
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "auto" }}>
+                      <code>git_diff</code>
+                      <code>snapshot_milestone</code>
+                      <code>rollback_milestone</code>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

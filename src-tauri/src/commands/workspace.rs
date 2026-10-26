@@ -29,17 +29,35 @@ pub struct WorkspaceFileEntry {
 pub async fn pick_folder_dialog() -> OxideResult<Option<String>> {
     #[cfg(target_os = "windows")]
     {
+        let install_dir = oxide_install_dir();
+        let runtime_script = install_dir.join("runtime").join("modern-folder-picker.ps1");
+        let script_path = if runtime_script.exists() {
+            runtime_script
+        } else if Path::new("scripts/modern-folder-picker.ps1").exists() {
+            PathBuf::from("scripts/modern-folder-picker.ps1")
+        } else {
+            runtime_script
+        };
+
         let mut cmd = Command::new("powershell");
-        cmd.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Sta",
-            "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Oxide Studio'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
-        ])
-        .stdin(Stdio::null());
+        if script_path.exists() {
+            cmd.args([
+                "-NoProfile",
+                "-Sta",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                &script_path.to_string_lossy(),
+            ]);
+        } else {
+            cmd.args([
+                "-NoProfile",
+                "-Sta",
+                "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Select Project Folder - Oxide Studio'; $d.ValidateNames = $false; $d.CheckFileExists = $false; $d.CheckPathExists = $true; $d.FileName = 'Select Folder'; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [System.IO.Path]::GetDirectoryName($d.FileName) }",
+            ]);
+        }
+        cmd.stdin(Stdio::null());
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
 
