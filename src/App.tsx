@@ -947,9 +947,11 @@ export const App: React.FC = () => {
     setIsRunning(true);
     setStreamingBuffer("");
     setLiveThinking(`Analyzing request and planning next actions...`);
+    setLiveThoughtExpanded(true);
     setLiveMetrics(null);
     setPlanChecklist([]);
     setLiveSteps([]);
+    setSubagents([]);
 
     let currentThought = "Analyzed request and executed workspace actions.";
     let currentPlan: string[] = [];
@@ -958,8 +960,40 @@ export const App: React.FC = () => {
     const tempUnlisten = await oxideBridge.onAgentEvent((evt) => {
       if (evt.type === "thinking_update") {
         currentThought = evt.thought;
+        setLiveThinking(evt.thought);
       } else if (evt.type === "plan_update") {
         currentPlan = evt.items;
+        setPlanChecklist(evt.items);
+      } else if (evt.type === "thinking_metrics") {
+        setLiveMetrics({
+          step: evt.step,
+          tokens_generated: evt.tokens_generated,
+          tokens_per_second: evt.tokens_per_second,
+          elapsed_seconds: evt.elapsed_seconds,
+          phase: evt.phase,
+          gpu_layers: evt.gpu_layers,
+        });
+      } else if (evt.type === "subagent_status") {
+        setSubagents((prev) => {
+          const idx = prev.findIndex((s) => s.id === evt.id);
+          const item: SubagentItem = {
+            id: evt.id,
+            role: evt.role,
+            model: evt.model,
+            title: evt.title,
+            state: evt.state,
+            thought: evt.thought,
+            output_preview: evt.output_preview,
+            active_workers: evt.active_workers,
+            max_allowed_workers: evt.max_allowed_workers,
+          };
+          if (idx !== -1) {
+            const copy = [...prev];
+            copy[idx] = item;
+            return copy;
+          }
+          return [...prev, item];
+        });
       } else if (evt.type === "workflow_card") {
         collectedSteps.push({
           id: `${evt.step}-${Date.now()}-${Math.random()}`,
@@ -1414,6 +1448,39 @@ export const App: React.FC = () => {
           </div>
 
           <div className="ag-topbar-right">
+            {isRunning && (
+              <div
+                className="oxide-top-pill"
+                style={{
+                  borderColor: "var(--oxide-ember)",
+                  color: "var(--oxide-ember)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.45rem",
+                  background: "rgba(212, 91, 44, 0.12)",
+                  fontWeight: 600,
+                  fontSize: "0.74rem",
+                }}
+                title="AI Agent actively thinking and computing in workspace"
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: "var(--oxide-ember)",
+                    boxShadow: "0 0 6px var(--oxide-ember)",
+                  }}
+                />
+                <span>
+                  {liveMetrics
+                    ? `${liveMetrics.tokens_generated} tokens (${liveMetrics.tokens_per_second.toFixed(1)} tok/s)`
+                    : "AI Thinking..."}
+                </span>
+              </div>
+            )}
+
             {hwSpecs && (
               <button
                 className="oxide-top-pill"
@@ -1671,23 +1738,86 @@ export const App: React.FC = () => {
                       gap: "0.75rem",
                     }}
                   >
+                    {/* Live AI Thinking & Token Speed Gauge */}
+                    <div
+                      className="oxide-thinking-gauge"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.6rem",
+                        flexWrap: "wrap",
+                        padding: "0.6rem 0.85rem",
+                        background: "rgba(212, 91, 44, 0.08)",
+                        border: "1px solid rgba(212, 91, 44, 0.35)",
+                        borderRadius: "8px",
+                        fontSize: "0.78rem",
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "var(--oxide-ember)",
+                          boxShadow: "0 0 8px var(--oxide-ember)",
+                        }}
+                      />
+                      <span style={{ fontWeight: 700, color: "var(--oxide-ember)" }}>
+                        {subagents.some((s) => s.state === "running")
+                          ? "SUBAGENTS EXECUTING"
+                          : liveMetrics?.phase === "reasoning"
+                          ? "DEEP REASONING"
+                          : "LEAD ARCHITECT THINKING"}
+                      </span>
+                      <span>|</span>
+                      <span>Turn Step {liveMetrics?.step || 1}</span>
+                      <span>|</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {liveMetrics
+                          ? `${liveMetrics.tokens_generated} tokens (${liveMetrics.tokens_per_second.toFixed(1)} tok/s)`
+                          : "Computing token metrics..."}
+                      </span>
+                      {liveMetrics?.elapsed_seconds !== undefined && (
+                        <>
+                          <span>|</span>
+                          <span style={{ color: "var(--text-secondary)" }}>
+                            Elapsed: {liveMetrics.elapsed_seconds.toFixed(1)}s
+                          </span>
+                        </>
+                      )}
+                      {liveMetrics?.gpu_layers && liveMetrics.gpu_layers > 0 ? (
+                        <>
+                          <span>|</span>
+                          <span style={{ color: "#34d399", fontWeight: 600 }}>
+                            GPU: {liveMetrics.gpu_layers} layers
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+
                     <div className="ag-trace-group">
                       <button
                         className="ag-thought-toggle"
                         onClick={() => setLiveThoughtExpanded((v) => !v)}
                       >
-                        <span style={{ color: "var(--oxide-ember)" }}>
-                          Thinking... {liveThoughtExpanded ? "v" : ">"}
+                        <span style={{ color: "var(--oxide-ember)", fontWeight: 600 }}>
+                          Architect Reasoning & Plan {liveThoughtExpanded ? "v" : ">"}
                         </span>
                       </button>
+
                       {liveThoughtExpanded && (
                         <div className="ag-thought-body">
                           {liveThinking || "Reasoning workspace operations..."}
                           {planChecklist.length > 0 && (
-                            <div style={{ marginTop: "0.45rem" }}>
+                            <div style={{ marginTop: "0.6rem", borderTop: "1px solid var(--border-subtle)", paddingTop: "0.5rem" }}>
+                              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "0.35rem", textTransform: "uppercase" }}>
+                                Execution Plan Checklist:
+                              </div>
                               {planChecklist.map((item, idx) => (
-                                <div key={idx}>
-                                  {idx + 1}. {item}
+                                <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.4rem", margin: "0.2rem 0" }}>
+                                  <span style={{ color: "var(--oxide-ember)", fontSize: "0.75rem" }}>[ ]</span>
+                                  <span>{item}</span>
                                 </div>
                               ))}
                             </div>
@@ -1695,18 +1825,145 @@ export const App: React.FC = () => {
                         </div>
                       )}
 
-                      {subagents.slice(0, 3).map((sub) => (
-                        <div key={sub.id} className="ag-tool-step">
-                          <span className="ag-tool-step-icon">&gt;</span>
-                          <span className="ag-tool-step-label">
-                            [{sub.role.toUpperCase()}] {sub.title}
-                          </span>
-                          <span className="ag-tool-step-badge">
-                            {sub.model} | {sub.state}
-                          </span>
-                        </div>
-                      ))}
+                      {/* Rich Subagents Execution Deck */}
+                      {subagents.length > 0 && (
+                        <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.74rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                            <span>Parallel Subagents ({subagents.filter((s) => s.state === "completed").length}/{subagents.length} Completed)</span>
+                            <span style={{ fontSize: "0.72rem", color: "var(--oxide-ember)", fontWeight: 600 }}>
+                              {subagents.some((s) => s.state === "running") ? "Active Processing" : "All Finished"}
+                            </span>
+                          </div>
 
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.5rem" }}>
+                            {subagents.map((sub) => {
+                              const isRunningSub = sub.state === "running";
+                              const isDoneSub = sub.state === "completed";
+                              const isThrottled = sub.state === "throttled_waiting_for_hardware";
+
+                              return (
+                                <div
+                                  key={sub.id}
+                                  style={{
+                                    background: "var(--bg-elevated)",
+                                    border: `1px solid ${
+                                      isRunningSub
+                                        ? "rgba(212, 91, 44, 0.45)"
+                                        : isDoneSub
+                                        ? "rgba(34, 197, 94, 0.35)"
+                                        : isThrottled
+                                        ? "rgba(245, 158, 11, 0.35)"
+                                        : "var(--border-subtle)"
+                                    }`,
+                                    borderRadius: "8px",
+                                    padding: "0.65rem 0.85rem",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "0.35rem",
+                                  }}
+                                >
+                                  {/* Subagent Card Header */}
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                                      <span
+                                        style={{
+                                          fontSize: "0.68rem",
+                                          fontWeight: 700,
+                                          padding: "0.1rem 0.4rem",
+                                          borderRadius: "4px",
+                                          background: sub.role.includes("code")
+                                            ? "rgba(59, 130, 246, 0.15)"
+                                            : sub.role.includes("test")
+                                            ? "rgba(168, 85, 247, 0.15)"
+                                            : "rgba(16, 185, 129, 0.15)",
+                                          color: sub.role.includes("code")
+                                            ? "#60a5fa"
+                                            : sub.role.includes("test")
+                                            ? "#c084fc"
+                                            : "#34d399",
+                                          border: "1px solid currentColor",
+                                        }}
+                                      >
+                                        {sub.role.toUpperCase()}
+                                      </span>
+                                      <strong style={{ fontSize: "0.82rem", color: "var(--text-primary)" }}>{sub.title}</strong>
+                                      <code style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>({sub.model})</code>
+                                    </div>
+
+                                    <span
+                                      style={{
+                                        fontSize: "0.68rem",
+                                        fontWeight: 600,
+                                        padding: "0.15rem 0.5rem",
+                                        borderRadius: "4px",
+                                        background: isRunningSub
+                                          ? "rgba(212, 91, 44, 0.15)"
+                                          : isDoneSub
+                                          ? "rgba(34, 197, 94, 0.15)"
+                                          : isThrottled
+                                          ? "rgba(245, 158, 11, 0.15)"
+                                          : "rgba(148, 163, 184, 0.15)",
+                                        color: isRunningSub
+                                          ? "var(--oxide-ember)"
+                                          : isDoneSub
+                                          ? "#22c55e"
+                                          : isThrottled
+                                          ? "#f59e0b"
+                                          : "var(--text-secondary)",
+                                        border: "1px solid currentColor",
+                                      }}
+                                    >
+                                      {isRunningSub ? "Running..." : isDoneSub ? "Completed" : isThrottled ? "Hardware Throttled" : "Queued"}
+                                    </span>
+                                  </div>
+
+                                  {/* Subagent Live Thought */}
+                                  {sub.thought && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.75rem",
+                                        color: "var(--text-secondary)",
+                                        lineHeight: 1.4,
+                                        fontStyle: "italic",
+                                        background: "rgba(0,0,0,0.15)",
+                                        padding: "0.35rem 0.55rem",
+                                        borderRadius: "4px",
+                                      }}
+                                    >
+                                      <span style={{ fontWeight: 600, color: "var(--text-primary)", fontStyle: "normal" }}>
+                                        Thinking:{" "}
+                                      </span>
+                                      {sub.thought}
+                                    </div>
+                                  )}
+
+                                  {/* Subagent Output Preview */}
+                                  {sub.output_preview && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        fontFamily: "var(--font-mono, monospace)",
+                                        color: "var(--text-secondary)",
+                                        background: "var(--bg-secondary)",
+                                        border: "1px solid var(--border-color)",
+                                        padding: "0.4rem 0.6rem",
+                                        borderRadius: "4px",
+                                        maxHeight: "120px",
+                                        overflowY: "auto",
+                                        whiteSpace: "pre-wrap",
+                                      }}
+                                    >
+                                      {sub.output_preview}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tool Steps */}
                       {liveSteps.map((s) => (
                         <div key={s.id} className="ag-tool-step">
                           <span className="ag-tool-step-icon">{getStepIcon(s.title)}</span>

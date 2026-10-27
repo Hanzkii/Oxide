@@ -1117,34 +1117,64 @@ export const oxideBridge = {
         for (let i = 0; i < subtasks.length; i += limit) {
           const chunk = subtasks.slice(i, i + limit);
           const chunkPromises = chunk.map(async (sp: any) => {
-            const role: AgentRoleKind = sp.role || "research_subagent";
+            let role: AgentRoleKind = "research_subagent";
+            const rLower = (sp.role || "").toLowerCase();
+            if (
+              rLower.includes("code") ||
+              rLower.includes("write") ||
+              rLower.includes("edit") ||
+              rLower.includes("impl") ||
+              rLower.includes("build")
+            ) {
+              role = "coder_subagent";
+            } else if (
+              rLower.includes("test") ||
+              rLower.includes("eval") ||
+              rLower.includes("check")
+            ) {
+              role = "tester_subagent";
+            } else if (rLower.includes("arch") || rLower.includes("lead")) {
+              role = "architect";
+            }
+
+            const targetPath =
+              sp.target_path || sp.path || sp.target || sp.file || "";
+            const subInstructions =
+              sp.instructions ||
+              sp.task ||
+              sp.prompt ||
+              sp.description ||
+              sp.instruction ||
+              "";
+            const subTitle = sp.title || `Subtask: ${subInstructions.slice(0, 40)}`;
             const subModel = getModelForRole(health.config, role);
-            const subId = sp.id || `sub-${i}`;
+            const subId = sp.id || `sub-${Math.random().toString(36).slice(2, 8)}`;
 
             emitLocalEvent({
               type: "subagent_status",
               id: subId,
               role,
               model: subModel,
-              title: sp.title || "Subtask",
+              title: subTitle,
               state: "running",
-              thought: `Executing instructions: ${sp.instructions}`,
+              thought: `Executing instructions: ${subInstructions}`,
               output_preview: "",
               active_workers: chunk.length,
               max_allowed_workers: limit,
             });
 
             let fileCtx = "";
-            if (sp.target_path) {
+            if (targetPath) {
               try {
-                const raw = await this.readWorkspaceFile(sp.target_path);
-                fileCtx = `\nTarget File (${sp.target_path}):\n${raw.slice(
+                const raw = await this.readWorkspaceFile(targetPath);
+                fileCtx = `\nTarget File (${targetPath}):\n${raw.slice(
                   0,
                   6000
                 )}`;
               } catch {}
             }
 
+            let subAccum = "";
             try {
               const subResult = await streamChatFromProvider(
                 health,
@@ -1157,10 +1187,40 @@ export const oxideBridge = {
                   },
                   {
                     role: "user",
-                    content: `Role: ${role}\nTitle: ${sp.title}\nInstructions: ${sp.instructions}${fileCtx}`,
+                    content: `Role: ${role}\nTitle: ${subTitle}\nInstructions: ${subInstructions}${fileCtx}`,
                   },
                 ],
-                () => {}
+                (tok) => {
+                  subAccum += tok;
+                  const tStart = subAccum.indexOf("<think>");
+                  const tEnd = subAccum.indexOf("</think>");
+                  let curThought = "";
+                  if (tStart !== -1) {
+                    const after = subAccum.slice(tStart + 7);
+                    const endIdx = after.indexOf("</think>");
+                    curThought = endIdx !== -1 ? after.slice(0, endIdx) : after;
+                  } else if (tEnd !== -1) {
+                    curThought = subAccum.slice(0, tEnd);
+                  }
+                  const preview = subAccum
+                    .replace(/<think>[\s\S]*?<\/think>/g, "")
+                    .trim()
+                    .slice(-280);
+                  emitLocalEvent({
+                    type: "subagent_status",
+                    id: subId,
+                    role,
+                    model: subModel,
+                    title: subTitle,
+                    state: "running",
+                    thought:
+                      curThought.trim() ||
+                      `Executing instructions: ${subInstructions}`,
+                    output_preview: preview,
+                    active_workers: chunk.length,
+                    max_allowed_workers: limit,
+                  });
+                }
               );
               const outText: string = subResult.text || "Subtask completed.";
               const thinkStart = outText.indexOf("<think>");

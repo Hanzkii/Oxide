@@ -201,11 +201,24 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubagentTaskSpec {
+    #[serde(default = "default_subtask_id")]
     pub id: String,
+    #[serde(default)]
     pub role: AgentRoleKind,
+    #[serde(default = "default_subtask_title")]
     pub title: String,
+    #[serde(alias = "task", alias = "prompt", alias = "instruction", alias = "description", default)]
     pub instructions: String,
+    #[serde(alias = "path", alias = "target", alias = "file", default)]
     pub target_path: Option<String>,
+}
+
+fn default_subtask_id() -> String {
+    format!("sub-{}", &uuid::Uuid::new_v4().to_string()[..8])
+}
+
+fn default_subtask_title() -> String {
+    "Subagent Task".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1456,9 +1469,51 @@ impl AgentOrchestrator {
                     )),
                 ];
 
-                let noop_cb = Arc::new(|_t: &str| {});
+                let app_sub_stream = app_clone.clone();
+                let sub_stream_id = spec.id.clone();
+                let sub_stream_role = spec.role;
+                let sub_stream_model = model_name.clone();
+                let sub_stream_title = spec.title.clone();
+                let sub_stream_instructions = spec.instructions.clone();
+                let sub_acc = Arc::new(std::sync::Mutex::new(String::new()));
+                let sub_acc_clone = sub_acc.clone();
+
+                let sub_token_cb = Arc::new(move |t: &str| {
+                    let text = if let Ok(mut guard) = sub_acc_clone.lock() {
+                        guard.push_str(t);
+                        guard.clone()
+                    } else {
+                        String::new()
+                    };
+
+                    let thought = Self::extract_think_tag(&text)
+                        .unwrap_or_else(|| format!("Executing: {}", sub_stream_instructions));
+                    let preview: String = text
+                        .replace("<think>", "")
+                        .replace("</think>", "")
+                        .trim()
+                        .chars()
+                        .take(280)
+                        .collect();
+
+                    let _ = app_sub_stream.emit(
+                        "oxide://agent-event",
+                        AgentStreamEvent::SubagentStatus {
+                            id: sub_stream_id.clone(),
+                            role: sub_stream_role,
+                            model: sub_stream_model.clone(),
+                            title: sub_stream_title.clone(),
+                            state: SubagentRunState::Running,
+                            thought,
+                            output_preview: preview,
+                            active_workers: active_now,
+                            max_allowed_workers: max_allowed,
+                        },
+                    );
+                });
+
                 match router_clone
-                    .stream_for_role(spec.role, &sub_messages, noop_cb)
+                    .stream_for_role(spec.role, &sub_messages, sub_token_cb)
                     .await
                 {
                     Ok((_prov, output)) => {
@@ -1565,15 +1620,20 @@ impl AgentOrchestrator {
     }
 
     fn extract_think_tag(text: &str) -> Option<String> {
-        let start = text.find("<think>")?;
-        let after = &text[start + 7..];
-        let end = after.find("</think>").unwrap_or(after.len());
-        let cleaned = after[..end].trim().to_string();
-        if cleaned.is_empty() {
-            None
-        } else {
-            Some(cleaned)
+        if let Some(start) = text.find("<think>") {
+            let after = &text[start + 7..];
+            let end = after.find("</think>").unwrap_or(after.len());
+            let cleaned = after[..end].trim().to_string();
+            if !cleaned.is_empty() {
+                return Some(cleaned);
+            }
+        } else if let Some(end) = text.find("</think>") {
+            let before = text[..end].trim().to_string();
+            if !before.is_empty() {
+                return Some(before);
+            }
         }
+        None
     }
 
     fn normalize_action_json(val: &serde_json::Value) -> Option<AgentToolAction> {
@@ -1654,7 +1714,12 @@ impl AgentOrchestrator {
         actions_taken: &[String],
         raw_summary: &str,
     ) -> String {
-        let clean_summary = raw_summary.trim();
+        let mut clean = raw_summary.to_string();
+        if let Some(think_end) = clean.find("</think>") {
+            clean = clean[think_end + 8..].to_string();
+        }
+        clean = clean.replace("<think>", "").replace("</think>", "");
+        let clean_summary = clean.trim();
         if clean_summary.starts_with('#') || clean_summary.contains("Execution Report") {
             return clean_summary.to_string();
         }

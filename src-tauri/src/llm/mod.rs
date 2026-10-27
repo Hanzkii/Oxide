@@ -76,13 +76,51 @@ impl Default for GpuOffloadPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRoleKind {
     Architect,
     CoderSubagent,
     ResearchSubagent,
     TesterSubagent,
+}
+
+impl Default for AgentRoleKind {
+    fn default() -> Self {
+        AgentRoleKind::ResearchSubagent
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentRoleKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let lower = s.to_lowercase();
+        if lower.contains("code")
+            || lower.contains("write")
+            || lower.contains("edit")
+            || lower.contains("impl")
+            || lower.contains("build")
+        {
+            Ok(AgentRoleKind::CoderSubagent)
+        } else if lower.contains("test")
+            || lower.contains("eval")
+            || lower.contains("assert")
+            || lower.contains("check")
+        {
+            Ok(AgentRoleKind::TesterSubagent)
+        } else if lower.contains("arch")
+            || lower.contains("lead")
+            || lower.contains("plan")
+        {
+            Ok(AgentRoleKind::Architect)
+        } else {
+            // "research", "list_dir", "search", "read", "inspect", "explore", or anything else
+            Ok(AgentRoleKind::ResearchSubagent)
+        }
+    }
 }
 
 /// Task-specific AI model routing matrix: allows choosing which AI model handles
