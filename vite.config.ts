@@ -82,6 +82,14 @@ function createLocalSystemBridgePlugin(): Plugin {
 
   ensureOxideDirectories();
 
+  let savedConfig: any = null;
+  try {
+    const cfgFile = path.join(oxideInstallDir, "config.json");
+    if (fs.existsSync(cfgFile)) {
+      savedConfig = JSON.parse(fs.readFileSync(cfgFile, "utf-8"));
+    }
+  } catch {}
+
   const state: LocalBridgeState = {
     workspaceRoot: process.cwd(),
     providerConfig: {
@@ -97,6 +105,11 @@ function createLocalSystemBridgePlugin(): Plugin {
       openai_model: "gpt-4o",
       enable_cloud_fallback: false,
       temperature: 0.1,
+      enable_subagents: true,
+      max_concurrent_subagents: 2,
+      auto_throttle_on_high_load: true,
+      enforce_workspace_sandbox: true,
+      ...(savedConfig || {}),
       task_routing: {
         architect_model:
           "hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF:latest",
@@ -106,11 +119,8 @@ function createLocalSystemBridgePlugin(): Plugin {
           "hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:latest",
         tester_subagent_model:
           "hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:latest",
+        ...(savedConfig?.task_routing || {}),
       },
-      enable_subagents: true,
-      max_concurrent_subagents: 2,
-      auto_throttle_on_high_load: true,
-      enforce_workspace_sandbox: true,
       permitted_terminal_binaries: [
         "cargo",
         "rustc",
@@ -1166,6 +1176,14 @@ function createLocalSystemBridgePlugin(): Plugin {
               )
             );
             state.providerConfig = merged;
+            try {
+              ensureOxideDirectories();
+              fs.writeFileSync(
+                path.join(oxideInstallDir, "config.json"),
+                JSON.stringify(merged, null, 2),
+                "utf-8"
+              );
+            } catch {}
             res.end(JSON.stringify(state.providerConfig));
             return;
           }

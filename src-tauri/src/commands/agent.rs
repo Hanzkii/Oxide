@@ -142,6 +142,28 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
     })
 }
 
+pub fn load_provider_config() -> ProviderConfig {
+    let cfg_path = crate::commands::workspace::oxide_install_dir().join("config.json");
+    if cfg_path.exists() {
+        if let Ok(content) = fs::read_to_string(&cfg_path) {
+            if let Ok(cfg) = serde_json::from_str::<ProviderConfig>(&content) {
+                return cfg;
+            }
+        }
+    }
+    ProviderConfig::default()
+}
+
+pub fn save_provider_config(config: &ProviderConfig) -> OxideResult<()> {
+    let dir = crate::commands::workspace::oxide_install_dir();
+    let _ = fs::create_dir_all(&dir);
+    let cfg_path = dir.join("config.json");
+    let content = serde_json::to_string_pretty(config)
+        .map_err(|e| OxideError::ExecutionError(e.to_string()))?;
+    fs::write(&cfg_path, content)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn update_provider_config(
     config: ProviderConfig,
@@ -149,6 +171,8 @@ pub async fn update_provider_config(
 ) -> OxideResult<ProviderConfig> {
     let mut sanitized = config;
     sanitized.max_concurrent_subagents = sanitized.max_concurrent_subagents.clamp(1, 32);
+
+    let _ = save_provider_config(&sanitized);
 
     let mut guard = state.provider_config.write().await;
     *guard = sanitized.clone();

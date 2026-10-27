@@ -30,7 +30,7 @@ impl Default for AppState {
 
         Self {
             sandbox: RwLock::new(initial_sandbox),
-            provider_config: RwLock::new(ProviderConfig::default()),
+            provider_config: RwLock::new(commands::agent::load_provider_config()),
             mcp_registry: Arc::new(RwLock::new(McpRegistry::default())),
         }
     }

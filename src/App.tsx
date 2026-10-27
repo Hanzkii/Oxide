@@ -224,24 +224,46 @@ export const App: React.FC = () => {
   const [gitStatus, setGitStatus] = useState<GitStatusSummary | null>(null);
   const [hwSpecs, setHwSpecs] = useState<HardwareSpecs | null>(null);
 
-  const [providerConfig, setProviderConfig] = useState<ProviderConfig>({
-    active_provider: "ollama",
-    ollama_base_url: "http://localhost:11434",
-    ollama_model: "",
-    anthropic_model: "claude-3-5-sonnet-latest",
-    openai_model: "gpt-4o",
-    enable_cloud_fallback: false,
-    temperature: 0.1,
-    task_routing: {
-      architect_model: "",
-      coder_subagent_model: "",
-      research_subagent_model: "",
-      tester_subagent_model: "",
-    },
-    enable_subagents: true,
-    max_concurrent_subagents: 2,
-    auto_throttle_on_high_load: true,
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig>(() => {
+    try {
+      const raw = localStorage.getItem("oxide_provider_config");
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch {}
+    return {
+      active_provider: "oxide_native",
+      ollama_base_url: "http://localhost:11434",
+      ollama_model: "",
+      anthropic_model: "claude-3-5-sonnet-latest",
+      openai_model: "gpt-4o",
+      enable_cloud_fallback: false,
+      temperature: 0.1,
+      task_routing: {
+        architect_model: "",
+        coder_subagent_model: "",
+        research_subagent_model: "",
+        tester_subagent_model: "",
+      },
+      enable_subagents: true,
+      max_concurrent_subagents: 2,
+      auto_throttle_on_high_load: true,
+      gpu_offload_policy: "hybrid_split",
+      hardware_acceleration: "auto",
+    };
   });
+
+  const handlePersistProviderConfig = async (cfg: ProviderConfig): Promise<ProviderConfig> => {
+    try {
+      localStorage.setItem("oxide_provider_config", JSON.stringify(cfg));
+      const saved = await oxideBridge.updateProviderConfig(cfg);
+      setProviderConfig(saved);
+      return saved;
+    } catch (e: any) {
+      console.error("Failed to persist provider config:", e);
+      return cfg;
+    }
+  };
 
   // Real installed Ollama models only (starts empty until verified from Ollama)
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -415,14 +437,15 @@ export const App: React.FC = () => {
         const merged = {
           ...prev,
           ...health.config,
+          active_provider: prev.active_provider || health.config.active_provider || "oxide_native",
           task_routing: {
             ...prev.task_routing,
             ...(health.config.task_routing || {}),
           },
         };
-        // Auto-heal local models if using local engine
+        // Auto-heal local models if routing is completely unset
         if (allInstalledLocal.length > 0) {
-          if (!merged.ollama_model || !allInstalledLocal.includes(merged.ollama_model)) {
+          if (!merged.ollama_model) {
             merged.ollama_model = allInstalledLocal[0];
           }
           if (!merged.task_routing.architect_model) {
@@ -1488,7 +1511,7 @@ export const App: React.FC = () => {
                   setSettingsTab("hardware");
                   setShowSettingsModal(true);
                 }}
-                title={`PC Hardware Specs:\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nCPU: ${hwSpecs.cpu_brand} (${hwSpecs.cpu_cores} Cores)\nRAM: ${hwSpecs.available_ram_gb} GB Free / ${hwSpecs.total_ram_gb} GB Total\nGovernor Tier: ${hwSpecs.governor_tier}\nClick to configure hardware acceleration & layer offloading.`}
+                title={`PC Hardware Specs:\nGPU: ${hwSpecs.gpu_name} (${hwSpecs.gpu_vram_gb} GB VRAM)\nSystem RAM: ${hwSpecs.available_ram_gb} GB Free / ${hwSpecs.total_ram_gb} GB Total\nCombined Hybrid Memory: ${(hwSpecs.gpu_vram_gb + hwSpecs.total_ram_gb).toFixed(1)} GB (VRAM + RAM for multi-agent layer offloading)\nGovernor Tier: ${hwSpecs.governor_tier}\nClick to configure hardware acceleration & layer offloading.`}
               >
                 <span className="hw-pill-gpu">
                   {hwSpecs.gpu_name} {hwSpecs.gpu_vram_gb > 0 ? `(${hwSpecs.gpu_vram_gb}GB)` : ""}
@@ -1497,6 +1520,14 @@ export const App: React.FC = () => {
                 <span className="hw-pill-ram">
                   RAM: {hwSpecs.available_ram_gb}/{hwSpecs.total_ram_gb}GB
                 </span>
+                {hwSpecs.gpu_vram_gb > 0 && (
+                  <>
+                    <span className="hw-pill-sep">|</span>
+                    <span style={{ color: "#34d399", fontWeight: 600 }}>
+                      Hybrid Pool: {(hwSpecs.gpu_vram_gb + hwSpecs.total_ram_gb).toFixed(1)}GB
+                    </span>
+                  </>
+                )}
               </button>
             )}
 
@@ -3404,7 +3435,10 @@ export const App: React.FC = () => {
       {showSettingsModal && (
         <div
           className="modal-backdrop"
-          onClick={() => setShowSettingsModal(false)}
+          onClick={async () => {
+            await handlePersistProviderConfig(providerConfig);
+            setShowSettingsModal(false);
+          }}
         >
           <div
             className="model-hub-card"
@@ -3420,10 +3454,14 @@ export const App: React.FC = () => {
             >
               <h3 style={{ margin: 0 }}>Oxide Studio Settings</h3>
               <button
-                className="btn"
-                onClick={() => setShowSettingsModal(false)}
+                className="btn btn-primary"
+                onClick={async () => {
+                  await handlePersistProviderConfig(providerConfig);
+                  setStatusBanner("Settings saved to disk successfully.");
+                  setShowSettingsModal(false);
+                }}
               >
-                Close
+                Save & Close
               </button>
             </div>
 
@@ -3452,7 +3490,10 @@ export const App: React.FC = () => {
                   className={`model-filter-pill ${
                     settingsTab === tabKey ? "active" : ""
                   }`}
-                  onClick={() => setSettingsTab(tabKey)}
+                  onClick={async () => {
+                    await handlePersistProviderConfig(providerConfig);
+                    setSettingsTab(tabKey);
+                  }}
                 >
                   {tabLabel}
                 </button>
@@ -3606,6 +3647,62 @@ export const App: React.FC = () => {
                   </div>
                 )}
 
+                {hwSpecs && (
+                  <div
+                    className="hw-spec-box"
+                    style={{
+                      background: "rgba(52, 211, 153, 0.06)",
+                      borderColor: "rgba(52, 211, 153, 0.35)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: "#34d399", fontSize: "0.85rem" }}>
+                          Combined Hybrid Memory Capacity
+                        </strong>
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-secondary)",
+                            marginTop: "0.15rem",
+                          }}
+                        >
+                          GPU VRAM ({hwSpecs.gpu_vram_gb} GB) + System RAM ({hwSpecs.total_ram_gb} GB)
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "0.95rem",
+                          fontWeight: 700,
+                          color: "#34d399",
+                          padding: "0.2rem 0.6rem",
+                          background: "rgba(52, 211, 153, 0.15)",
+                          borderRadius: "6px",
+                        }}
+                      >
+                        {(hwSpecs.gpu_vram_gb + hwSpecs.total_ram_gb).toFixed(1)} GB Hybrid Pool
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.74rem",
+                        color: "var(--text-secondary)",
+                        marginTop: "0.45rem",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      When using Hybrid Split Inference, Oxide pools both GPU VRAM and System RAM into a unified{" "}
+                      <strong>{(hwSpecs.gpu_vram_gb + hwSpecs.total_ram_gb).toFixed(1)} GB</strong> address space. Attention layers run at lightning speed in GPU VRAM, while model weights seamlessly overflow into System RAM to support large models and parallel subagents without crashing.
+                    </div>
+                  </div>
+                )}
+
                 <div className="routing-grid">
                   <div className="form-group">
                     <label>Hardware Acceleration Backend</label>
@@ -3713,9 +3810,8 @@ export const App: React.FC = () => {
                   <button
                     className="btn btn-primary"
                     onClick={async () => {
-                      const saved = await oxideBridge.updateProviderConfig(providerConfig);
-                      setProviderConfig(saved);
-                      setStatusBanner("Saved Hardware Acceleration settings.");
+                      await handlePersistProviderConfig(providerConfig);
+                      setStatusBanner("Saved Hardware Acceleration settings to disk.");
                     }}
                   >
                     Save Hardware Settings
@@ -3902,9 +3998,8 @@ export const App: React.FC = () => {
                   <button
                     className="btn btn-primary"
                     onClick={async () => {
-                      const saved = await oxideBridge.updateProviderConfig(providerConfig);
-                      setProviderConfig(saved);
-                      setStatusBanner("Saved Security & Sandbox settings.");
+                      await handlePersistProviderConfig(providerConfig);
+                      setStatusBanner("Saved Security & Sandbox settings to disk.");
                     }}
                   >
                     Save Security Settings
@@ -3977,7 +4072,7 @@ export const App: React.FC = () => {
                       }
                     >
                       <option value="oxide_native">
-                        Oxide Native Engine (Local GGUF - Direct AMD Radeon &amp; CPU)
+                        Oxide Native Engine (Local GGUF - NVIDIA CUDA, AMD Radeon, Intel Arc &amp; CPU)
                       </option>
                       <option value="anthropic">Anthropic Claude (Cloud API - Sonnet 3.5, 3.7, Opus)</option>
                       <option value="openai">OpenAI GPT (Cloud API - GPT-4o, o1, o3-mini)</option>
@@ -4389,7 +4484,7 @@ export const App: React.FC = () => {
                               marginTop: "0.2rem",
                             }}
                           >
-                            Zero external dependencies. Runs direct .gguf models with AMD Radeon (Vulkan) &amp; CPU acceleration.
+                            Zero external dependencies. Runs direct .gguf models with NVIDIA CUDA, AMD Radeon (ROCm/Vulkan), Intel Arc/Iris (DirectML/Vulkan) &amp; CPU acceleration.
                           </div>
                         </div>
                         <span
@@ -4404,30 +4499,56 @@ export const App: React.FC = () => {
                       </div>
 
                       <div className="form-group">
-                        <label>Active Native GGUF Model</label>
-                        <select
-                          className="select-control"
-                          value={
-                            providerConfig.oxide_native_model ||
-                            nativeModels[0] ||
-                            ""
-                          }
-                          onChange={(e) =>
-                            setProviderConfig({
-                              ...providerConfig,
-                              oxide_native_model: e.target.value,
-                            })
-                          }
+                        <label>
+                          Installed Native GGUF Models ({nativeModels.length} Models Available for Multi-Agent Tasks)
+                        </label>
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-secondary)",
+                            marginBottom: "0.45rem",
+                            lineHeight: 1.4,
+                          }}
                         >
-                          {nativeModels.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                          {nativeModels.length === 0 && (
-                            <option value="">(No .gguf models found in models folder - click Models to install)</option>
-                          )}
-                        </select>
+                          Multi-Agent dynamic execution: The Native Engine serves whichever models are assigned in the <strong>Agent Routing</strong> tab (Lead Architect, Coder, Researcher, Tester). Start the engine once, and all subagents query their respective models on demand.
+                        </div>
+
+                        {nativeModels.length > 0 ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                            {nativeModels.map((m) => (
+                              <span
+                                key={m}
+                                style={{
+                                  fontSize: "0.74rem",
+                                  padding: "0.25rem 0.6rem",
+                                  background: "var(--bg-elevated)",
+                                  border: "1px solid var(--border-color)",
+                                  borderRadius: "6px",
+                                  fontFamily: "var(--font-mono, monospace)",
+                                  color: "var(--text-primary)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "0.4rem",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: "50%",
+                                    background: "#22c55e",
+                                    display: "inline-block",
+                                  }}
+                                />
+                                {m}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                            No .gguf models found in models folder. Click "Open AI Model Hub" to install models.
+                          </div>
+                        )}
                       </div>
 
                       <div
@@ -4445,14 +4566,15 @@ export const App: React.FC = () => {
                             setIsStartingNative(true);
                             try {
                               const chosen =
-                                providerConfig.oxide_native_model ||
-                                nativeModels[0];
+                                providerConfig.task_routing?.architect_model ||
+                                nativeModels[0] ||
+                                "";
                               await oxideBridge.startNativeEngine(
                                 chosen,
                                 providerConfig.gpu_offload_layers ?? 99
                               );
                               setStatusBanner(
-                                `Started Native Engine with ${chosen} on port 11435!`
+                                "Started Native Engine on port 11435! Ready to serve multi-agent models."
                               );
                               await refreshWorkspaceState();
                             } catch (e: any) {
@@ -4463,10 +4585,10 @@ export const App: React.FC = () => {
                           }}
                         >
                           {isStartingNative
-                            ? "Starting..."
+                            ? "Starting Native Engine..."
                             : nativeOnline
-                            ? "Restart Engine"
-                            : "Start Native Engine"}
+                            ? "Restart Native Engine"
+                            : "Start Native Engine (Auto-Serve Models)"}
                         </button>
 
                         {nativeOnline && (
@@ -4622,11 +4744,8 @@ export const App: React.FC = () => {
                   <button
                     className="btn btn-primary"
                     onClick={async () => {
-                      const saved = await oxideBridge.updateProviderConfig(
-                        providerConfig
-                      );
-                      setProviderConfig(saved);
-                      setStatusBanner("Saved Provider settings.");
+                      await handlePersistProviderConfig(providerConfig);
+                      setStatusBanner("Saved Provider settings to disk.");
                     }}
                   >
                     Save Provider Settings
@@ -4656,7 +4775,8 @@ export const App: React.FC = () => {
                       <div>
                         <strong>
                           [GPU] {hwSpecs.governor_tier} ({hwSpecs.available_ram_gb}{" "}
-                          GB Free / {hwSpecs.total_ram_gb} GB RAM |{" "}
+                          GB Free / {hwSpecs.total_ram_gb} GB RAM | Hybrid Pool:{" "}
+                          {(hwSpecs.gpu_vram_gb + hwSpecs.total_ram_gb).toFixed(1)} GB |{" "}
                           {hwSpecs.cpu_cores} Cores)
                         </strong>
                         <div
@@ -4813,11 +4933,8 @@ export const App: React.FC = () => {
                   <button
                     className="btn btn-primary"
                     onClick={async () => {
-                      const saved = await oxideBridge.updateProviderConfig(
-                        providerConfig
-                      );
-                      setProviderConfig(saved);
-                      setStatusBanner("Saved Agent & Subagent routing.");
+                      await handlePersistProviderConfig(providerConfig);
+                      setStatusBanner("Saved Agent & Subagent routing to disk.");
                     }}
                   >
                     Save Agent Settings
