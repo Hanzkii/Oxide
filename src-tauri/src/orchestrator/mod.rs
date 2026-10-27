@@ -478,6 +478,7 @@ impl AgentOrchestrator {
         &self,
         app: AppHandle,
         user_prompt: String,
+        cancel_flag: Arc<std::sync::atomic::AtomicBool>,
     ) -> OxideResult<String> {
         let router = Arc::new(HybridProviderRouter::new(self.provider_config.clone()));
         let executor = BoundedTerminalExecutor::new(self.sandbox.clone());
@@ -522,6 +523,16 @@ impl AgentOrchestrator {
         let mut executed_actions: Vec<String> = Vec::new();
 
         for step in 1..=DEFAULT_MAX_AGENT_STEPS {
+            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.emit_event(
+                    &app,
+                    AgentStreamEvent::TaskError {
+                        message: "Prompt execution was cancelled by user.".to_string(),
+                    },
+                );
+                return Ok("Prompt execution cancelled by user.".to_string());
+            }
+
             self.emit_event(
                 &app,
                 AgentStreamEvent::ThinkingUpdate {
@@ -544,8 +555,12 @@ impl AgentOrchestrator {
             let start_instant = std::time::Instant::now();
             let token_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let counter_clone = token_counter.clone();
+            let cancel_flag_stream = cancel_flag.clone();
 
             let token_cb = Arc::new(move |token: &str| {
+                if cancel_flag_stream.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
                 let count = counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 let mut buf = buffer_clone.lock().unwrap();
                 buf.push_str(token);
@@ -587,6 +602,16 @@ impl AgentOrchestrator {
             let (_used_provider, assistant_reply) = router
                 .stream_for_role(AgentRoleKind::Architect, &conversation, token_cb)
                 .await?;
+
+            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.emit_event(
+                    &app,
+                    AgentStreamEvent::TaskError {
+                        message: "Prompt execution was cancelled by user.".to_string(),
+                    },
+                );
+                return Ok("Prompt execution cancelled by user.".to_string());
+            }
 
             let final_toks = token_counter.load(std::sync::atomic::Ordering::Relaxed);
             let final_elapsed = start_instant.elapsed().as_secs_f32().max(0.01);
@@ -665,8 +690,17 @@ impl AgentOrchestrator {
                 AgentToolAction::DelegateSubagents { subtasks, .. } => {
                     executed_actions.push(format!("[Subagents] Delegated {} parallel subagent task(s)", subtasks.len()));
                     let results = self
-                        .execute_subagent_batch(&app, step, &router, subtasks)
+                        .execute_subagent_batch(&app, step, &router, subtasks, cancel_flag.clone())
                         .await;
+                    if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        self.emit_event(
+                            &app,
+                            AgentStreamEvent::TaskError {
+                                message: "Prompt execution was cancelled by user.".to_string(),
+                            },
+                        );
+                        return Ok("Prompt execution cancelled by user.".to_string());
+                    }
                     conversation.push(ChatMessage::tool(format!(
                         "[SUBAGENT_BATCH_RESULTS]\n{}\n[/SUBAGENT_BATCH_RESULTS]",
                         results.join("\n\n")
@@ -1357,6 +1391,7 @@ impl AgentOrchestrator {
         step: usize,
         router: &Arc<HybridProviderRouter>,
         subtasks: Vec<SubagentTaskSpec>,
+        cancel_flag: Arc<std::sync::atomic::AtomicBool>,
     ) -> Vec<String> {
         let hw = HardwareSpecs::inspect().await;
         let max_allowed = if self.provider_config.auto_throttle_on_high_load && hw.throttled_by_load
@@ -1415,10 +1450,25 @@ impl AgentOrchestrator {
             let router_clone = router.clone();
             let app_clone = app.clone();
             let sandbox_clone = self.sandbox.clone();
+            let cancel_sub = cancel_flag.clone();
             let model_name = self.provider_config.model_for_role(spec.role).to_string();
 
             let handle = tokio::spawn(async move {
+                if cancel_sub.load(std::sync::atomic::Ordering::Relaxed) {
+                    return format!(
+                        "[SUBAGENT id=\"{}\" status=\"CANCELLED\"] Subtask cancelled by user.",
+                        spec.id
+                    );
+                }
+
                 let _permit = sem_clone.acquire().await.unwrap();
+                if cancel_sub.load(std::sync::atomic::Ordering::Relaxed) {
+                    return format!(
+                        "[SUBAGENT id=\"{}\" status=\"CANCELLED\"] Subtask cancelled by user.",
+                        spec.id
+                    );
+                }
+
                 let active_now = max_allowed.saturating_sub(sem_clone.available_permits());
 
                 let _ = app_clone.emit(
@@ -1477,8 +1527,13 @@ impl AgentOrchestrator {
                 let sub_stream_instructions = spec.instructions.clone();
                 let sub_acc = Arc::new(std::sync::Mutex::new(String::new()));
                 let sub_acc_clone = sub_acc.clone();
+                let cancel_sub_stream = cancel_sub.clone();
 
                 let sub_token_cb = Arc::new(move |t: &str| {
+                    if cancel_sub_stream.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
+                    }
+
                     let text = if let Ok(mut guard) = sub_acc_clone.lock() {
                         guard.push_str(t);
                         guard.clone()
@@ -1512,11 +1567,25 @@ impl AgentOrchestrator {
                     );
                 });
 
+                if cancel_sub.load(std::sync::atomic::Ordering::Relaxed) {
+                    return format!(
+                        "[SUBAGENT id=\"{}\" status=\"CANCELLED\"] Subtask cancelled by user.",
+                        spec.id
+                    );
+                }
+
                 match router_clone
                     .stream_for_role(spec.role, &sub_messages, sub_token_cb)
                     .await
                 {
                     Ok((_prov, output)) => {
+                        if cancel_sub.load(std::sync::atomic::Ordering::Relaxed) {
+                            return format!(
+                                "[SUBAGENT id=\"{}\" status=\"CANCELLED\"] Subtask cancelled by user.",
+                                spec.id
+                            );
+                        }
+
                         let thought = Self::extract_think_tag(&output)
                             .unwrap_or_else(|| "Completed subtask analysis.".to_string());
                         let preview: String = output.chars().take(280).collect();

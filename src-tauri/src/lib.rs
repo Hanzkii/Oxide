@@ -18,6 +18,7 @@ pub struct AppState {
     pub sandbox: RwLock<Option<WorkspaceSandbox>>,
     pub provider_config: RwLock<ProviderConfig>,
     pub mcp_registry: Arc<RwLock<McpRegistry>>,
+    pub cancel_flag: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for AppState {
@@ -32,14 +33,20 @@ impl Default for AppState {
             sandbox: RwLock::new(initial_sandbox),
             provider_config: RwLock::new(commands::agent::load_provider_config()),
             mcp_registry: Arc::new(RwLock::new(McpRegistry::default())),
+            cancel_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(AppState::default())
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event {
+                commands::agent::stop_native_engine_sync();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::workspace::set_workspace,
             commands::workspace::pick_folder_dialog,
@@ -60,6 +67,7 @@ pub fn run() {
             commands::agent::discover_mcp_tools,
             commands::agent::call_mcp_tool,
             commands::agent::run_agent_task,
+            commands::agent::cancel_agent_task,
             commands::agent::execute_bounded_command,
             commands::agent::get_git_status,
             commands::agent::trigger_git_milestone,
@@ -76,6 +84,12 @@ pub fn run() {
             commands::agent::stop_native_engine,
             commands::agent::test_provider_connection,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Oxide Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building Oxide Tauri application");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+            commands::agent::stop_native_engine_sync();
+        }
+    });
 }

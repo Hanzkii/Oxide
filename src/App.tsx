@@ -647,7 +647,13 @@ export const App: React.FC = () => {
       setUpdateDownloadProgress(prog);
     });
 
+    const handleBeforeUnload = () => {
+      oxideBridge.stopNativeEngine().catch(() => {});
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       clearInterval(hwTimer);
       unlistenPromise.then((unlisten) => unlisten());
       modelProgPromise.then((unlisten) => unlisten());
@@ -922,6 +928,16 @@ export const App: React.FC = () => {
         );
       },
     });
+  };
+
+  const handleCancelTask = async () => {
+    try {
+      setStatusBanner("Cancelling active task...");
+      await oxideBridge.cancelAgentTask();
+      setLiveThinking("Prompt execution cancelled by user.");
+    } catch (err: any) {
+      console.error("Failed to cancel agent task:", err);
+    }
   };
 
   const handleRunTask = async (customPrompt?: string) => {
@@ -1825,6 +1841,24 @@ export const App: React.FC = () => {
                           </span>
                         </>
                       ) : null}
+                      <button
+                        type="button"
+                        onClick={handleCancelTask}
+                        style={{
+                          marginLeft: "auto",
+                          padding: "2px 8px",
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          borderRadius: "4px",
+                          border: "1px solid #ef4444",
+                          background: "rgba(239, 68, 68, 0.15)",
+                          color: "#f87171",
+                          cursor: "pointer",
+                        }}
+                        title="Cancel active prompt"
+                      >
+                        [Cancel Prompt]
+                      </button>
                     </div>
 
                     <div className="ag-trace-group">
@@ -2396,16 +2430,40 @@ export const App: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Send Button */}
-                    <button
-                      type="button"
-                      className="ag-composer-send-btn"
-                      disabled={isRunning || !prompt.trim()}
-                      onClick={() => handleRunTask()}
-                      title="Send Prompt (Enter)"
-                    >
-                      -&gt;
-                    </button>
+                    {/* Send / Stop Button */}
+                    {isRunning ? (
+                      <button
+                        type="button"
+                        className="ag-composer-send-btn"
+                        style={{
+                          backgroundColor: "#ef4444",
+                          borderColor: "#dc2626",
+                          color: "#ffffff",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                          fontWeight: 600,
+                          padding: "0 10px",
+                          width: "auto",
+                          minWidth: "64px",
+                        }}
+                        onClick={handleCancelTask}
+                        title="Cancel active prompt"
+                      >
+                        [Stop]
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ag-composer-send-btn"
+                        disabled={!prompt.trim()}
+                        onClick={() => handleRunTask()}
+                        title="Send Prompt (Enter)"
+                      >
+                        -&gt;
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

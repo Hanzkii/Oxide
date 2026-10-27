@@ -1142,6 +1142,11 @@ function createLocalSystemBridgePlugin(): Plugin {
             return;
           }
 
+          if (action === "cancel_agent_task") {
+            res.end(JSON.stringify(true));
+            return;
+          }
+
           if (action === "open_native_models_folder") {
             ensureOxideDirectories();
             spawn(`explorer.exe "${oxideModelsRoot}"`, {

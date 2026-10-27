@@ -230,11 +230,18 @@ pub async fn call_mcp_tool(
 }
 
 #[tauri::command]
+pub async fn cancel_agent_task(state: State<'_, AppState>) -> OxideResult<bool> {
+    state.cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn run_agent_task(
     prompt: String,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> OxideResult<String> {
+    state.cancel_flag.store(false, std::sync::atomic::Ordering::Relaxed);
     let sandbox = state
         .sandbox
         .read()
@@ -244,8 +251,9 @@ pub async fn run_agent_task(
 
     let config = state.provider_config.read().await.clone();
     let mcp_registry = state.mcp_registry.clone();
+    let cancel_flag = state.cancel_flag.clone();
     let orchestrator = AgentOrchestrator::new(sandbox, config, mcp_registry);
-    orchestrator.run_autonomous_loop(app, prompt).await
+    orchestrator.run_autonomous_loop(app, prompt, cancel_flag).await
 }
 
 #[tauri::command]
@@ -1019,17 +1027,21 @@ pub async fn start_native_engine(
     }))
 }
 
-#[tauri::command]
-pub async fn stop_native_engine() -> OxideResult<bool> {
+pub fn stop_native_engine_sync() {
     #[cfg(target_os = "windows")]
     {
-        use tokio::process::Command;
-        let mut cmd = Command::new("taskkill");
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("taskkill");
         cmd.args(["/F", "/IM", "llama-server.exe"]);
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd.output().await;
+        let _ = cmd.output();
     }
+}
+
+#[tauri::command]
+pub async fn stop_native_engine() -> OxideResult<bool> {
+    stop_native_engine_sync();
     Ok(true)
 }
 

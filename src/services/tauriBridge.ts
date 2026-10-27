@@ -23,6 +23,7 @@ import {
 
 type EventSubscriber = (event: AgentStreamEvent) => void;
 const localSubscribers = new Set<EventSubscriber>();
+let localAgentCancelled = false;
 
 function emitLocalEvent(event: AgentStreamEvent) {
   for (const sub of localSubscribers) {
@@ -697,6 +698,11 @@ export const oxideBridge = {
     return callBackend("stop_native_engine");
   },
 
+  async cancelAgentTask(): Promise<boolean> {
+    localAgentCancelled = true;
+    return callBackend<boolean>("cancel_agent_task");
+  },
+
   async openNativeModelsFolder(): Promise<void> {
     return callBackend("open_native_models_folder");
   },
@@ -954,6 +960,8 @@ export const oxideBridge = {
       return invoke<string>("run_agent_task", { prompt });
     }
 
+    localAgentCancelled = false;
+
     const [health, hw] = await Promise.all([
       this.getProviderHealth(),
       this.getHardwareSpecs(),
@@ -980,6 +988,13 @@ export const oxideBridge = {
     ];
 
     for (let step = 1; step <= 10; step++) {
+      if (localAgentCancelled) {
+        emitLocalEvent({
+          type: "task_error",
+          message: "Prompt execution was cancelled by user.",
+        });
+        return "Prompt execution cancelled by user.";
+      }
       emitLocalEvent({
         type: "workflow_card",
         step,
