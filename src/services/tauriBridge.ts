@@ -61,7 +61,7 @@ async function callBackend<T>(
   return resp.json();
 }
 
-const LOCAL_SYSTEM_PROMPT = `You are Oxide Lead Architect, a large-model autonomous AI orchestrator (modeled after Google Antigravity).
+const LOCAL_SYSTEM_PROMPT = `You are Oxide Lead Architect, an elite autonomous AI orchestrator.
 You handle complex reasoning and can delegate subtasks to faster, specialized Subagents governed by the PC's Hardware Governor!
 Always explain what you are thinking first inside <think>...</think> tags so the user can watch your live reasoning in the GUI!
 To perform an action or delegate subtasks, output a single JSON object enclosed in \`\`\`json ... \`\`\` fences matching one of these actions:

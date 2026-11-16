@@ -20,7 +20,7 @@ use tokio::sync::{RwLock, Semaphore};
 
 const DEFAULT_MAX_AGENT_STEPS: usize = 12;
 
-const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide Lead Architect, an elite autonomous executive AI command center modeled after Google Antigravity.
+const AGENT_SYSTEM_PROMPT: &str = r#"You are Oxide Lead Architect, an elite autonomous executive AI coding command center.
 You are the Lead Reasoning Agent in a hierarchical multi-agent software engineering team.
 
 YOUR ROLE & MULTI-AGENT SUBAGENT ORDERS:

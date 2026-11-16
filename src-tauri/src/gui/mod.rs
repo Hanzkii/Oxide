@@ -532,20 +532,9 @@ impl eframe::App for OxideApp {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.heading(
-                    egui::RichText::new("OXIDE AGENT IDE")
+                    egui::RichText::new("OXIDE STUDIO")
                         .color(egui::Color32::from_rgb(79, 172, 254))
                         .strong(),
-                );
-
-                #[cfg(debug_assertions)]
-                let channel_badge = "[DEBUG: Local Build]";
-                #[cfg(not(debug_assertions))]
-                let channel_badge = "[RELEASE: GitHub]";
-
-                ui.label(
-                    egui::RichText::new(channel_badge)
-                        .color(egui::Color32::from_rgb(120, 160, 200))
-                        .small(),
                 );
 
                 ui.separator();
@@ -874,12 +863,12 @@ impl eframe::App for OxideApp {
                     if self.conversation_history.is_empty() && !self.is_running {
                         ui.add_space(12.0);
                         ui.heading(
-                            egui::RichText::new("OXIDE LEAD ARCHITECT COMMAND CENTER")
+                            egui::RichText::new("OXIDE STUDIO")
                                 .strong()
                                 .color(egui::Color32::from_rgb(100, 180, 255)),
                         );
                         ui.label(
-                            egui::RichText::new("Autonomous Local AI Engineering Studio | Multi-Agent Orchestrator | Zero Web Overhead")
+                            egui::RichText::new("Autonomous Software Engineering Studio | Multi-Agent Orchestrator")
                                 .small()
                                 .color(egui::Color32::from_rgb(150, 170, 190)),
                         );

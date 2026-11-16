@@ -53,13 +53,13 @@ pub fn run() {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])
             .with_min_inner_size([960.0, 600.0])
-            .with_title("Oxide Studio - Autonomous AI Agent IDE"),
+            .with_title("Oxide Studio"),
         ..Default::default()
     };
 
     let _enter = rt.enter();
     let _ = eframe::run_native(
-        "Oxide Studio - Autonomous AI Agent IDE",
+        "Oxide Studio",
         native_options,
         Box::new(|cc| Ok(Box::new(gui::OxideApp::new(cc, state, handle)))),
     );

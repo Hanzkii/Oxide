@@ -5,7 +5,7 @@
 # OXIDE STUDIO `[Fe₂O₃]`
 
 ### **Local-First Autonomous AI Coding Agent & Multi-Project Desktop IDE**
-*Built with **Rust**, **Tauri v2**, and **React 18 / TypeScript** — Styled after **Google Antigravity***
+*Built with **Rust** — High-Performance Autonomous Multi-Agent Desktop IDE*
 
 [![Windows Installer](https://img.shields.io/badge/Windows_Installer-.exe_%2F_Portable-d45b2c?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Hanzkii/Oxide/releases/latest)
 [![Documentation Portal](https://img.shields.io/badge/GitHub_Pages-Live_Docs_%26_Interactive_Demo-9e3d1a?style=for-the-badge&logo=github&logoColor=white)](https://hanzkii.github.io/Oxide/)
@@ -23,7 +23,7 @@
 
 ## ⚡ What is Oxide Studio?
 
-**Oxide Studio** is a standalone, local-first autonomous software engineering desktop application inspired by **Google Antigravity**. It lets you open multiple project folders on your PC, save persistent AI engineering conversations per project, and orchestrate a **Lead Architect AI** alongside parallel **Fast Subagents**—completely offline via **Ollama** & **HuggingFace GGUF** models (including **Coding**, **Uncensored / Abliterated**, and **DeepSeek-R1 Reasoning** models) or with hybrid cloud fallback (**Claude 3.5 Sonnet** / **GPT-4o**).
+**Oxide Studio** is a standalone, local-first autonomous software engineering desktop application. It lets you open multiple project folders on your PC, save persistent AI engineering conversations per project, and orchestrate a **Lead Architect AI** alongside parallel **Fast Subagents**—completely offline via **Ollama** & **HuggingFace GGUF** models (including **Coding**, **Uncensored / Abliterated**, and **DeepSeek-R1 Reasoning** models) or with hybrid cloud fallback (**Claude 3.5 Sonnet** / **GPT-4o**).
 
 Every action taken by the AI—its internal `<think>` chain-of-thought reasoning, subagent delegation, file edits, terminal commands, and Git commits—streams live in a clean, matte-carbon interface without ever popping up sketchy background terminal windows.
 
@@ -33,7 +33,7 @@ Every action taken by the AI—its internal `<think>` chain-of-thought reasoning
 
 ```mermaid
 flowchart TB
-    subgraph UI["🖥️ Oxide Studio Desktop GUI (Antigravity Layout)"]
+    subgraph UI["🖥️ Oxide Studio Desktop GUI"]
         Sidebar["📁 Multi-Project Sidebar\n• Native OS Folder Picker\n• Saved Conversations Tree\n• 1-Click AI Model Hub"]
         Center["💬 Center Conversation Stream\n• Collapsible 'Thought for Xs ›'\n• Inline Tool & Subagent Cards\n• Floating Prompt Composer"]
         RightDock["▤ Right Floating Overview Dock\n• Project Files & Code Editor\n• Git Review, Commit, Pull/Push\n• Sandboxed Interactive Terminal"]
@@ -77,9 +77,9 @@ cd Oxide
 
 ---
 
-## 🖥️ 2. Antigravity-Inspired Workspace & Multi-Project Management
+## 🖥️ 2. Oxide Workspace & Multi-Project Management
 
-Oxide Studio is designed around a three-zone layout modeled after **Google Antigravity**:
+Oxide Studio is designed around a three-zone layout:
 
 | Workspace Zone | Capabilities |
 | :--- | :--- |
@@ -199,7 +199,7 @@ sequenceDiagram
 - **Balanced Desktop Tier (`≥15 GB RAM` + `≥5.5 GB Free RAM`)**: Runs up to **4–8 concurrent subagents** with hardware acceleration.
 - **Compact / Memory-Saver Tier (`<15 GB RAM`)**: Automatically optimizes subagent queues with lightweight models (1.5B–3B).
 - **Uncapped Concurrency & Unlimited MCP**: Full user control over worker counts and MCP server limits with zero artificial hard limits.
-- **Automated Final Execution Reports**: The agent synthesizes an Antigravity-grade summary report detailing every workspace action taken, files created/edited, build results, and milestone changes upon task completion.
+- **Automated Final Execution Reports**: The agent synthesizes a comprehensive engineering summary report detailing every workspace action taken, files created/edited, build results, and milestone changes upon task completion.
 - **Clean In-Place Self-Updater**: Background updater streams live download percentages and executes a clean in-place replacement so old versions never linger.
 
 ---
@@ -217,7 +217,7 @@ Oxide Studio includes a native **JSON-RPC 2.0 MCP Client & Registry** (`src-taur
 
 ## 🔒 8. Defense-in-Depth Security, Sandbox & Execution Approval Modes
 
-Oxide Studio implements an enterprise-grade security model inspired by Google Antigravity:
+Oxide Studio implements an enterprise-grade security model:
 
 ### Interactive Execution Approval Modes (Composer Shield Menu)
 Users can toggle execution permissions live from the floating prompt bar:

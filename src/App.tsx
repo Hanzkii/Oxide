@@ -5832,7 +5832,7 @@ export const App: React.FC = () => {
                   <input
                     className="workspace-input"
                     style={{ flex: 1 }}
-                    placeholder="e.g. C:\Users\hannu\.gemini\antigravity\scratch"
+                    placeholder="e.g. C:\Projects\MyWorkspace"
                     value={folderPathInput}
                     onChange={(e) => setFolderPathInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -5868,11 +5868,11 @@ export const App: React.FC = () => {
                     className="ag-pill-btn"
                     onClick={() =>
                       openWorkspaceDirectory(
-                        "C:\\Users\\hannu\\.gemini\\antigravity\\scratch"
+                        "C:\\Users\\hannu\\AppData\\Local\\Programs\\Oxide\\workspace"
                       )
                     }
                   >
-                    Antigravity Scratch
+                    Default Workspace
                   </button>
                   <button
                     className="ag-pill-btn"
