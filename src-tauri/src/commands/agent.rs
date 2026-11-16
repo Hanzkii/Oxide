@@ -50,6 +50,48 @@ pub struct ProviderHealthReport {
     pub config: ProviderConfig,
 }
 
+pub fn candidate_paths(sub: &str) -> Vec<PathBuf> {
+    let mut list = Vec::new();
+    let install_dir = crate::commands::workspace::oxide_install_dir();
+    list.push(install_dir.join(sub));
+
+    #[cfg(target_os = "windows")]
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let base = PathBuf::from(&local_appdata);
+        let p1 = base.join("Oxide").join(sub);
+        let p2 = base.join("Programs").join("Oxide").join(sub);
+        if !list.contains(&p1) {
+            list.push(p1);
+        }
+        if !list.contains(&p2) {
+            list.push(p2);
+        }
+    }
+    list
+}
+
+pub fn resolve_runtime_dir() -> PathBuf {
+    for candidate in candidate_paths("runtime") {
+        if candidate.join("oxide-server.exe").exists() || candidate.join("llama-server.exe").exists() {
+            return candidate;
+        }
+    }
+    crate::commands::workspace::oxide_install_dir().join("runtime")
+}
+
+pub fn resolve_models_dir() -> PathBuf {
+    for candidate in candidate_paths("models") {
+        if candidate.exists() {
+            if let Ok(entries) = fs::read_dir(&candidate) {
+                if entries.flatten().any(|e| e.path().extension().and_then(|x| x.to_str()) == Some("gguf")) {
+                    return candidate;
+                }
+            }
+        }
+    }
+    crate::commands::workspace::oxide_install_dir().join("models")
+}
+
 #[derive(Deserialize)]
 struct OllamaTagsResponse {
     models: Option<Vec<OllamaTagItem>>,
@@ -103,15 +145,18 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
         }
     }
 
-    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
-    let runtime_dir = crate::commands::workspace::oxide_install_dir().join("runtime");
+    let runtime_dir = resolve_runtime_dir();
     let mut native_models = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&models_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|x| x.to_str()) == Some("gguf") {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    native_models.push(name.to_string());
+    for candidate in candidate_paths("models") {
+        if let Ok(entries) = std::fs::read_dir(&candidate) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|x| x.to_str()) == Some("gguf") {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if !native_models.contains(&name.to_string()) {
+                            native_models.push(name.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -254,7 +299,7 @@ pub async fn run_agent_task(
 
     // If active_provider is OxideNative, ensure Oxide Native Server is running and role models are resolved
     if config.active_provider == ProviderKind::OxideNative {
-        let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+        let models_dir = resolve_models_dir();
         let default_gguf = config.oxide_native_model.clone().unwrap_or_else(|| {
             let entries = fs::read_dir(&models_dir).ok();
             entries
@@ -521,7 +566,7 @@ pub async fn install_ai_model(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> OxideResult<ModelInstallResult> {
-    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let models_dir = resolve_models_dir();
     let _ = fs::create_dir_all(&models_dir);
 
     let trimmed = model_id.trim();
@@ -820,10 +865,15 @@ pub async fn delete_ai_model(
     model_id: String,
     state: State<'_, AppState>,
 ) -> OxideResult<bool> {
-    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
-    let target = models_dir.join(model_id.trim());
-    if target.exists() {
-        let _ = fs::remove_file(target);
+    let mut deleted = false;
+    for candidate in candidate_paths("models") {
+        let target = candidate.join(model_id.trim());
+        if target.exists() {
+            let _ = fs::remove_file(target);
+            deleted = true;
+        }
+    }
+    if deleted {
         return Ok(true);
     }
 
@@ -947,7 +997,7 @@ fn urlencoding_encode(input: &str) -> String {
 
 #[tauri::command]
 pub async fn open_native_models_folder() -> OxideResult<bool> {
-    let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+    let models_dir = resolve_models_dir();
     let _ = fs::create_dir_all(&models_dir);
     #[cfg(target_os = "windows")]
     {
@@ -961,7 +1011,7 @@ pub async fn open_native_models_folder() -> OxideResult<bool> {
 
 #[tauri::command]
 pub async fn open_native_runtime_folder() -> OxideResult<bool> {
-    let runtime_dir = crate::commands::workspace::oxide_install_dir().join("runtime");
+    let runtime_dir = resolve_runtime_dir();
     let _ = fs::create_dir_all(&runtime_dir);
     #[cfg(target_os = "windows")]
     {
@@ -978,9 +1028,8 @@ pub async fn spawn_native_engine_internal(
     layers: Option<u32>,
     config: &ProviderConfig,
 ) -> OxideResult<(String, u16)> {
-    let install_dir = crate::commands::workspace::oxide_install_dir();
-    let runtime_dir = install_dir.join("runtime");
-    let models_dir = install_dir.join("models");
+    let runtime_dir = resolve_runtime_dir();
+    let models_dir = resolve_models_dir();
     let _ = fs::create_dir_all(&models_dir);
     let _ = fs::create_dir_all(&runtime_dir);
 
