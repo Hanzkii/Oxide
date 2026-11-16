@@ -1,9 +1,13 @@
 use crate::commands::workspace::WorkspaceFileEntry;
+use crate::error::OxideResult;
 use crate::hardware::HardwareSpecs;
 use crate::llm::{AgentRoleKind, ProviderKind};
 use crate::orchestrator::git::GitStatusSummary;
 use crate::orchestrator::{
     AgentOrchestrator, AgentStreamEvent, SubagentRunState, WorkflowStepStatus,
+};
+use crate::updater::{
+    check_for_github_updates, install_github_update_standalone, UpdateInstallResult, UpdateStatus,
 };
 use crate::AppState;
 use eframe::egui;
@@ -54,14 +58,25 @@ pub struct OxideApp {
     selected_file_path: Option<String>,
     selected_file_content: Option<String>,
 
-    // Hardware Specs
+    // Hardware Specs & Async Channel
     hardware: Option<HardwareSpecs>,
     last_hw_refresh: Instant,
+    hw_rx: Option<tokio::sync::oneshot::Receiver<HardwareSpecs>>,
 
     // Native Engine & Routing
     native_engine_running: bool,
     active_model_name: String,
     last_health_check: Instant,
+    health_rx: Option<tokio::sync::oneshot::Receiver<bool>>,
+
+    // Folder Picker Channel
+    browse_rx: Option<tokio::sync::oneshot::Receiver<OxideResult<Option<String>>>>,
+
+    // Auto-Updater Channel
+    update_status: Option<UpdateStatus>,
+    is_checking_update: bool,
+    update_rx: Option<tokio::sync::oneshot::Receiver<OxideResult<UpdateStatus>>>,
+    install_update_rx: Option<tokio::sync::oneshot::Receiver<OxideResult<UpdateInstallResult>>>,
 
     // Agent Execution
     user_input: String,
@@ -116,9 +131,16 @@ impl OxideApp {
             selected_file_content: None,
             hardware: None,
             last_hw_refresh: Instant::now() - Duration::from_secs(60),
+            hw_rx: None,
             native_engine_running: false,
             active_model_name: initial_model,
             last_health_check: Instant::now() - Duration::from_secs(60),
+            health_rx: None,
+            browse_rx: None,
+            update_status: None,
+            is_checking_update: false,
+            update_rx: None,
+            install_update_rx: None,
             user_input: String::new(),
             is_running: false,
             current_running_prompt: String::new(),
@@ -136,8 +158,9 @@ impl OxideApp {
         };
 
         app.refresh_workspace_files();
-        app.refresh_hardware_specs();
-        app.check_native_engine_health();
+        app.trigger_hardware_refresh();
+        app.trigger_engine_health_check();
+        app.trigger_check_update();
         app
     }
 
@@ -174,26 +197,29 @@ impl OxideApp {
         self.files = entries;
     }
 
-    fn refresh_hardware_specs(&mut self) {
-        let handle = self.tokio_handle.clone();
-        let (tx, mut rx) = tokio::sync::oneshot::channel();
-        handle.spawn(async move {
+    fn trigger_hardware_refresh(&mut self) {
+        if self.hw_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.hw_rx = Some(rx);
+        self.last_hw_refresh = Instant::now();
+        self.tokio_handle.spawn(async move {
             let specs = HardwareSpecs::inspect().await;
             let _ = tx.send(specs);
         });
-
-        // Non-blocking poll
-        if let Ok(specs) = rx.try_recv() {
-            self.hardware = Some(specs);
-            self.last_hw_refresh = Instant::now();
-        }
     }
 
-    fn check_native_engine_health(&mut self) {
-        let (tx, mut rx) = tokio::sync::oneshot::channel();
+    fn trigger_engine_health_check(&mut self) {
+        if self.health_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.health_rx = Some(rx);
+        self.last_health_check = Instant::now();
         self.tokio_handle.spawn(async move {
             let client = reqwest::Client::builder()
-                .timeout(Duration::from_millis(600))
+                .timeout(Duration::from_millis(800))
                 .build()
                 .unwrap();
             let is_up = client
@@ -204,10 +230,47 @@ impl OxideApp {
                 .unwrap_or(false);
             let _ = tx.send(is_up);
         });
+    }
 
-        if let Ok(is_up) = rx.try_recv() {
-            self.native_engine_running = is_up;
-            self.last_health_check = Instant::now();
+    fn trigger_check_update(&mut self) {
+        if self.is_checking_update || self.update_rx.is_some() {
+            return;
+        }
+        self.is_checking_update = true;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.update_rx = Some(rx);
+        self.tokio_handle.spawn(async move {
+            let res = check_for_github_updates().await;
+            let _ = tx.send(res);
+        });
+    }
+
+    fn trigger_install_update(&mut self) {
+        if self.install_update_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.install_update_rx = Some(rx);
+        self.status_banner = Some(("Downloading and launching latest Oxide update...".to_string(), false));
+        self.tokio_handle.spawn(async move {
+            let res = install_github_update_standalone().await;
+            let _ = tx.send(res);
+        });
+    }
+
+    fn toggle_native_engine(&mut self) {
+        if self.native_engine_running {
+            crate::commands::agent::stop_native_engine_sync();
+            self.native_engine_running = false;
+            self.status_banner = Some(("Oxide Native Engine stopped.".to_string(), false));
+        } else {
+            let state = self.state.clone();
+            self.status_banner = Some(("Starting Oxide Native Engine (Port 11435)...".to_string(), false));
+            self.tokio_handle.spawn(async move {
+                let config = state.provider_config.read().await.clone();
+                let _ = crate::commands::agent::ensure_native_engine_running(&config).await;
+            });
+            self.trigger_engine_health_check();
         }
     }
 
@@ -265,6 +328,68 @@ impl OxideApp {
 
 impl eframe::App for OxideApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll async hardware receiver
+        if let Some(ref mut rx) = self.hw_rx {
+            if let Ok(specs) = rx.try_recv() {
+                self.hardware = Some(specs);
+                self.hw_rx = None;
+            }
+        }
+
+        // Poll async engine health receiver
+        if let Some(ref mut rx) = self.health_rx {
+            if let Ok(is_up) = rx.try_recv() {
+                self.native_engine_running = is_up;
+                self.health_rx = None;
+            }
+        }
+
+        // Poll async folder picker receiver
+        if let Some(ref mut rx) = self.browse_rx {
+            if let Ok(res) = rx.try_recv() {
+                if let Ok(Some(chosen)) = res {
+                    self.workspace_path = chosen.clone();
+                    let state = self.state.clone();
+                    let chosen_path = PathBuf::from(&chosen);
+                    self.tokio_handle.spawn(async move {
+                        let sb = crate::security::WorkspaceSandbox::new(
+                            chosen_path,
+                            crate::security::CommandPolicy::default(),
+                        ).ok();
+                        *state.sandbox.write().await = sb;
+                    });
+                    self.refresh_workspace_files();
+                }
+                self.browse_rx = None;
+            }
+        }
+
+        // Poll async update checker receiver
+        if let Some(ref mut rx) = self.update_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.is_checking_update = false;
+                if let Ok(status) = res {
+                    self.update_status = Some(status);
+                }
+                self.update_rx = None;
+            }
+        }
+
+        // Poll async update installer receiver
+        if let Some(ref mut rx) = self.install_update_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(r) => {
+                        self.status_banner = Some((format!("Update installed: {}", r.message), false));
+                    }
+                    Err(e) => {
+                        self.status_banner = Some((format!("Update failed: {}", e), true));
+                    }
+                }
+                self.install_update_rx = None;
+            }
+        }
+
         // Poll incoming agent stream events
         let mut events = Vec::new();
         if let Some(ref mut rx) = self.event_rx {
@@ -385,14 +510,14 @@ impl eframe::App for OxideApp {
         }
 
         // Periodic background refreshes
-        if self.last_hw_refresh.elapsed() > Duration::from_secs(5) {
-            self.refresh_hardware_specs();
+        if self.last_hw_refresh.elapsed() > Duration::from_secs(6) {
+            self.trigger_hardware_refresh();
         }
         if self.last_health_check.elapsed() > Duration::from_secs(3) {
-            self.check_native_engine_health();
+            self.trigger_engine_health_check();
         }
 
-        if self.is_running {
+        if self.is_running || self.hw_rx.is_some() || self.health_rx.is_some() {
             ctx.request_repaint();
         }
 
@@ -411,9 +536,15 @@ impl eframe::App for OxideApp {
                         .color(egui::Color32::from_rgb(79, 172, 254))
                         .strong(),
                 );
+
+                #[cfg(debug_assertions)]
+                let channel_badge = "[DEBUG: Local Build]";
+                #[cfg(not(debug_assertions))]
+                let channel_badge = "[RELEASE: GitHub]";
+
                 ui.label(
-                    egui::RichText::new("[NATIVE RUST GUI]")
-                        .color(egui::Color32::from_rgb(120, 140, 160))
+                    egui::RichText::new(channel_badge)
+                        .color(egui::Color32::from_rgb(120, 160, 200))
                         .small(),
                 );
 
@@ -429,25 +560,12 @@ impl eframe::App for OxideApp {
                 ui.monospace(short_ws);
 
                 if ui.button("Browse...").clicked() {
-                    let handle = self.tokio_handle.clone();
-                    let (tx, mut rx) = tokio::sync::oneshot::channel();
-                    handle.spawn(async move {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    self.browse_rx = Some(rx);
+                    self.tokio_handle.spawn(async move {
                         let res = crate::commands::workspace::pick_folder_dialog().await;
                         let _ = tx.send(res);
                     });
-                    if let Ok(Ok(Some(chosen))) = rx.try_recv() {
-                        self.workspace_path = chosen.clone();
-                        let state = self.state.clone();
-                        let chosen_path = PathBuf::from(&chosen);
-                        self.tokio_handle.spawn(async move {
-                            let sb = crate::security::WorkspaceSandbox::new(
-                                chosen_path,
-                                crate::security::CommandPolicy::default(),
-                            ).ok();
-                            *state.sandbox.write().await = sb;
-                        });
-                        self.refresh_workspace_files();
-                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -462,6 +580,16 @@ impl eframe::App for OxideApp {
                         if ui.add(cancel_btn).clicked() {
                             self.trigger_cancel_agent();
                         }
+                    }
+
+                    // Engine toggle button
+                    let (btn_txt, btn_color) = if self.native_engine_running {
+                        ("Stop Engine", egui::Color32::from_rgb(180, 60, 60))
+                    } else {
+                        ("Start Engine", egui::Color32::from_rgb(40, 140, 60))
+                    };
+                    if ui.add(egui::Button::new(btn_txt).fill(btn_color)).clicked() {
+                        self.toggle_native_engine();
                     }
 
                     // Engine status indicator
@@ -542,6 +670,33 @@ impl eframe::App for OxideApp {
                 } else {
                     ui.label("Inspecting system hardware telemetry...");
                 }
+
+                // GitHub Auto-Updater pill
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(ref upd) = self.update_status {
+                        if upd.update_available {
+                            let btn = egui::Button::new(
+                                egui::RichText::new(format!(" Update to {} ", upd.latest_version))
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
+                            )
+                            .fill(egui::Color32::from_rgb(40, 167, 69));
+                            if ui.add(btn).clicked() {
+                                self.trigger_install_update();
+                            }
+                        } else {
+                            ui.label(
+                                egui::RichText::new(format!("Latest: {}", upd.current_version))
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                        }
+                    } else if self.is_checking_update {
+                        ui.label(egui::RichText::new("Checking updates...").small());
+                    } else if ui.small_button("Check Updates").clicked() {
+                        self.trigger_check_update();
+                    }
+                });
             });
             ui.add_space(2.0);
         });
@@ -709,12 +864,103 @@ impl eframe::App for OxideApp {
                 }
             });
 
-        // CENTRAL MAIN PANEL: Conversation, Live Thinking & Workflow Steps
+        // CENTRAL MAIN PANEL: Conversation, Live Thinking & Dashboard
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
+                    // If no active run and no history, show the Command Center Dashboard!
+                    if self.conversation_history.is_empty() && !self.is_running {
+                        ui.add_space(12.0);
+                        ui.heading(
+                            egui::RichText::new("OXIDE LEAD ARCHITECT COMMAND CENTER")
+                                .strong()
+                                .color(egui::Color32::from_rgb(100, 180, 255)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Autonomous Local AI Engineering Studio | Multi-Agent Orchestrator | Zero Web Overhead")
+                                .small()
+                                .color(egui::Color32::from_rgb(150, 170, 190)),
+                        );
+                        ui.add_space(12.0);
+
+                        // Quick 1-Click Action Cards Grid
+                        ui.label(egui::RichText::new("QUICK ACTIONS:").strong().small());
+                        ui.add_space(4.0);
+
+                        ui.horizontal_wrapped(|ui| {
+                            let btn1 = egui::Button::new(
+                                egui::RichText::new(" Inspect & Map Workspace ")
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(32, 45, 65))
+                            .min_size(egui::vec2(220.0, 48.0));
+                            if ui.add(btn1).clicked() {
+                                self.user_input = "Inspect workspace structure, analyze dependencies, and summarize architecture.".to_string();
+                                self.trigger_run_agent();
+                            }
+
+                            let btn2 = egui::Button::new(
+                                egui::RichText::new(" Autonomous C++ / Rust Build ")
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(32, 60, 50))
+                            .min_size(egui::vec2(220.0, 48.0));
+                            if ui.add(btn2).clicked() {
+                                self.user_input = "Inspect available compilers (clang, gcc, cl, rustc, cmake), build the project, run tests, and report any errors.".to_string();
+                                self.trigger_run_agent();
+                            }
+
+                            let btn3 = egui::Button::new(
+                                egui::RichText::new(" Plan Architecture (/plan) ")
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(60, 45, 30))
+                            .min_size(egui::vec2(220.0, 48.0));
+                            if ui.add(btn3).clicked() {
+                                self.user_input = "/plan ".to_string();
+                            }
+
+                            let btn4 = egui::Button::new(
+                                egui::RichText::new(" Debug & Fix Errors (/fix) ")
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(65, 30, 40))
+                            .min_size(egui::vec2(220.0, 48.0));
+                            if ui.add(btn4).clicked() {
+                                self.user_input = "/fix ".to_string();
+                            }
+                        });
+
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
+                        // System Capabilities & Architecture Overview
+                        ui.label(egui::RichText::new("SYSTEM SPECIFICATIONS & HARDWARE ACCELERATION").strong().small());
+                        ui.add_space(4.0);
+
+                        egui::Frame::none()
+                            .fill(egui::Color32::from_rgb(22, 26, 34))
+                            .inner_margin(10.0)
+                            .rounding(6.0)
+                            .show(ui, |ui| {
+                                if let Some(ref hw) = self.hardware {
+                                    ui.label(format!("Processor: {} ({} Cores, {:.0}% load)", hw.cpu_brand, hw.cpu_cores, hw.cpu_usage_percent));
+                                    ui.label(format!("Direct GPU Acceleration: {} ({:.1} GB Dedicated VRAM)", hw.gpu_name, hw.gpu_vram_gb));
+                                    ui.label(format!("Supported Backends: NVIDIA CUDA, Intel Arc / OneAPI, AMD Radeon (ROCm/Vulkan), CPU AVX2"));
+                                    ui.label(format!("Hybrid Split Concurrency: {} (Max Recommended: {} Subagents)", hw.governor_tier, hw.recommended_max_subagents));
+                                } else {
+                                    ui.label("Gathering system specs...");
+                                }
+                            });
+                    }
+
                     // Previous conversation turns
                     for turn in &self.conversation_history {
                         egui::Frame::none()

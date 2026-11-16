@@ -166,6 +166,14 @@ pub async fn check_for_github_updates() -> OxideResult<UpdateStatus> {
 }
 
 pub async fn install_github_update(app: &AppHandle) -> OxideResult<UpdateInstallResult> {
+    install_github_update_internal(Some(app)).await
+}
+
+pub async fn install_github_update_standalone() -> OxideResult<UpdateInstallResult> {
+    install_github_update_internal(None).await
+}
+
+async fn install_github_update_internal(app: Option<&AppHandle>) -> OxideResult<UpdateInstallResult> {
     let status = check_for_github_updates().await?;
 
     // 1. If a compiled installer asset (.exe / .msi) is published on GitHub Releases, download & stream progress
@@ -195,20 +203,22 @@ pub async fn install_github_update(app: &AppHandle) -> OxideResult<UpdateInstall
                 0.0
             };
 
-            let _ = app.emit(
-                "oxide://update-download-progress",
-                UpdateDownloadProgress {
-                    bytes_downloaded: downloaded,
-                    total_bytes: total_size,
-                    percent,
-                    status: format!(
-                        "Downloading update: {:.1} MB / {:.1} MB ({:.0}%)",
-                        downloaded as f64 / (1024.0 * 1024.0),
-                        total_size as f64 / (1024.0 * 1024.0),
-                        percent
-                    ),
-                },
-            );
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "oxide://update-download-progress",
+                    UpdateDownloadProgress {
+                        bytes_downloaded: downloaded,
+                        total_bytes: total_size,
+                        percent,
+                        status: format!(
+                            "Downloading update: {:.1} MB / {:.1} MB ({:.0}%)",
+                            downloaded as f64 / (1024.0 * 1024.0),
+                            total_size as f64 / (1024.0 * 1024.0),
+                            percent
+                        ),
+                    },
+                );
+            }
         }
 
         let target_path = env::temp_dir().join(&asset_name);
