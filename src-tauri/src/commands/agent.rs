@@ -1,7 +1,7 @@
 use crate::error::{OxideError, OxideResult};
 use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
-use crate::llm::ProviderConfig;
+use crate::llm::{AgentRoleKind, ProviderConfig, ProviderKind};
 use crate::mcp::{McpServerConfig, McpToolCallResult};
 use crate::orchestrator::git::{GitCommitRecord, GitManager, GitStatusSummary};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
@@ -249,7 +249,45 @@ pub async fn run_agent_task(
         .clone()
         .ok_or_else(|| OxideError::WorkspaceError("No active workspace configured".to_string()))?;
 
-    let config = state.provider_config.read().await.clone();
+    let mut config = state.provider_config.read().await.clone();
+
+    // If active_provider is OxideNative, verify or auto-start, or smart fallback to Ollama if Ollama model tag was chosen
+    if config.active_provider == ProviderKind::OxideNative {
+        let port = config.oxide_native_port.unwrap_or(11435);
+        let check_client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(600))
+            .build()
+            .unwrap_or_default();
+        let native_running = check_client
+            .get(format!("http://127.0.0.1:{}/v1/models", port))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
+
+        if !native_running {
+            let role_model = config.model_for_role(AgentRoleKind::Architect);
+            let is_gguf = role_model.to_lowercase().ends_with(".gguf");
+            let ollama_online = check_client
+                .get(format!("{}/api/tags", config.ollama_base_url.trim_end_matches('/')))
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+
+            if !is_gguf && ollama_online {
+                // User has an Ollama model tag configured (e.g. qwen2.5-coder:latest) and Ollama is online.
+                // Gracefully switch to Ollama to avoid an offline port 11435 connection failure!
+                config.active_provider = ProviderKind::Ollama;
+                let mut guard = state.provider_config.write().await;
+                guard.active_provider = ProviderKind::Ollama;
+                let _ = save_provider_config(&guard);
+            } else {
+                ensure_native_engine_running(&config).await?;
+            }
+        }
+    }
+
     let mcp_registry = state.mcp_registry.clone();
     let cancel_flag = state.cancel_flag.clone();
     let orchestrator = AgentOrchestrator::new(sandbox, config, mcp_registry);
@@ -935,12 +973,11 @@ pub async fn open_native_runtime_folder() -> OxideResult<bool> {
     Ok(true)
 }
 
-#[tauri::command]
-pub async fn start_native_engine(
+pub async fn spawn_native_engine_internal(
     model: Option<String>,
     layers: Option<u32>,
-    state: State<'_, AppState>,
-) -> OxideResult<Value> {
+    config: &ProviderConfig,
+) -> OxideResult<(String, u16)> {
     let install_dir = crate::commands::workspace::oxide_install_dir();
     let runtime_dir = install_dir.join("runtime");
     let models_dir = install_dir.join("models");
@@ -958,7 +995,7 @@ pub async fn start_native_engine(
     let target_model = match model {
         Some(m) if !m.is_empty() => m,
         _ => {
-            let config_model = state.provider_config.read().await.oxide_native_model.clone().unwrap_or_default();
+            let config_model = config.oxide_native_model.clone().unwrap_or_default();
             if !config_model.is_empty() {
                 config_model
             } else {
@@ -989,10 +1026,10 @@ pub async fn start_native_engine(
         models_dir.join(&target_model)
     };
 
-    let port = state.provider_config.read().await.oxide_native_port.unwrap_or(11435);
-    let n_layers = layers.unwrap_or(99);
+    let port = config.oxide_native_port.unwrap_or(11435);
+    let n_layers = layers.unwrap_or(config.gpu_offload_layers as u32);
 
-    let hw_mode = state.provider_config.read().await.hardware_acceleration;
+    let hw_mode = config.hardware_acceleration;
     let ngl_arg = match hw_mode {
         crate::llm::HardwareAccelerationMode::Cpu => 0,
         _ => n_layers,
@@ -1018,6 +1055,58 @@ pub async fn start_native_engine(
         cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = cmd.spawn()?;
     }
+
+    Ok((target_model, port))
+}
+
+pub async fn ensure_native_engine_running(config: &ProviderConfig) -> OxideResult<()> {
+    let port = config.oxide_native_port.unwrap_or(11435);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(600))
+        .build()
+        .unwrap_or_default();
+
+    // Check if already responding
+    if client
+        .get(format!("http://127.0.0.1:{}/v1/models", port))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    // Spawn engine
+    spawn_native_engine_internal(config.oxide_native_model.clone(), None, config).await?;
+
+    // Poll until ready (up to 12s)
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        if client
+            .get(format!("http://127.0.0.1:{}/v1/models", port))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+    }
+
+    Err(OxideError::ExecutionError(
+        "Timed out waiting for Oxide Native Engine (llama-server.exe) to start on port 11435. Please check GPU/VRAM allocation or start it in Settings.".to_string(),
+    ))
+}
+
+#[tauri::command]
+pub async fn start_native_engine(
+    model: Option<String>,
+    layers: Option<u32>,
+    state: State<'_, AppState>,
+) -> OxideResult<Value> {
+    let config = state.provider_config.read().await.clone();
+    let (target_model, port) = spawn_native_engine_internal(model, layers, &config).await?;
 
     Ok(serde_json::json!({
         "started": true,

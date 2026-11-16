@@ -232,7 +232,7 @@ export const App: React.FC = () => {
       }
     } catch {}
     return {
-      active_provider: "oxide_native",
+      active_provider: "ollama",
       ollama_base_url: "http://localhost:11434",
       ollama_model: "",
       anthropic_model: "claude-3-5-sonnet-latest",
@@ -434,10 +434,27 @@ export const App: React.FC = () => {
       setOllamaModels(allInstalledLocal);
 
       setProviderConfig((prev) => {
-        const merged = {
+        let activeProv = health.config.active_provider || prev.active_provider || "ollama";
+        // Auto-heal provider selection:
+        // If oxide_native is selected but no GGUF models are installed and Ollama has models or is reachable, pick ollama!
+        if (
+          activeProv === "oxide_native" &&
+          nativeList.length === 0 &&
+          (ollamaList.length > 0 || health.ollama_reachable)
+        ) {
+          activeProv = "ollama";
+        } else if (
+          activeProv === "ollama" &&
+          ollamaList.length === 0 &&
+          nativeList.length > 0
+        ) {
+          activeProv = "oxide_native";
+        }
+
+        const merged: ProviderConfig = {
           ...prev,
           ...health.config,
-          active_provider: prev.active_provider || health.config.active_provider || "oxide_native",
+          active_provider: activeProv,
           task_routing: {
             ...prev.task_routing,
             ...(health.config.task_routing || {}),
@@ -969,10 +986,23 @@ export const App: React.FC = () => {
       setShowSettingsModal(true);
       return;
     }
-    if (providerConfig.active_provider === "oxide_native" && nativeModels.length === 0) {
-      setStatusBanner("No GGUF models installed for Native Engine - install one from Models below.");
-      setShowModelHubModal(true);
-      return;
+    if (providerConfig.active_provider === "oxide_native") {
+      const archModel = providerConfig.task_routing?.architect_model || "";
+      const isGguf = archModel.toLowerCase().endsWith(".gguf");
+      if (!isGguf && ollamaModels.length > 0) {
+        // User selected an Ollama model; switch provider to Ollama seamlessly
+        const updated: ProviderConfig = {
+          ...providerConfig,
+          active_provider: "ollama",
+          ollama_model: archModel,
+        };
+        setProviderConfig(updated);
+        await oxideBridge.updateProviderConfig(updated).catch(() => {});
+      } else if (nativeModels.length === 0) {
+        setStatusBanner("No GGUF models installed for Native Engine - install one from Models below or select an Ollama model.");
+        setShowModelHubModal(true);
+        return;
+      }
     }
     if (providerConfig.active_provider === "ollama" && ollamaModels.length === 0) {
       setStatusBanner("No Ollama models installed yet - install a model from Models below.");
@@ -2164,18 +2194,23 @@ export const App: React.FC = () => {
                           {providerConfig.active_provider === "gemini" && (providerConfig.gemini_model || "Gemini 2.0 Flash")}
                           {providerConfig.active_provider === "deepseek" && (providerConfig.deepseek_model || "DeepSeek-V3")}
                         </button>
-                      ) : ollamaModels.length > 0 ? (
+                      ) : (nativeModels.length > 0 || ollamaModels.length > 0) ? (
                         <select
                           className="ag-pill-select"
                           value={
-                            providerConfig.task_routing.architect_model ||
-                            ollamaModels[0]
+                            providerConfig.active_provider === "oxide_native"
+                              ? (providerConfig.oxide_native_model || nativeModels[0] || providerConfig.task_routing.architect_model)
+                              : (providerConfig.task_routing.architect_model || ollamaModels.find((m) => !m.toLowerCase().endsWith(".gguf")) || ollamaModels[0])
                           }
                           onChange={async (e) => {
                             const model = e.target.value;
+                            const isGguf = model.toLowerCase().endsWith(".gguf");
+                            const nextProv: ProviderKind = isGguf ? "oxide_native" : "ollama";
                             const updated: ProviderConfig = {
                               ...providerConfig,
-                              ollama_model: model,
+                              active_provider: nextProv,
+                              ollama_model: isGguf ? providerConfig.ollama_model : model,
+                              oxide_native_model: isGguf ? model : providerConfig.oxide_native_model,
                               task_routing: {
                                 ...providerConfig.task_routing,
                                 architect_model: model,
@@ -2183,13 +2218,31 @@ export const App: React.FC = () => {
                             };
                             setProviderConfig(updated);
                             await oxideBridge.updateProviderConfig(updated);
+                            setStatusBanner(
+                              `Active model: ${model} (${nextProv === "oxide_native" ? "Native GGUF" : "Ollama"})`
+                            );
                           }}
                         >
-                          {ollamaModels.map((m) => (
-                            <option key={m} value={m} title={m}>
-                              {formatModelDisplayName(m)}
-                            </option>
-                          ))}
+                          {nativeModels.length > 0 && (
+                            <optgroup label="Oxide Native (GGUF - Port 11435)">
+                              {nativeModels.map((m) => (
+                                <option key={`native-${m}`} value={m} title={`Native GGUF: ${m}`}>
+                                  [Native] {m}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {ollamaModels.filter((m) => !m.toLowerCase().endsWith(".gguf")).length > 0 && (
+                            <optgroup label="Ollama (Port 11434)">
+                              {ollamaModels
+                                .filter((m) => !m.toLowerCase().endsWith(".gguf"))
+                                .map((m) => (
+                                  <option key={`ollama-${m}`} value={m} title={`Ollama: ${m}`}>
+                                    [Ollama] {formatModelDisplayName(m)}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
                         </select>
                       ) : (
                         <button

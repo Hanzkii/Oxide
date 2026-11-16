@@ -108,63 +108,90 @@ async function streamChatFromProvider(
   let targetModel = requestedModel;
 
   if (provider === "oxide_native") {
-    const port = health.config.oxide_native_port || 11435;
-    const nativeModel =
-      health.config.oxide_native_model ||
-      (health.oxide_native_models && health.oxide_native_models[0]) ||
-      "qwen2.5-coder-14b-instruct-abliterated.gguf";
+    const isGguf = requestedModel.toLowerCase().endsWith(".gguf");
+    if (
+      !isGguf &&
+      (health.ollama_reachable ||
+        (health.ollama_models && health.ollama_models.length > 0))
+    ) {
+      // Target model is an Ollama model tag, fall through to Ollama provider below
+    } else {
+      const port = health.config.oxide_native_port || 11435;
+      const nativeModel =
+        (isGguf ? requestedModel : undefined) ||
+        health.config.oxide_native_model ||
+        (health.oxide_native_models && health.oxide_native_models[0]) ||
+        "qwen2.5-coder-14b-instruct-abliterated.gguf";
 
-    const endpoint = `http://127.0.0.1:${port}/v1/chat/completions`;
-    let resp: Response;
-    try {
-      resp = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: nativeModel,
-          messages,
-          stream: true,
-          temperature: health.config.temperature ?? 0.1,
-        }),
-      });
-    } catch {
-      throw new Error(
-        `Oxide Native Engine not responding on http://127.0.0.1:${port}. Click 'Start Native Engine' in Settings -> AI Providers.`
-      );
-    }
-
-    if (!resp.ok || !resp.body) {
-      throw new Error(`Oxide Native Engine returned HTTP ${resp.status}`);
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let lineBuf = "";
-    let fullReply = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      lineBuf += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = lineBuf.indexOf("\n")) !== -1) {
-        const line = lineBuf.slice(0, idx).trim();
-        lineBuf = lineBuf.slice(idx + 1);
-        if (!line || !line.startsWith("data: ")) continue;
-        const dataStr = line.slice(6).trim();
-        if (dataStr === "[DONE]") break;
-        try {
-          const parsed = JSON.parse(dataStr);
-          const delta = parsed.choices?.[0]?.delta;
-          const token = delta?.content || delta?.reasoning_content || "";
-          if (token) {
-            fullReply += token;
-            onToken(token);
-          }
-        } catch {}
+      const endpoint = `http://127.0.0.1:${port}/v1/chat/completions`;
+      let resp: Response | null = null;
+      try {
+        resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: nativeModel,
+            messages,
+            stream: true,
+            temperature: health.config.temperature ?? 0.1,
+          }),
+        });
+      } catch {
+        // Engine might be offline; attempt auto-start
+        await oxideBridge.startNativeEngine(nativeModel).catch(() => {});
+        for (let i = 0; i < 25; i++) {
+          await new Promise((r) => setTimeout(r, 400));
+          try {
+            resp = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: nativeModel,
+                messages,
+                stream: true,
+                temperature: health.config.temperature ?? 0.1,
+              }),
+            });
+            if (resp && resp.ok) break;
+          } catch {}
+        }
       }
+
+      if (!resp || !resp.ok || !resp.body) {
+        throw new Error(
+          `Oxide Native Engine not responding on http://127.0.0.1:${port}. Click 'Start Native Engine' in Settings -> AI Providers or check installed GGUF models.`
+        );
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuf = "";
+      let fullReply = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        lineBuf += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = lineBuf.indexOf("\n")) !== -1) {
+          const line = lineBuf.slice(0, idx).trim();
+          lineBuf = lineBuf.slice(idx + 1);
+          if (!line || !line.startsWith("data: ")) continue;
+          const dataStr = line.slice(6).trim();
+          if (dataStr === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta;
+            const token = delta?.content || delta?.reasoning_content || "";
+            if (token) {
+              fullReply += token;
+              onToken(token);
+            }
+          } catch {}
+        }
+      }
+      return { text: fullReply, effectiveModel: nativeModel };
     }
-    return { text: fullReply, effectiveModel: nativeModel };
   }
 
   if (provider === "custom_openai") {

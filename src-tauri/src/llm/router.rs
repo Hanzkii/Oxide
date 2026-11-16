@@ -74,7 +74,18 @@ impl HybridProviderRouter {
             ProviderKind::OxideNative => {
                 let port = self.config.oxide_native_port.unwrap_or(11435);
                 let url = format!("http://127.0.0.1:{}/v1", port);
-                Arc::new(OpenAiProvider::with_base_url(&url, role_model))
+                let model_to_use = if role_model.to_lowercase().ends_with(".gguf") {
+                    role_model
+                } else if let Some(ref native_m) = self.config.oxide_native_model {
+                    if !native_m.is_empty() {
+                        native_m.as_str()
+                    } else {
+                        role_model
+                    }
+                } else {
+                    role_model
+                };
+                Arc::new(OpenAiProvider::with_base_url_and_prefix(&url, model_to_use, "oxide_native"))
             }
             ProviderKind::CustomOpenai => {
                 let url = self
@@ -126,6 +137,19 @@ impl HybridProviderRouter {
         {
             Ok(response) => Ok((primary_id, response)),
             Err(primary_err) => {
+                if self.config.active_provider == ProviderKind::OxideNative {
+                    let ollama_candidate = self.build_provider_for_role(ProviderKind::Ollama, role);
+                    if ollama_candidate.health_check().await.unwrap_or(false) {
+                        let fallback_id = ollama_candidate.identifier();
+                        if let Ok(response) = ollama_candidate
+                            .stream_chat(messages, self.config.temperature, on_token.clone())
+                            .await
+                        {
+                            return Ok((fallback_id, response));
+                        }
+                    }
+                }
+
                 if !self.config.enable_cloud_fallback
                     || self.config.active_provider != ProviderKind::Ollama
                 {

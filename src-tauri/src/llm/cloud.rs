@@ -144,6 +144,7 @@ pub struct OpenAiProvider {
     client: Client,
     model: String,
     base_url: Option<String>,
+    prefix: Option<String>,
 }
 
 impl OpenAiProvider {
@@ -156,6 +157,7 @@ impl OpenAiProvider {
             client,
             model: model.into(),
             base_url: None,
+            prefix: None,
         }
     }
 
@@ -168,6 +170,24 @@ impl OpenAiProvider {
             client,
             model: model.into(),
             base_url: Some(base_url.into()),
+            prefix: None,
+        }
+    }
+
+    pub fn with_base_url_and_prefix(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        prefix: impl Into<String>,
+    ) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()
+            .unwrap_or_default();
+        Self {
+            client,
+            model: model.into(),
+            base_url: Some(base_url.into()),
+            prefix: Some(prefix.into()),
         }
     }
 
@@ -213,7 +233,11 @@ struct OpenAiChoiceMessage {
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
     fn identifier(&self) -> String {
-        format!("openai/{}", self.model)
+        if let Some(ref p) = self.prefix {
+            format!("{}/{}", p, self.model)
+        } else {
+            format!("openai/{}", self.model)
+        }
     }
 
     async fn health_check(&self) -> OxideResult<bool> {
