@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod error;
+pub mod gui;
 pub mod hardware;
 pub mod llm;
 pub mod mcp;
@@ -40,6 +41,34 @@ impl Default for AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to initialize Tokio runtime for Oxide Native GUI");
+
+    let state = Arc::new(AppState::default());
+    let handle = rt.handle().clone();
+
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1360.0, 860.0])
+            .with_min_inner_size([960.0, 600.0])
+            .with_title("Oxide Studio - Autonomous AI Agent IDE"),
+        ..Default::default()
+    };
+
+    let _enter = rt.enter();
+    let _ = eframe::run_native(
+        "Oxide Studio - Autonomous AI Agent IDE",
+        native_options,
+        Box::new(|cc| Ok(Box::new(gui::OxideApp::new(cc, state, handle)))),
+    );
+
+    // Auto-stop native engine when application window closes
+    commands::agent::stop_native_engine_sync();
+}
+
+pub fn run_tauri() {
     let app = tauri::Builder::default()
         .manage(AppState::default())
         .on_window_event(|_window, event| {

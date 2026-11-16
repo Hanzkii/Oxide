@@ -25,6 +25,8 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dunce = "1.0"
 sysinfo = "0.32"
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.29"
 
 [profile.release]
 incremental = true

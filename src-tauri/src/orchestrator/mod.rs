@@ -455,6 +455,37 @@ pub enum AgentStreamEvent {
     },
 }
 
+#[derive(Clone)]
+pub enum AgentEmitter {
+    Channel(tokio::sync::mpsc::UnboundedSender<AgentStreamEvent>),
+    Tauri(AppHandle),
+}
+
+impl AgentEmitter {
+    pub fn emit(&self, event: AgentStreamEvent) {
+        match self {
+            AgentEmitter::Channel(tx) => {
+                let _ = tx.send(event);
+            }
+            AgentEmitter::Tauri(app) => {
+                let _ = app.emit("oxide://agent-event", event);
+            }
+        }
+    }
+}
+
+impl From<tokio::sync::mpsc::UnboundedSender<AgentStreamEvent>> for AgentEmitter {
+    fn from(tx: tokio::sync::mpsc::UnboundedSender<AgentStreamEvent>) -> Self {
+        AgentEmitter::Channel(tx)
+    }
+}
+
+impl From<AppHandle> for AgentEmitter {
+    fn from(app: AppHandle) -> Self {
+        AgentEmitter::Tauri(app)
+    }
+}
+
 pub struct AgentOrchestrator {
     sandbox: WorkspaceSandbox,
     provider_config: ProviderConfig,
@@ -476,10 +507,11 @@ impl AgentOrchestrator {
 
     pub async fn run_autonomous_loop(
         &self,
-        app: AppHandle,
+        emitter: impl Into<AgentEmitter>,
         user_prompt: String,
         cancel_flag: Arc<std::sync::atomic::AtomicBool>,
     ) -> OxideResult<String> {
+        let app: AgentEmitter = emitter.into();
         let router = Arc::new(HybridProviderRouter::new(self.provider_config.clone()));
         let executor = BoundedTerminalExecutor::new(self.sandbox.clone());
         let git_manager = GitManager::new(self.sandbox.clone());
@@ -569,8 +601,7 @@ impl AgentOrchestrator {
                 if count % 6 == 0 {
                     let elapsed = start_instant.elapsed().as_secs_f32().max(0.01);
                     let tok_s = (count as f32 / elapsed * 10.0).round() / 10.0;
-                    let _ = app_metrics_stream.emit(
-                        "oxide://agent-event",
+                    app_metrics_stream.emit(
                         AgentStreamEvent::ThinkingMetrics {
                             step,
                             tokens_generated: count,
@@ -589,8 +620,7 @@ impl AgentOrchestrator {
                 if trimmed.starts_with('{') || trimmed.starts_with("```json") {
                     return;
                 }
-                let _ = app_for_stream.emit(
-                    "oxide://agent-event",
+                app_for_stream.emit(
                     AgentStreamEvent::TokenDelta {
                         step,
                         provider: arch_model.clone(),
@@ -1387,7 +1417,7 @@ impl AgentOrchestrator {
     /// Prevents system overload by bounding concurrency with a semaphore and live RAM checks.
     async fn execute_subagent_batch(
         &self,
-        app: &AppHandle,
+        app: &AgentEmitter,
         step: usize,
         router: &Arc<HybridProviderRouter>,
         subtasks: Vec<SubagentTaskSpec>,
@@ -1471,8 +1501,7 @@ impl AgentOrchestrator {
 
                 let active_now = max_allowed.saturating_sub(sem_clone.available_permits());
 
-                let _ = app_clone.emit(
-                    "oxide://agent-event",
+                app_clone.emit(
                     AgentStreamEvent::SubagentStatus {
                         id: spec.id.clone(),
                         role: spec.role,
@@ -1551,8 +1580,7 @@ impl AgentOrchestrator {
                         .take(280)
                         .collect();
 
-                    let _ = app_sub_stream.emit(
-                        "oxide://agent-event",
+                    app_sub_stream.emit(
                         AgentStreamEvent::SubagentStatus {
                             id: sub_stream_id.clone(),
                             role: sub_stream_role,
@@ -1590,8 +1618,7 @@ impl AgentOrchestrator {
                             .unwrap_or_else(|| "Completed subtask analysis.".to_string());
                         let preview: String = output.chars().take(280).collect();
 
-                        let _ = app_clone.emit(
-                            "oxide://agent-event",
+                        app_clone.emit(
                             AgentStreamEvent::SubagentStatus {
                                 id: spec.id.clone(),
                                 role: spec.role,
@@ -1611,8 +1638,7 @@ impl AgentOrchestrator {
                         )
                     }
                     Err(e) => {
-                        let _ = app_clone.emit(
-                            "oxide://agent-event",
+                        app_clone.emit(
                             AgentStreamEvent::SubagentStatus {
                                 id: spec.id.clone(),
                                 role: spec.role,
@@ -1684,8 +1710,8 @@ impl AgentOrchestrator {
         }
     }
 
-    fn emit_event(&self, app: &AppHandle, event: AgentStreamEvent) {
-        let _ = app.emit("oxide://agent-event", event);
+    fn emit_event(&self, app: &AgentEmitter, event: AgentStreamEvent) {
+        app.emit(event);
     }
 
     fn extract_think_tag(text: &str) -> Option<String> {
