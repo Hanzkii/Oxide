@@ -232,18 +232,20 @@ export const App: React.FC = () => {
       }
     } catch {}
     return {
-      active_provider: "ollama",
+      active_provider: "oxide_native",
       ollama_base_url: "http://localhost:11434",
       ollama_model: "",
       anthropic_model: "claude-3-5-sonnet-latest",
       openai_model: "gpt-4o",
+      oxide_native_port: 11435,
+      oxide_native_model: "qwen2.5-coder-14b-instruct-abliterated.gguf",
       enable_cloud_fallback: false,
       temperature: 0.1,
       task_routing: {
-        architect_model: "",
-        coder_subagent_model: "",
-        research_subagent_model: "",
-        tester_subagent_model: "",
+        architect_model: "qwen2.5-coder-14b-instruct-abliterated.gguf",
+        coder_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf",
+        research_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf",
+        tester_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf",
       },
       enable_subagents: true,
       max_concurrent_subagents: 2,
@@ -434,53 +436,73 @@ export const App: React.FC = () => {
       setOllamaModels(allInstalledLocal);
 
       setProviderConfig((prev) => {
-        let activeProv = health.config.active_provider || prev.active_provider || "ollama";
-        // Auto-heal provider selection:
-        // If oxide_native is selected but no GGUF models are installed and Ollama has models or is reachable, pick ollama!
+        let activeProv: ProviderKind = "oxide_native";
         if (
-          activeProv === "oxide_native" &&
-          nativeList.length === 0 &&
-          (ollamaList.length > 0 || health.ollama_reachable)
+          ["anthropic", "openai", "gemini", "deepseek", "custom_openai"].includes(
+            health.config.active_provider || prev.active_provider
+          )
         ) {
-          activeProv = "ollama";
-        } else if (
-          activeProv === "ollama" &&
-          ollamaList.length === 0 &&
-          nativeList.length > 0
-        ) {
-          activeProv = "oxide_native";
+          activeProv = (health.config.active_provider || prev.active_provider) as ProviderKind;
         }
+
+        const defaultNativeModel =
+          nativeList[0] || "qwen2.5-coder-14b-instruct-abliterated.gguf";
+        const defaultSubModel =
+          nativeList[1] || nativeList[0] || "qwen2.5-coder-7b-instruct-abliterated.gguf";
 
         const merged: ProviderConfig = {
           ...prev,
           ...health.config,
           active_provider: activeProv,
+          oxide_native_port: health.config.oxide_native_port || 11435,
+          oxide_native_model: health.config.oxide_native_model || defaultNativeModel,
           task_routing: {
-            ...prev.task_routing,
-            ...(health.config.task_routing || {}),
+            architect_model:
+              health.config.task_routing?.architect_model ||
+              prev.task_routing?.architect_model ||
+              defaultNativeModel,
+            coder_subagent_model:
+              health.config.task_routing?.coder_subagent_model ||
+              prev.task_routing?.coder_subagent_model ||
+              defaultSubModel,
+            research_subagent_model:
+              health.config.task_routing?.research_subagent_model ||
+              prev.task_routing?.research_subagent_model ||
+              defaultSubModel,
+            tester_subagent_model:
+              health.config.task_routing?.tester_subagent_model ||
+              prev.task_routing?.tester_subagent_model ||
+              defaultSubModel,
           },
         };
-        // Auto-heal local models if routing is completely unset
-        if (allInstalledLocal.length > 0) {
-          if (!merged.ollama_model) {
-            merged.ollama_model = allInstalledLocal[0];
-          }
-          if (!merged.task_routing.architect_model) {
-            merged.task_routing.architect_model = allInstalledLocal[0];
-          }
-          if (!merged.task_routing.coder_subagent_model) {
-            merged.task_routing.coder_subagent_model =
-              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
-          }
-          if (!merged.task_routing.research_subagent_model) {
-            merged.task_routing.research_subagent_model =
-              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
-          }
-          if (!merged.task_routing.tester_subagent_model) {
-            merged.task_routing.tester_subagent_model =
-              allInstalledLocal[allInstalledLocal.length - 1] || allInstalledLocal[0];
-          }
+
+        // If architect model is not a gguf model, heal it to the installed native gguf model
+        if (
+          !merged.task_routing.architect_model.toLowerCase().endsWith(".gguf") &&
+          nativeList.length > 0
+        ) {
+          merged.task_routing.architect_model = nativeList[0];
+          merged.oxide_native_model = nativeList[0];
         }
+        if (
+          !merged.task_routing.coder_subagent_model.toLowerCase().endsWith(".gguf") &&
+          nativeList.length > 0
+        ) {
+          merged.task_routing.coder_subagent_model = nativeList[1] || nativeList[0];
+        }
+        if (
+          !merged.task_routing.research_subagent_model.toLowerCase().endsWith(".gguf") &&
+          nativeList.length > 0
+        ) {
+          merged.task_routing.research_subagent_model = nativeList[1] || nativeList[0];
+        }
+        if (
+          !merged.task_routing.tester_subagent_model.toLowerCase().endsWith(".gguf") &&
+          nativeList.length > 0
+        ) {
+          merged.task_routing.tester_subagent_model = nativeList[1] || nativeList[0];
+        }
+
         return merged;
       });
     } catch {}
@@ -1585,9 +1607,9 @@ export const App: React.FC = () => {
                 fontWeight: 600,
               }}
               onClick={() => setShowModelHubModal(true)}
-              title="Open AI Model Store (1-Click Install via Ollama & HuggingFace)"
+              title="Open Oxide Native Models Store (GGUF HuggingFace Models)"
             >
-              AI Models ({ollamaModels.length} Installed)
+              Native Models ({nativeModels.length} GGUF)
             </button>
 
             <button
@@ -2194,23 +2216,20 @@ export const App: React.FC = () => {
                           {providerConfig.active_provider === "gemini" && (providerConfig.gemini_model || "Gemini 2.0 Flash")}
                           {providerConfig.active_provider === "deepseek" && (providerConfig.deepseek_model || "DeepSeek-V3")}
                         </button>
-                      ) : (nativeModels.length > 0 || ollamaModels.length > 0) ? (
+                      ) : nativeModels.length > 0 ? (
                         <select
                           className="ag-pill-select"
                           value={
-                            providerConfig.active_provider === "oxide_native"
-                              ? (providerConfig.oxide_native_model || nativeModels[0] || providerConfig.task_routing.architect_model)
-                              : (providerConfig.task_routing.architect_model || ollamaModels.find((m) => !m.toLowerCase().endsWith(".gguf")) || ollamaModels[0])
+                            providerConfig.oxide_native_model ||
+                            nativeModels[0] ||
+                            providerConfig.task_routing.architect_model
                           }
                           onChange={async (e) => {
                             const model = e.target.value;
-                            const isGguf = model.toLowerCase().endsWith(".gguf");
-                            const nextProv: ProviderKind = isGguf ? "oxide_native" : "ollama";
                             const updated: ProviderConfig = {
                               ...providerConfig,
-                              active_provider: nextProv,
-                              ollama_model: isGguf ? providerConfig.ollama_model : model,
-                              oxide_native_model: isGguf ? model : providerConfig.oxide_native_model,
+                              active_provider: "oxide_native",
+                              oxide_native_model: model,
                               task_routing: {
                                 ...providerConfig.task_routing,
                                 architect_model: model,
@@ -2218,38 +2237,21 @@ export const App: React.FC = () => {
                             };
                             setProviderConfig(updated);
                             await oxideBridge.updateProviderConfig(updated);
-                            setStatusBanner(
-                              `Active model: ${model} (${nextProv === "oxide_native" ? "Native GGUF" : "Ollama"})`
-                            );
+                            setStatusBanner(`Native model set to: ${model}`);
                           }}
                         >
-                          {nativeModels.length > 0 && (
-                            <optgroup label="Oxide Native (GGUF - Port 11435)">
-                              {nativeModels.map((m) => (
-                                <option key={`native-${m}`} value={m} title={`Native GGUF: ${m}`}>
-                                  [Native] {m}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {ollamaModels.filter((m) => !m.toLowerCase().endsWith(".gguf")).length > 0 && (
-                            <optgroup label="Ollama (Port 11434)">
-                              {ollamaModels
-                                .filter((m) => !m.toLowerCase().endsWith(".gguf"))
-                                .map((m) => (
-                                  <option key={`ollama-${m}`} value={m} title={`Ollama: ${m}`}>
-                                    [Ollama] {formatModelDisplayName(m)}
-                                  </option>
-                                ))}
-                            </optgroup>
-                          )}
+                          {nativeModels.map((m) => (
+                            <option key={`native-${m}`} value={m} title={`Native Model: ${m}`}>
+                              {formatModelDisplayName(m)}
+                            </option>
+                          ))}
                         </select>
                       ) : (
                         <button
                           className="ag-pill-select"
                           onClick={() => setShowModelHubModal(true)}
                         >
-                          + Install Model
+                          + Install Native Model
                         </button>
                       )}
                     </div>
@@ -2267,14 +2269,14 @@ export const App: React.FC = () => {
                       >
                         Subagent:
                       </span>
-                      {ollamaModels.length > 0 ? (
+                      {nativeModels.length > 0 ? (
                         <select
                           className="ag-pill-select"
                           value={
                             !providerConfig.enable_subagents
                               ? "__off__"
                               : providerConfig.task_routing
-                                  .coder_subagent_model || ollamaModels[0]
+                                  .coder_subagent_model || nativeModels[nativeModels.length - 1] || nativeModels[0]
                           }
                           onChange={async (e) => {
                             const val = e.target.value;
@@ -2301,9 +2303,9 @@ export const App: React.FC = () => {
                             }
                           }}
                         >
-                          {ollamaModels.map((m) => (
+                          {nativeModels.map((m) => (
                             <option key={m} value={m} title={m}>
-                              {formatModelDisplayName(m)}
+                              {m}
                             </option>
                           ))}
                           <option value="__off__">Off</option>

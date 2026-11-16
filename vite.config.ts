@@ -1039,11 +1039,11 @@ function createLocalSystemBridgePlugin(): Plugin {
               }
             } catch {}
 
-            const llamaServerExe = path.join(
-              oxideRuntimeRoot,
-              "llama-server.exe"
-            );
-            const nativeInstalled = fs.existsSync(llamaServerExe);
+            let serverExe = path.join(oxideRuntimeRoot, "oxide-server.exe");
+            if (!fs.existsSync(serverExe)) {
+              serverExe = path.join(oxideRuntimeRoot, "llama-server.exe");
+            }
+            const nativeInstalled = fs.existsSync(serverExe);
 
             let nativeRunning = false;
             try {
@@ -1071,15 +1071,15 @@ function createLocalSystemBridgePlugin(): Plugin {
 
           if (action === "start_native_engine") {
             ensureOxideDirectories();
-            const llamaServerExe = path.join(
-              oxideRuntimeRoot,
-              "llama-server.exe"
-            );
-            if (!fs.existsSync(llamaServerExe)) {
+            let serverExe = path.join(oxideRuntimeRoot, "oxide-server.exe");
+            if (!fs.existsSync(serverExe)) {
+              serverExe = path.join(oxideRuntimeRoot, "llama-server.exe");
+            }
+            if (!fs.existsSync(serverExe)) {
               throw new Error(
-                "Oxide Native llama-server.exe not found in " +
+                "Oxide Native Server (oxide-server.exe) not found in " +
                   oxideRuntimeRoot +
-                  ". Please install the standalone runner first."
+                  ". Please install the runtime first."
               );
             }
 
@@ -1134,7 +1134,7 @@ function createLocalSystemBridgePlugin(): Plugin {
 
           if (action === "stop_native_engine") {
             await runCommandBounded(
-              "taskkill /F /IM llama-server.exe",
+              "taskkill /F /IM oxide-server.exe /IM llama-server.exe",
               undefined,
               true
             );

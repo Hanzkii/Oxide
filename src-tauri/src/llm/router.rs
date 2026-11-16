@@ -137,26 +137,16 @@ impl HybridProviderRouter {
         {
             Ok(response) => Ok((primary_id, response)),
             Err(primary_err) => {
-                if self.config.active_provider == ProviderKind::OxideNative {
-                    let ollama_candidate = self.build_provider_for_role(ProviderKind::Ollama, role);
-                    if ollama_candidate.health_check().await.unwrap_or(false) {
-                        let fallback_id = ollama_candidate.identifier();
-                        if let Ok(response) = ollama_candidate
-                            .stream_chat(messages, self.config.temperature, on_token.clone())
-                            .await
-                        {
-                            return Ok((fallback_id, response));
-                        }
-                    }
-                }
-
-                if !self.config.enable_cloud_fallback
-                    || self.config.active_provider != ProviderKind::Ollama
-                {
+                if !self.config.enable_cloud_fallback {
                     return Err(primary_err);
                 }
 
-                for fallback_kind in [ProviderKind::Anthropic, ProviderKind::OpenAi] {
+                for fallback_kind in [
+                    ProviderKind::Anthropic,
+                    ProviderKind::OpenAi,
+                    ProviderKind::Gemini,
+                    ProviderKind::Deepseek,
+                ] {
                     let candidate = self.build_provider_for_role(fallback_kind, role);
                     if candidate.health_check().await.unwrap_or(false) {
                         let fallback_id = candidate.identifier();

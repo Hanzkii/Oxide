@@ -136,10 +136,10 @@ pub struct TaskModelRouting {
 impl Default for TaskModelRouting {
     fn default() -> Self {
         Self {
-            architect_model: "qwen2.5-coder:latest".to_string(),
-            coder_subagent_model: "qwen2.5-coder:7b".to_string(),
-            research_subagent_model: "gemma2:latest".to_string(),
-            tester_subagent_model: "qwen2.5-coder:7b".to_string(),
+            architect_model: "qwen2.5-coder-14b-instruct-abliterated.gguf".to_string(),
+            coder_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf".to_string(),
+            research_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf".to_string(),
+            tester_subagent_model: "qwen2.5-coder-7b-instruct-abliterated.gguf".to_string(),
         }
     }
 }
@@ -212,9 +212,9 @@ fn default_max_subagents() -> usize {
 impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
-            active_provider: ProviderKind::Ollama,
+            active_provider: ProviderKind::OxideNative,
             ollama_base_url: "http://localhost:11434".to_string(),
-            ollama_model: "qwen2.5-coder:latest".to_string(),
+            ollama_model: "qwen2.5-coder-14b-instruct-abliterated.gguf".to_string(),
             anthropic_model: "claude-3-5-sonnet-latest".to_string(),
             anthropic_api_key: None,
             openai_model: "gpt-4o".to_string(),
@@ -226,7 +226,7 @@ impl Default for ProviderConfig {
             custom_openai_url: None,
             custom_openai_model: None,
             oxide_native_port: Some(11435),
-            oxide_native_model: None,
+            oxide_native_model: Some("qwen2.5-coder-14b-instruct-abliterated.gguf".to_string()),
             enable_cloud_fallback: false,
             temperature: 0.1,
             task_routing: TaskModelRouting::default(),

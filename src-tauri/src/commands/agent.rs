@@ -1,7 +1,7 @@
 use crate::error::{OxideError, OxideResult};
 use crate::hardware::HardwareSpecs;
 use crate::llm::router::HybridProviderRouter;
-use crate::llm::{AgentRoleKind, ProviderConfig, ProviderKind};
+use crate::llm::{ProviderConfig, ProviderKind};
 use crate::mcp::{McpServerConfig, McpToolCallResult};
 use crate::orchestrator::git::{GitCommitRecord, GitManager, GitStatusSummary};
 use crate::orchestrator::terminal::{BoundedTerminalExecutor, CommandExecutionResult};
@@ -116,7 +116,8 @@ pub async fn get_provider_health(state: State<'_, AppState>) -> OxideResult<Prov
             }
         }
     }
-    let native_installed = runtime_dir.join("llama-server.exe").exists();
+    let native_installed = runtime_dir.join("oxide-server.exe").exists()
+        || runtime_dir.join("llama-server.exe").exists();
     let port = config.oxide_native_port.unwrap_or(11435);
     let native_running = if let Ok(client) = reqwest::Client::builder().timeout(Duration::from_millis(600)).build() {
         client.get(format!("http://127.0.0.1:{}/v1/models", port)).send().await.map(|r| r.status().is_success()).unwrap_or(false)
@@ -251,41 +252,40 @@ pub async fn run_agent_task(
 
     let mut config = state.provider_config.read().await.clone();
 
-    // If active_provider is OxideNative, verify or auto-start, or smart fallback to Ollama if Ollama model tag was chosen
+    // If active_provider is OxideNative, ensure Oxide Native Server is running and role models are resolved
     if config.active_provider == ProviderKind::OxideNative {
-        let port = config.oxide_native_port.unwrap_or(11435);
-        let check_client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(600))
-            .build()
-            .unwrap_or_default();
-        let native_running = check_client
-            .get(format!("http://127.0.0.1:{}/v1/models", port))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
+        let models_dir = crate::commands::workspace::oxide_install_dir().join("models");
+        let default_gguf = config.oxide_native_model.clone().unwrap_or_else(|| {
+            let entries = fs::read_dir(&models_dir).ok();
+            entries
+                .and_then(|mut r| {
+                    r.find_map(|e| {
+                        let path = e.ok()?.path();
+                        if path.extension().and_then(|x| x.to_str()) == Some("gguf") {
+                            Some(path.file_name()?.to_string_lossy().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| "qwen2.5-coder-14b-instruct-abliterated.gguf".to_string())
+        });
 
-        if !native_running {
-            let role_model = config.model_for_role(AgentRoleKind::Architect);
-            let is_gguf = role_model.to_lowercase().ends_with(".gguf");
-            let ollama_online = check_client
-                .get(format!("{}/api/tags", config.ollama_base_url.trim_end_matches('/')))
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false);
-
-            if !is_gguf && ollama_online {
-                // User has an Ollama model tag configured (e.g. qwen2.5-coder:latest) and Ollama is online.
-                // Gracefully switch to Ollama to avoid an offline port 11435 connection failure!
-                config.active_provider = ProviderKind::Ollama;
-                let mut guard = state.provider_config.write().await;
-                guard.active_provider = ProviderKind::Ollama;
-                let _ = save_provider_config(&guard);
-            } else {
-                ensure_native_engine_running(&config).await?;
-            }
+        if !config.task_routing.architect_model.to_lowercase().ends_with(".gguf") {
+            config.task_routing.architect_model = default_gguf.clone();
+            config.oxide_native_model = Some(default_gguf.clone());
         }
+        if !config.task_routing.coder_subagent_model.to_lowercase().ends_with(".gguf") {
+            config.task_routing.coder_subagent_model = default_gguf.clone();
+        }
+        if !config.task_routing.research_subagent_model.to_lowercase().ends_with(".gguf") {
+            config.task_routing.research_subagent_model = default_gguf.clone();
+        }
+        if !config.task_routing.tester_subagent_model.to_lowercase().ends_with(".gguf") {
+            config.task_routing.tester_subagent_model = default_gguf;
+        }
+
+        ensure_native_engine_running(&config).await?;
     }
 
     let mcp_registry = state.mcp_registry.clone();
@@ -984,13 +984,16 @@ pub async fn spawn_native_engine_internal(
     let _ = fs::create_dir_all(&models_dir);
     let _ = fs::create_dir_all(&runtime_dir);
 
-    let llama_exe = runtime_dir.join("llama-server.exe");
-    if !llama_exe.exists() {
+    let server_exe = if runtime_dir.join("oxide-server.exe").exists() {
+        runtime_dir.join("oxide-server.exe")
+    } else if runtime_dir.join("llama-server.exe").exists() {
+        runtime_dir.join("llama-server.exe")
+    } else {
         return Err(OxideError::ExecutionError(format!(
-            "llama-server.exe not found in {}. Place llama-server.exe into this folder or run with bundled runtime.",
+            "Oxide Native Server binary not found in {}. Ensure oxide-server.exe is installed in the runtime directory.",
             runtime_dir.display()
         )));
-    }
+    };
 
     let target_model = match model {
         Some(m) if !m.is_empty() => m,
@@ -1038,7 +1041,7 @@ pub async fn spawn_native_engine_internal(
     #[cfg(target_os = "windows")]
     {
         use tokio::process::Command;
-        let mut cmd = Command::new(&llama_exe);
+        let mut cmd = Command::new(&server_exe);
         cmd.args([
             "-m",
             &model_path.to_string_lossy(),
@@ -1121,7 +1124,7 @@ pub fn stop_native_engine_sync() {
     {
         use std::os::windows::process::CommandExt;
         let mut cmd = std::process::Command::new("taskkill");
-        cmd.args(["/F", "/IM", "llama-server.exe"]);
+        cmd.args(["/F", "/IM", "oxide-server.exe", "/IM", "llama-server.exe"]);
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = cmd.output();
