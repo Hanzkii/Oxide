@@ -34,7 +34,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Main Antigravity-Style Layout Shell */
+/* Main Studio-Style Layout Shell */
 .ag-shell {
   display: flex;
   height: 100vh;
@@ -344,7 +344,7 @@ body {
   gap: 1.35rem;
 }
 
-/* Antigravity User Prompt Bubble */
+/* Studio User Prompt Bubble */
 .ag-user-bubble {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
@@ -356,7 +356,7 @@ body {
   white-space: pre-wrap;
 }
 
-/* Antigravity Inline Thought & Tool Trace */
+/* Studio Inline Thought & Tool Trace */
 .ag-trace-group {
   display: flex;
   flex-direction: column;
@@ -1091,7 +1091,7 @@ select option,
   transition: width 0.3s ease;
 }
 
-/* ==================== SECURITY POPUP MENU (ANTIGRAVITY STYLE) ==================== */
+/* ==================== SECURITY POPUP MENU (OXIDE STUDIO STYLE) ==================== */
 .oxide-security-wrapper {
   position: relative;
   display: inline-flex;

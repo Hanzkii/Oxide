@@ -35,7 +35,7 @@ YOUR ROLE & MULTI-AGENT SUBAGENT ORDERS:
 Always explain your strategy first inside `<think>...</think>` tags so the user can watch your live reasoning in the GUI!
 Then, output a single JSON block inside ```json ... ``` fences with one of these actions:
 
-0. `delegate_subagents` — Delegate 1 or more focused subtasks to specialized fast subagents:
+0. `delegate_subagents` - Delegate 1 or more focused subtasks to specialized fast subagents:
 ```json
 {
   "thought": "Decomposing this feature: I will assign ResearchSubagent to inspect dependencies and CoderSubagent to implement the core logic.",
@@ -59,7 +59,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-1. `list_dir` — List files and folders in a workspace directory:
+1. `list_dir` - List files and folders in a workspace directory:
 ```json
 {
   "thought": "Inspecting project root",
@@ -68,7 +68,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-2. `search_files` — Search for text or symbols across workspace files:
+2. `search_files` - Search for text or symbols across workspace files:
 ```json
 {
   "thought": "Searching for ProviderConfig references",
@@ -77,7 +77,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-3. `read_file` — Read the contents of a file:
+3. `read_file` - Read the contents of a file:
 ```json
 {
   "thought": "Reading Cargo.toml",
@@ -86,7 +86,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-4. `write_file` — Create or overwrite a file:
+4. `write_file` - Create or overwrite a file:
 ```json
 {
   "thought": "Writing helper file",
@@ -97,7 +97,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-5. `edit_file` — Replace an exact target snippet inside an existing file:
+5. `edit_file` - Replace an exact target snippet inside an existing file:
 ```json
 {
   "thought": "Updating target block in file",
@@ -109,7 +109,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-6. `move_file` — Move or rename a file or folder:
+6. `move_file` - Move or rename a file or folder:
 ```json
 {
   "thought": "Renaming file",
@@ -119,7 +119,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-7. `delete_file` — Delete a file inside the workspace:
+7. `delete_file` - Delete a file inside the workspace:
 ```json
 {
   "thought": "Removing temporary file",
@@ -128,7 +128,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-8. `run_command` — Run a terminal command:
+8. `run_command` - Run a terminal command:
 ```json
 {
   "thought": "Running build verification",
@@ -138,7 +138,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-9. `git_action` — Run Git operations (`status`, `diff`, `pull`, `push`, `commit`):
+9. `git_action` - Run Git operations (`status`, `diff`, `pull`, `push`, `commit`):
 ```json
 {
   "thought": "Pulling latest changes from GitHub",
@@ -147,7 +147,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-10. `open_in_vscode` — Open a file or workspace in Visual Studio Code:
+10. `open_in_vscode` - Open a file or workspace in Visual Studio Code:
 ```json
 {
   "thought": "Opening file in VS Code",
@@ -156,7 +156,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-11. `complete_task` — Finish the task, auto-commit milestone, and optionally push to Git:
+11. `complete_task` - Finish the task, auto-commit milestone, and optionally push to Git:
 ```json
 {
   "thought": "All subtasks verified; completing task",
@@ -167,7 +167,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-12. `call_mcp_tool` — Invoke any tool exposed by an enabled Model Context Protocol (MCP) server:
+12. `call_mcp_tool` - Invoke any tool exposed by an enabled Model Context Protocol (MCP) server:
 ```json
 {
   "thought": "Calling the MCP memory server to store architectural notes",
@@ -181,7 +181,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-13. `web_search` — Search the internet for technical documentation, library APIs, or GitHub solutions (available when internet access is enabled in settings):
+13. `web_search` - Search the internet for technical documentation, library APIs, or GitHub solutions (available when internet access is enabled in settings):
 ```json
 {
   "thought": "Searching internet for library documentation",
@@ -190,7 +190,7 @@ Then, output a single JSON block inside ```json ... ``` fences with one of these
 }
 ```
 
-14. `fetch_web_url` — Fetch text content from a web URL:
+14. `fetch_web_url` - Fetch text content from a web URL:
 ```json
 {
   "thought": "Fetching documentation page",
@@ -753,7 +753,7 @@ impl AgentOrchestrator {
                     }
                     entries.sort();
                     let listing = entries.join("\n");
-                    executed_actions.push(format!("📁 Listed directory `{}` ({} items)", path, entries.len()));
+                    executed_actions.push(format!("[DIR] Listed directory `{}` ({} items)", path, entries.len()));
 
                     self.emit_event(
                         &app,
@@ -772,7 +772,7 @@ impl AgentOrchestrator {
 
                 AgentToolAction::SearchFiles { query, .. } => {
                     let matches = self.search_in_workspace(&query);
-                    executed_actions.push(format!("🔍 Searched workspace for `{}` ({} matches)", query, matches.len()));
+                    executed_actions.push(format!("[SEARCH] Searched workspace for `{}` ({} matches)", query, matches.len()));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::WorkflowCard {
@@ -800,7 +800,7 @@ impl AgentOrchestrator {
                     match fs::read_to_string(&target) {
                         Ok(data) => {
                             let capped: String = data.chars().take(16_000).collect();
-                            executed_actions.push(format!("📖 Read file `{}`", path));
+                            executed_actions.push(format!("[READ] Read file `{}`", path));
                             self.emit_event(
                                 &app,
                                 AgentStreamEvent::WorkflowCard {
@@ -836,7 +836,7 @@ impl AgentOrchestrator {
                         fs::create_dir_all(parent)?;
                     }
                     fs::write(&target, &content)?;
-                    executed_actions.push(format!("✏️ Created/Wrote file `{}`", path));
+                    executed_actions.push(format!("[WRITE] Created/Wrote file `{}`", path));
 
                     let detail =
                         rationale.unwrap_or_else(|| format!("Wrote {} bytes", content.len()));
@@ -879,7 +879,7 @@ impl AgentOrchestrator {
                             if existing.contains(&target) {
                                 let updated = existing.replace(&target, &replacement);
                                 fs::write(&resolved, &updated)?;
-                                executed_actions.push(format!("✏️ Modified file `{}`", path));
+                                executed_actions.push(format!("[WRITE] Modified file `{}`", path));
                                 let detail = rationale.unwrap_or_else(|| {
                                     "Applied target replacement edit".to_string()
                                 });
@@ -946,7 +946,7 @@ impl AgentOrchestrator {
                         fs::create_dir_all(parent)?;
                     }
                     fs::rename(&src_path, &dst_path)?;
-                    executed_actions.push(format!("📦 Moved `{}` ➔ `{}`", source, destination));
+                    executed_actions.push(format!("[MOVE] Moved `{}` -> `{}`", source, destination));
 
                     let detail =
                         rationale.unwrap_or_else(|| format!("Moved {} -> {}", source, destination));
@@ -984,7 +984,7 @@ impl AgentOrchestrator {
                         fs::remove_file(&target)?;
                     }
                     let detail = rationale.unwrap_or_else(|| format!("Deleted {}", path));
-                    executed_actions.push(format!("🗑️ Deleted `{}`", path));
+                    executed_actions.push(format!("[DELETE] Deleted `{}`", path));
                     self.emit_event(
                         &app,
                         AgentStreamEvent::FileChange {
@@ -1053,7 +1053,7 @@ impl AgentOrchestrator {
                                     AgentStreamEvent::WorkflowCard {
                                         step,
                                         title: format!(
-                                            "Non-Zero Exit ({}) — Self-Correcting",
+                                            "Non-Zero Exit ({}) - Self-Correcting",
                                             exec_result.exit_code
                                         ),
                                         detail: exec_result
@@ -1292,7 +1292,7 @@ impl AgentOrchestrator {
                                                 let cleaned = raw.replace("<b>", "").replace("</b>", "").replace("&quot;", "\"").replace("&amp;", "&");
                                                 let text = cleaned.trim().trim_start_matches('>').trim();
                                                 if !text.is_empty() {
-                                                    snippets.push(format!("• {}", text));
+                                                    snippets.push(format!("* {}", text));
                                                 }
                                             }
                                         }
@@ -1443,7 +1443,7 @@ impl AgentOrchestrator {
                     max_allowed
                 ),
                 detail: format!(
-                    "{} • Free RAM: {:.1} GB • CPU: {:.0}%",
+                    "{} | Free RAM: {:.1} GB | CPU: {:.0}%",
                     hw.governor_tier, hw.available_ram_gb, hw.cpu_usage_percent
                 ),
                 status: WorkflowStepStatus::Running,
@@ -1467,7 +1467,7 @@ impl AgentOrchestrator {
                     } else {
                         SubagentRunState::Queued
                     },
-                    thought: "Queued by Hardware Governor — waiting for execution slot...".to_string(),
+                    thought: "Queued by Hardware Governor - waiting for execution slot...".to_string(),
                     output_preview: String::new(),
                     active_workers: 0,
                     max_allowed_workers: max_allowed,
@@ -1820,20 +1820,20 @@ impl AgentOrchestrator {
         }
 
         let mut report = String::new();
-        report.push_str("### 📋 Execution Report\n\n");
+        report.push_str("### [REPORT] Execution Report\n\n");
         let first_line = user_prompt.lines().next().unwrap_or(user_prompt);
         report.push_str(&format!("**Request**: {}\n", first_line));
-        report.push_str("**Status**: ✅ Completed Successfully\n\n");
+        report.push_str("**Status**: [DONE] Completed Successfully\n\n");
 
         if !actions_taken.is_empty() {
-            report.push_str("#### 🛠 Workspace Actions Taken\n");
+            report.push_str("#### [ACTIONS] Workspace Actions Taken\n");
             for action in actions_taken {
                 report.push_str(&format!("- {}\n", action));
             }
             report.push('\n');
         }
 
-        report.push_str("#### 📝 Summary of Changes\n");
+        report.push_str("#### [CHANGES] Summary of Changes\n");
         report.push_str(if clean_summary.is_empty() {
             "All requested actions were executed and verified in the workspace."
         } else {

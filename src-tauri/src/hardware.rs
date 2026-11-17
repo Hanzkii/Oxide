@@ -75,7 +75,7 @@ impl HardwareSpecs {
                     } else {
                         "Workstation Tier (High Spec Multi-Core)".to_string()
                     },
-                    "Your PC can comfortably run a Large Architect model + multiple fast Subagents (1.5B–7B) concurrently with GPU offloading.".to_string(),
+                    "Your PC can comfortably run a Large Architect model + multiple fast Subagents (1.5B-7B) concurrently with GPU offloading.".to_string(),
                 )
             } else if total_ram_gb >= 15.0 && available_ram_gb >= 5.5 {
                 (
@@ -86,14 +86,14 @@ impl HardwareSpecs {
                     } else {
                         "Balanced Desktop Tier (Mid Spec)".to_string()
                     },
-                    "Recommended: 1 Architect model (7B–14B) + up to 4 fast Subagents with hardware acceleration.".to_string(),
+                    "Recommended: 1 Architect model (7B-14B) + up to 4 fast Subagents with hardware acceleration.".to_string(),
                 )
             } else {
                 (
                     4,
                     2,
                     "Compact / Memory-Saver Tier".to_string(),
-                    "Subagents execute with lightweight models (1.5B–3B) to preserve system memory.".to_string(),
+                    "Subagents execute with lightweight models (1.5B-3B) to preserve system memory.".to_string(),
                 )
             };
 

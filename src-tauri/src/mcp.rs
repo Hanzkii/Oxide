@@ -310,7 +310,7 @@ fn execute_builtin_memory_tool(
                         || k.to_lowercase().contains(&query)
                         || v.to_lowercase().contains(&query)
                 })
-                .map(|(k, v)| format!("• [{}]: {}", k, v))
+                .map(|(k, v)| format!("* [{}]: {}", k, v))
                 .collect();
             Ok(McpToolCallResult {
                 server_id: server_id.to_string(),

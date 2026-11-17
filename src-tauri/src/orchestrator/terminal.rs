@@ -27,7 +27,7 @@ impl CommandExecutionResult {
         let status_label = if self.succeeded {
             "SUCCESS"
         } else {
-            "FAILED (NON-ZERO EXIT — SELF-CORRECTION REQUIRED)"
+            "FAILED (NON-ZERO EXIT - SELF-CORRECTION REQUIRED)"
         };
 
         format!(

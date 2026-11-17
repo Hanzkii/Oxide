@@ -869,7 +869,12 @@ pub async fn delete_ai_model(
     for candidate in candidate_paths("models") {
         let target = candidate.join(model_id.trim());
         if target.exists() {
-            let _ = fs::remove_file(target);
+            if let Err(e) = fs::remove_file(&target) {
+                return Err(OxideError::WorkspaceError(format!(
+                    "Cannot delete model: file is locked by running engine. Stop engine first. ({})",
+                    e
+                )));
+            }
             deleted = true;
         }
     }
@@ -953,7 +958,7 @@ pub async fn search_huggingface_gguf(query: String) -> OxideResult<Vec<HuggingFa
         let badge_str = if badges.is_empty() {
             "General GGUF".to_string()
         } else {
-            badges.join(" • ")
+            badges.join(" | ")
         };
 
         results.push(HuggingFaceModelEntry {
@@ -972,7 +977,7 @@ pub async fn search_huggingface_gguf(query: String) -> OxideResult<Vec<HuggingFa
             is_reasoning,
             is_fast_subagent: is_fast,
             summary: format!(
-                "HuggingFace GGUF ({}) — {} downloads, ♥ {} likes. 1-Click direct pull via hf.co.",
+                "HuggingFace GGUF ({}) - {} downloads, {} likes. 1-Click direct pull via hf.co.",
                 badge_str, item.downloads, item.likes
             ),
         });
@@ -1091,6 +1096,7 @@ pub async fn spawn_native_engine_internal(
     {
         use tokio::process::Command;
         let mut cmd = Command::new(&server_exe);
+        let ctx_limit_str = config.context_limit.to_string();
         cmd.args([
             "-m",
             &model_path.to_string_lossy(),
@@ -1099,7 +1105,7 @@ pub async fn spawn_native_engine_internal(
             "-ngl",
             &ngl_arg.to_string(),
             "-c",
-            "8192",
+            &ctx_limit_str,
             "--host",
             "127.0.0.1",
         ]);

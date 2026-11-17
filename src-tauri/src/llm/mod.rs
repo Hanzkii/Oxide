@@ -173,6 +173,8 @@ pub struct ProviderConfig {
     pub oxide_native_model: Option<String>,
     pub enable_cloud_fallback: bool,
     pub temperature: f32,
+    #[serde(default = "default_context_limit")]
+    pub context_limit: u32,
     #[serde(default)]
     pub task_routing: TaskModelRouting,
     #[serde(default = "default_true")]
@@ -195,6 +197,10 @@ pub struct ProviderConfig {
     pub enforce_workspace_sandbox: bool,
     #[serde(default)]
     pub permitted_terminal_binaries: Option<Vec<String>>,
+}
+
+fn default_context_limit() -> u32 {
+    8192
 }
 
 fn default_gpu_layers() -> i32 {
@@ -229,6 +235,7 @@ impl Default for ProviderConfig {
             oxide_native_model: Some("qwen2.5-coder-14b-instruct-abliterated.gguf".to_string()),
             enable_cloud_fallback: false,
             temperature: 0.1,
+            context_limit: 8192,
             task_routing: TaskModelRouting::default(),
             enable_subagents: true,
             max_concurrent_subagents: 4,

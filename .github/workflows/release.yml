@@ -91,7 +91,7 @@ jobs:
           name: "Oxide v0.1.${{ github.run_number }} — Standalone Windows Installer & Portable .exe"
           body: |
             ## Oxide Studio v0.1.${{ github.run_number }} — Windows Release
-            - **`Oxide-Setup.exe`**: Fast NSIS Windows installer (includes Antigravity UI, Multi-Project Sidebar, Saved Conversations, and 1-Click AI Model Hub).
+            - **`Oxide-Setup.exe`**: Fast NSIS Windows installer (includes Oxide Studio UI, Multi-Project Sidebar, Saved Conversations, and 1-Click AI Model Hub).
             - **`Oxide-Portable.exe`**: Standalone single-file executable.
             - **`Oxide-Windows-x64.zip`**: Portable ZIP archive.
           draft: false
